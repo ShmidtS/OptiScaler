@@ -74,7 +74,7 @@ bool FSR2FeatureDx11on12_212::Evaluate(ID3D11DeviceContext* InDeviceContext, NVS
 
         LOG_DEBUG("FSR2FeatureDx11with12_212::Init calling InitFSR2");
 
-        if (State::Instance().currentD3D12Device == nullptr)
+        if (_dx11on12Device == nullptr)
         {
             LOG_ERROR("FSR2FeatureDx11with12_212::Init Dx12on11Device is null!");
             return false;
@@ -95,10 +95,9 @@ bool FSR2FeatureDx11on12_212::Evaluate(ID3D11DeviceContext* InDeviceContext, NVS
             std::this_thread::sleep_for(std::chrono::milliseconds(1500));
         }
 
-        OutputScaler = std::make_unique<OS_Dx12>("Output Scaling", State::Instance().currentD3D12Device,
-                                                 (TargetWidth() < DisplayWidth()));
-        RCAS = std::make_unique<RCAS_Dx12>("RCAS", State::Instance().currentD3D12Device);
-        Bias = std::make_unique<Bias_Dx12>("Bias", State::Instance().currentD3D12Device);
+        OutputScaler = std::make_unique<OS_Dx12>("Output Scaling", _dx11on12Device, (TargetWidth() < DisplayWidth()));
+        RCAS = std::make_unique<RCAS_Dx12>("RCAS", _dx11on12Device);
+        Bias = std::make_unique<Bias_Dx12>("Bias", _dx11on12Device);
     }
 
     if (!IsInited())
@@ -202,7 +201,7 @@ bool FSR2FeatureDx11on12_212::Evaluate(ID3D11DeviceContext* InDeviceContext, NVS
                     Fsr212::FFX_RESOURCE_STATE_COMPUTE_READ);
 
             if (Bias->IsInit() &&
-                Bias->CreateBufferResource(State::Instance().currentD3D12Device, dx11Reactive.Dx12Resource,
+                Bias->CreateBufferResource(_dx11on12Device, dx11Reactive.Dx12Resource,
                                            D3D12_RESOURCE_STATE_UNORDERED_ACCESS) &&
                 Bias->CanRender())
             {
@@ -210,7 +209,7 @@ bool FSR2FeatureDx11on12_212::Evaluate(ID3D11DeviceContext* InDeviceContext, NVS
                 Bias->SetBufferState(cmdList, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
                 if (Config::Instance()->DlssReactiveMaskBias.value_or_default() > 0.0f &&
-                    Bias->Dispatch(State::Instance().currentD3D12Device, cmdList, dx11Reactive.Dx12Resource,
+                    Bias->Dispatch(_dx11on12Device, cmdList, dx11Reactive.Dx12Resource,
                                    Config::Instance()->DlssReactiveMaskBias.value_or_default(), Bias->Buffer()))
                 {
                     Bias->SetBufferState(cmdList, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -224,8 +223,7 @@ bool FSR2FeatureDx11on12_212::Evaluate(ID3D11DeviceContext* InDeviceContext, NVS
         // OutputScaling
         if (useSS)
         {
-            if (OutputScaler->CreateBufferResource(State::Instance().currentD3D12Device, dx11Out.Dx12Resource,
-                                                   TargetWidth(), TargetHeight(),
+            if (OutputScaler->CreateBufferResource(_dx11on12Device, dx11Out.Dx12Resource, TargetWidth(), TargetHeight(),
                                                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS))
             {
                 state = 1;
@@ -247,7 +245,7 @@ bool FSR2FeatureDx11on12_212::Evaluate(ID3D11DeviceContext* InDeviceContext, NVS
             (_sharpness > 0.0f || (Config::Instance()->MotionSharpnessEnabled.value_or_default() &&
                                    Config::Instance()->MotionSharpness.value_or_default() > 0.0f)) &&
             RCAS->IsInit() &&
-            RCAS->CreateBufferResource(State::Instance().currentD3D12Device, (ID3D12Resource*) params.output.resource,
+            RCAS->CreateBufferResource(_dx11on12Device, (ID3D12Resource*) params.output.resource,
                                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS))
         {
             state = 1;
@@ -344,9 +342,9 @@ bool FSR2FeatureDx11on12_212::Evaluate(ID3D11DeviceContext* InDeviceContext, NVS
 
             if (useSS)
             {
-                if (!RCAS->Dispatch(
-                        State::Instance().currentD3D12Device, cmdList, (ID3D12Resource*) params.output.resource,
-                        (ID3D12Resource*) params.motionVectors.resource, rcasConstants, OutputScaler->Buffer()))
+                if (!RCAS->Dispatch(_dx11on12Device, cmdList, (ID3D12Resource*) params.output.resource,
+                                    (ID3D12Resource*) params.motionVectors.resource, rcasConstants,
+                                    OutputScaler->Buffer()))
                 {
                     Config::Instance()->RcasEnabled.set_volatile_value(false);
                     break;
@@ -354,9 +352,9 @@ bool FSR2FeatureDx11on12_212::Evaluate(ID3D11DeviceContext* InDeviceContext, NVS
             }
             else
             {
-                if (!RCAS->Dispatch(
-                        State::Instance().currentD3D12Device, cmdList, (ID3D12Resource*) params.output.resource,
-                        (ID3D12Resource*) params.motionVectors.resource, rcasConstants, dx11Out.Dx12Resource))
+                if (!RCAS->Dispatch(_dx11on12Device, cmdList, (ID3D12Resource*) params.output.resource,
+                                    (ID3D12Resource*) params.motionVectors.resource, rcasConstants,
+                                    dx11Out.Dx12Resource))
                 {
                     Config::Instance()->RcasEnabled.set_volatile_value(false);
                     break;
@@ -369,8 +367,7 @@ bool FSR2FeatureDx11on12_212::Evaluate(ID3D11DeviceContext* InDeviceContext, NVS
             LOG_DEBUG("scaling output...");
             OutputScaler->SetBufferState(cmdList, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
-            if (!OutputScaler->Dispatch(State::Instance().currentD3D12Device, cmdList, OutputScaler->Buffer(),
-                                        dx11Out.Dx12Resource))
+            if (!OutputScaler->Dispatch(_dx11on12Device, cmdList, OutputScaler->Buffer(), dx11Out.Dx12Resource))
             {
                 Config::Instance()->OutputScalingEnabled.set_volatile_value(false);
                 State::Instance().changeBackend[Handle()->Id] = true;
@@ -459,8 +456,8 @@ bool FSR2FeatureDx11on12_212::InitFSR2(const NVSDK_NGX_Parameter* InParameters)
         const size_t scratchBufferSize = Fsr212::ffxFsr2GetScratchMemorySizeDX12_212();
         void* scratchBuffer = calloc(scratchBufferSize, 1);
 
-        auto errorCode = Fsr212::ffxFsr2GetInterfaceDX12_212(
-            &_contextDesc.callbacks, State::Instance().currentD3D12Device, scratchBuffer, scratchBufferSize);
+        auto errorCode = Fsr212::ffxFsr2GetInterfaceDX12_212(&_contextDesc.callbacks, _dx11on12Device, scratchBuffer,
+                                                             scratchBufferSize);
 
         if (errorCode != Fsr212::FFX_OK)
         {
@@ -469,7 +466,7 @@ bool FSR2FeatureDx11on12_212::InitFSR2(const NVSDK_NGX_Parameter* InParameters)
             return false;
         }
 
-        _contextDesc.device = Fsr212::ffxGetDeviceDX12_212(State::Instance().currentD3D12Device);
+        _contextDesc.device = Fsr212::ffxGetDeviceDX12_212(_dx11on12Device);
         _contextDesc.flags = 0;
 
         if (DepthInverted())

@@ -94,7 +94,7 @@ bool FSR31FeatureDx11on12::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_
 
         LOG_DEBUG("calling InitFSR3");
 
-        if (State::Instance().currentD3D12Device == nullptr)
+        if (_dx11on12Device == nullptr)
         {
             LOG_ERROR("Dx12on11Device is null!");
             return false;
@@ -115,10 +115,9 @@ bool FSR31FeatureDx11on12::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_
             std::this_thread::sleep_for(std::chrono::milliseconds(1500));
         }
 
-        OutputScaler = std::make_unique<OS_Dx12>("Output Scaling", State::Instance().currentD3D12Device,
-                                                 (TargetWidth() < DisplayWidth()));
-        RCAS = std::make_unique<RCAS_Dx12>("RCAS", State::Instance().currentD3D12Device);
-        Bias = std::make_unique<Bias_Dx12>("Bias", State::Instance().currentD3D12Device);
+        OutputScaler = std::make_unique<OS_Dx12>("Output Scaling", _dx11on12Device, (TargetWidth() < DisplayWidth()));
+        RCAS = std::make_unique<RCAS_Dx12>("RCAS", _dx11on12Device);
+        Bias = std::make_unique<Bias_Dx12>("Bias", _dx11on12Device);
     }
 
     if (!IsInited())
@@ -241,14 +240,14 @@ bool FSR31FeatureDx11on12::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_
                     ffxApiGetResourceDX12(dx11Reactive.Dx12Resource, FFX_API_RESOURCE_STATE_COMPUTE_READ);
 
             if (Config::Instance()->DlssReactiveMaskBias.value_or_default() > 0.0f && Bias->IsInit() &&
-                Bias->CreateBufferResource(State::Instance().currentD3D12Device, dx11Reactive.Dx12Resource,
+                Bias->CreateBufferResource(_dx11on12Device, dx11Reactive.Dx12Resource,
                                            D3D12_RESOURCE_STATE_UNORDERED_ACCESS) &&
                 Bias->CanRender())
             {
                 state = 1;
                 Bias->SetBufferState(cmdList, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
-                if (Bias->Dispatch(State::Instance().currentD3D12Device, cmdList, dx11Reactive.Dx12Resource,
+                if (Bias->Dispatch(_dx11on12Device, cmdList, dx11Reactive.Dx12Resource,
                                    Config::Instance()->DlssReactiveMaskBias.value_or_default(), Bias->Buffer()))
                 {
                     Bias->SetBufferState(cmdList, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -260,8 +259,7 @@ bool FSR31FeatureDx11on12::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_
         // Output Scaling
         if (useSS)
         {
-            if (OutputScaler->CreateBufferResource(State::Instance().currentD3D12Device, dx11Out.Dx12Resource,
-                                                   TargetWidth(), TargetHeight(),
+            if (OutputScaler->CreateBufferResource(_dx11on12Device, dx11Out.Dx12Resource, TargetWidth(), TargetHeight(),
                                                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS))
             {
                 state = 1;
@@ -280,7 +278,7 @@ bool FSR31FeatureDx11on12::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_
             (_sharpness > 0.0f || (Config::Instance()->MotionSharpnessEnabled.value_or_default() &&
                                    Config::Instance()->MotionSharpness.value_or_default() > 0.0f)) &&
             RCAS->IsInit() &&
-            RCAS->CreateBufferResource(State::Instance().currentD3D12Device, (ID3D12Resource*) params.output.resource,
+            RCAS->CreateBufferResource(_dx11on12Device, (ID3D12Resource*) params.output.resource,
                                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS))
         {
             state = 1;
@@ -477,9 +475,9 @@ bool FSR31FeatureDx11on12::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_
 
             if (useSS)
             {
-                if (!RCAS->Dispatch(
-                        State::Instance().currentD3D12Device, cmdList, (ID3D12Resource*) params.output.resource,
-                        (ID3D12Resource*) params.motionVectors.resource, rcasConstants, OutputScaler->Buffer()))
+                if (!RCAS->Dispatch(_dx11on12Device, cmdList, (ID3D12Resource*) params.output.resource,
+                                    (ID3D12Resource*) params.motionVectors.resource, rcasConstants,
+                                    OutputScaler->Buffer()))
                 {
                     Config::Instance()->RcasEnabled.set_volatile_value(false);
                     break;
@@ -487,9 +485,9 @@ bool FSR31FeatureDx11on12::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_
             }
             else
             {
-                if (!RCAS->Dispatch(
-                        State::Instance().currentD3D12Device, cmdList, (ID3D12Resource*) params.output.resource,
-                        (ID3D12Resource*) params.motionVectors.resource, rcasConstants, dx11Out.Dx12Resource))
+                if (!RCAS->Dispatch(_dx11on12Device, cmdList, (ID3D12Resource*) params.output.resource,
+                                    (ID3D12Resource*) params.motionVectors.resource, rcasConstants,
+                                    dx11Out.Dx12Resource))
                 {
                     Config::Instance()->RcasEnabled.set_volatile_value(false);
                     break;
@@ -502,8 +500,7 @@ bool FSR31FeatureDx11on12::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_
             LOG_DEBUG("downscaling output...");
             OutputScaler->SetBufferState(cmdList, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
-            if (!OutputScaler->Dispatch(State::Instance().currentD3D12Device, cmdList, OutputScaler->Buffer(),
-                                        dx11Out.Dx12Resource))
+            if (!OutputScaler->Dispatch(_dx11on12Device, cmdList, OutputScaler->Buffer(), dx11Out.Dx12Resource))
             {
                 Config::Instance()->OutputScalingEnabled.set_volatile_value(false);
                 State::Instance().changeBackend[Handle()->Id] = true;
@@ -595,7 +592,7 @@ bool FSR31FeatureDx11on12::InitFSR3(const NVSDK_NGX_Parameter* InParameters)
         ffxQueryDescGetVersions versionQuery {};
         versionQuery.header.type = FFX_API_QUERY_DESC_TYPE_GET_VERSIONS;
         versionQuery.createDescType = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
-        versionQuery.device = State::Instance().currentD3D12Device; // only for DirectX 12 applications
+        versionQuery.device = _dx11on12Device; // only for DirectX 12 applications
         uint64_t versionCount = 0;
         versionQuery.outputCount = &versionCount;
         // get number of versions for allocation
@@ -702,7 +699,7 @@ bool FSR31FeatureDx11on12::InitFSR3(const NVSDK_NGX_Parameter* InParameters)
 
         ffxCreateBackendDX12Desc backendDesc = { 0 };
         backendDesc.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
-        backendDesc.device = State::Instance().currentD3D12Device;
+        backendDesc.device = _dx11on12Device;
         _contextDesc.header.pNext = &backendDesc.header;
 
         if (Config::Instance()->FfxUpscalerIndex.value_or_default() < 0 ||

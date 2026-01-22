@@ -1233,6 +1233,12 @@ static void printQuirks(flag_set<GameQuirk>& quirks)
         state->detectedQuirks.push_back("Override Vsync when using XeFG");
     }
 
+    if (quirks & GameQuirk::ForceCreateD3D12Device)
+    {
+        spdlog::info("Quirk: Force create D3D12 device for w/Dx12");
+        state->detectedQuirks.push_back("Force create D3D12 device for w/Dx12");
+    }
+
     return;
 }
 

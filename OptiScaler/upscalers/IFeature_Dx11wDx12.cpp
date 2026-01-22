@@ -371,7 +371,8 @@ HRESULT IFeature_Dx11wDx12::CreateDx12Device(D3D_FEATURE_LEVEL InFeatureLevel)
 
     HRESULT result;
 
-    if (State::Instance().currentD3D12Device == nullptr)
+    if (State::Instance().currentD3D12Device == nullptr ||
+        ((State::Instance().gameQuirks & GameQuirk::ForceCreateD3D12Device) && _localDx11on12Device == nullptr))
     {
         IDXGIFactory2* factory = nullptr;
 
@@ -393,16 +394,17 @@ HRESULT IFeature_Dx11wDx12::CreateDx12Device(D3D_FEATURE_LEVEL InFeatureLevel)
             LOG_WARN("Can't get hwAdapter, will try nullptr!");
 
         if (D3d12Proxy::Module() == nullptr)
-            result = D3D12CreateDevice(hwAdapter, InFeatureLevel, IID_PPV_ARGS(&State::Instance().currentD3D12Device));
+            result = D3D12CreateDevice(hwAdapter, InFeatureLevel, IID_PPV_ARGS(&_localDx11on12Device));
         else
-            result = D3d12Proxy::D3D12CreateDevice_()(hwAdapter, InFeatureLevel,
-                                                      IID_PPV_ARGS(&State::Instance().currentD3D12Device));
+            result = D3d12Proxy::D3D12CreateDevice_()(hwAdapter, InFeatureLevel, IID_PPV_ARGS(&_localDx11on12Device));
 
         if (result != S_OK)
         {
             LOG_ERROR("Can't create device: {:X}", (UINT) result);
             return result;
         }
+
+        _dx11on12Device = _localDx11on12Device;
 
         if (hwAdapter != nullptr)
         {
@@ -411,8 +413,22 @@ HRESULT IFeature_Dx11wDx12::CreateDx12Device(D3D_FEATURE_LEVEL InFeatureLevel)
             {
                 auto adapterDesc = wstring_to_string(desc.Description);
                 LOG_INFO("D3D12Device created with adapter: {}", adapterDesc);
-                State::Instance().DeviceAdapterNames[State::Instance().currentD3D12Device] = adapterDesc;
+                State::Instance().DeviceAdapterNames[_dx11on12Device] = adapterDesc;
             }
+        }
+    }
+    else
+    {
+        // If there is local d3d12 device always use it
+        if (_localDx11on12Device != nullptr)
+        {
+            LOG_DEBUG("Using _localDx11on12Device");
+            _dx11on12Device = _localDx11on12Device;
+        }
+        else
+        {
+            LOG_DEBUG("Using currentD3D12Device");
+            _dx11on12Device = State::Instance().currentD3D12Device;
         }
     }
 
@@ -423,7 +439,7 @@ HRESULT IFeature_Dx11wDx12::CreateDx12Device(D3D_FEATURE_LEVEL InFeatureLevel)
         queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 
         // CreateCommandQueue
-        result = State::Instance().currentD3D12Device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&Dx12CommandQueue));
+        result = _dx11on12Device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&Dx12CommandQueue));
 
         if (result != S_OK || Dx12CommandQueue == nullptr)
         {
@@ -434,8 +450,8 @@ HRESULT IFeature_Dx11wDx12::CreateDx12Device(D3D_FEATURE_LEVEL InFeatureLevel)
 
     if (Dx12CommandAllocator[0] == nullptr)
     {
-        result = State::Instance().currentD3D12Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                                                              IID_PPV_ARGS(&Dx12CommandAllocator[0]));
+        result = _dx11on12Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                         IID_PPV_ARGS(&Dx12CommandAllocator[0]));
 
         if (result != S_OK)
         {
@@ -446,8 +462,8 @@ HRESULT IFeature_Dx11wDx12::CreateDx12Device(D3D_FEATURE_LEVEL InFeatureLevel)
 
     if (Dx12CommandAllocator[1] == nullptr)
     {
-        result = State::Instance().currentD3D12Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                                                              IID_PPV_ARGS(&Dx12CommandAllocator[1]));
+        result = _dx11on12Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                         IID_PPV_ARGS(&Dx12CommandAllocator[1]));
 
         if (result != S_OK)
         {
@@ -459,8 +475,8 @@ HRESULT IFeature_Dx11wDx12::CreateDx12Device(D3D_FEATURE_LEVEL InFeatureLevel)
     if (Dx12CommandList[0] == nullptr && Dx12CommandAllocator[0] != nullptr)
     {
         // CreateCommandList
-        result = State::Instance().currentD3D12Device->CreateCommandList(
-            0, D3D12_COMMAND_LIST_TYPE_DIRECT, Dx12CommandAllocator[0], nullptr, IID_PPV_ARGS(&Dx12CommandList[0]));
+        result = _dx11on12Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, Dx12CommandAllocator[0], nullptr,
+                                                    IID_PPV_ARGS(&Dx12CommandList[0]));
 
         if (result != S_OK)
         {
@@ -474,8 +490,8 @@ HRESULT IFeature_Dx11wDx12::CreateDx12Device(D3D_FEATURE_LEVEL InFeatureLevel)
     if (Dx12CommandList[1] == nullptr && Dx12CommandAllocator[1] != nullptr)
     {
         // CreateCommandList
-        result = State::Instance().currentD3D12Device->CreateCommandList(
-            0, D3D12_COMMAND_LIST_TYPE_DIRECT, Dx12CommandAllocator[1], nullptr, IID_PPV_ARGS(&Dx12CommandList[1]));
+        result = _dx11on12Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, Dx12CommandAllocator[1], nullptr,
+                                                    IID_PPV_ARGS(&Dx12CommandList[1]));
 
         if (result != S_OK)
         {
@@ -488,7 +504,7 @@ HRESULT IFeature_Dx11wDx12::CreateDx12Device(D3D_FEATURE_LEVEL InFeatureLevel)
 
     if (Dx12Fence == nullptr)
     {
-        result = State::Instance().currentD3D12Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&Dx12Fence));
+        result = _dx11on12Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&Dx12Fence));
 
         if (result != S_OK)
         {
@@ -665,8 +681,7 @@ bool IFeature_Dx11wDx12::ProcessDx11Textures(const NVSDK_NGX_Parameter* InParame
                 return false;
             }
 
-            result = State::Instance().currentD3D12Device->OpenSharedHandle(dx11SHForTextureCopy,
-                                                                            IID_PPV_ARGS(&dx12FenceTextureCopy));
+            result = _dx11on12Device->OpenSharedHandle(dx11SHForTextureCopy, IID_PPV_ARGS(&dx12FenceTextureCopy));
 
             if (result != S_OK)
             {
@@ -707,8 +722,7 @@ bool IFeature_Dx11wDx12::ProcessDx11Textures(const NVSDK_NGX_Parameter* InParame
         if (dx11Color.Dx12Handle != NULL)
             CloseHandle(dx11Color.Dx12Handle);
 
-        result = State::Instance().currentD3D12Device->OpenSharedHandle(dx11Color.Dx11Handle,
-                                                                        IID_PPV_ARGS(&dx11Color.Dx12Resource));
+        result = _dx11on12Device->OpenSharedHandle(dx11Color.Dx11Handle, IID_PPV_ARGS(&dx11Color.Dx12Resource));
 
         if (result != S_OK)
         {
@@ -724,8 +738,7 @@ bool IFeature_Dx11wDx12::ProcessDx11Textures(const NVSDK_NGX_Parameter* InParame
         if (dx11Mv.Dx12Handle != NULL)
             CloseHandle(dx11Mv.Dx12Handle);
 
-        result = State::Instance().currentD3D12Device->OpenSharedHandle(dx11Mv.Dx11Handle,
-                                                                        IID_PPV_ARGS(&dx11Mv.Dx12Resource));
+        result = _dx11on12Device->OpenSharedHandle(dx11Mv.Dx11Handle, IID_PPV_ARGS(&dx11Mv.Dx12Resource));
 
         if (result != S_OK)
         {
@@ -741,8 +754,7 @@ bool IFeature_Dx11wDx12::ProcessDx11Textures(const NVSDK_NGX_Parameter* InParame
         if (dx11Out.Dx12Handle != NULL)
             CloseHandle(dx11Out.Dx12Handle);
 
-        result = State::Instance().currentD3D12Device->OpenSharedHandle(dx11Out.Dx11Handle,
-                                                                        IID_PPV_ARGS(&dx11Out.Dx12Resource));
+        result = _dx11on12Device->OpenSharedHandle(dx11Out.Dx11Handle, IID_PPV_ARGS(&dx11Out.Dx12Resource));
 
         if (result != S_OK)
         {
@@ -758,8 +770,7 @@ bool IFeature_Dx11wDx12::ProcessDx11Textures(const NVSDK_NGX_Parameter* InParame
         if (dx11Depth.Dx12Handle != NULL)
             CloseHandle(dx11Depth.Dx12Handle);
 
-        result = State::Instance().currentD3D12Device->OpenSharedHandle(dx11Depth.Dx11Handle,
-                                                                        IID_PPV_ARGS(&dx11Depth.Dx12Resource));
+        result = _dx11on12Device->OpenSharedHandle(dx11Depth.Dx11Handle, IID_PPV_ARGS(&dx11Depth.Dx12Resource));
 
         if (result != S_OK)
         {
@@ -781,8 +792,7 @@ bool IFeature_Dx11wDx12::ProcessDx11Textures(const NVSDK_NGX_Parameter* InParame
         if (dx11Exp.Dx12Handle != NULL)
             CloseHandle(dx11Exp.Dx12Handle);
 
-        result = State::Instance().currentD3D12Device->OpenSharedHandle(dx11Exp.Dx11Handle,
-                                                                        IID_PPV_ARGS(&dx11Exp.Dx12Resource));
+        result = _dx11on12Device->OpenSharedHandle(dx11Exp.Dx11Handle, IID_PPV_ARGS(&dx11Exp.Dx12Resource));
 
         if (result != S_OK)
         {
@@ -799,8 +809,7 @@ bool IFeature_Dx11wDx12::ProcessDx11Textures(const NVSDK_NGX_Parameter* InParame
         if (dx11Reactive.Dx12Handle != NULL)
             CloseHandle(dx11Reactive.Dx12Handle);
 
-        result = State::Instance().currentD3D12Device->OpenSharedHandle(dx11Reactive.Dx11Handle,
-                                                                        IID_PPV_ARGS(&dx11Reactive.Dx12Resource));
+        result = _dx11on12Device->OpenSharedHandle(dx11Reactive.Dx11Handle, IID_PPV_ARGS(&dx11Reactive.Dx12Resource));
 
         if (result != S_OK)
         {
@@ -877,7 +886,7 @@ bool IFeature_Dx11wDx12::BaseInit(ID3D11Device* InDevice, ID3D11DeviceContext* I
     auto fl = Dx11Device->GetFeatureLevel();
     auto result = CreateDx12Device(fl);
 
-    if (result != S_OK || State::Instance().currentD3D12Device == nullptr)
+    if (result != S_OK || _dx11on12Device == nullptr)
     {
         LOG_ERROR("QueryInterface Dx12Device result: {0:x}", result);
         return false;

@@ -48,6 +48,7 @@ enum class GameQuirk : uint64_t
     HitmanReflexHacks,
     SkipD3D11FeatureLevelElevation,
     CreateD3D12DeviceForLuma,
+    ForceCreateD3D12Device,
     // Don't forget to add the new entry to printQuirks
     _
 };
@@ -99,6 +100,9 @@ static const QuirkEntry quirkTable[] = {
 
     // Where Winds Meet
     QUIRK_ENTRY("wwm.exe", GameQuirk::DisableXeFGChecks),
+
+    // Arknights: Endfield
+    QUIRK_ENTRY("endfield.exe", GameQuirk::ForceCreateD3D12Device),
 
     // Trails in the Sky 1st Chapter
     QUIRK_ENTRY("sora_1st.exe", GameQuirk::UseFsr2Dx11Inputs, GameQuirk::DisableDxgiSpoofing),

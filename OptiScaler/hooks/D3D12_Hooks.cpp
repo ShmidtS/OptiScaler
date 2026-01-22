@@ -543,6 +543,18 @@ static ULONG hkD3D12DeviceRelease(IUnknown* device)
 
         o_D3D12DeviceRelease(device);
     }
+    else  if (State::Instance().currentD3D12Device == device)
+    {
+        device->AddRef();
+        auto refCount = o_D3D12DeviceRelease(device);
+        LOG_DEBUG("Found currentD3D12Device: {:X}, refCount: {}", (size_t) device, refCount);
+
+        if (refCount == 1)
+        {
+            LOG_DEBUG("Set State::Instance().currentD3D12Device = nullptr, was: {:X}", (size_t) device);
+            State::Instance().currentD3D12Device = nullptr;
+        }
+    }
 
     auto result = o_D3D12DeviceRelease(device);
     return result;

@@ -80,7 +80,7 @@ bool XeSSFeatureDx11on12::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_N
 
         _baseInit = true;
 
-        if (State::Instance().currentD3D12Device == nullptr)
+        if (_dx11on12Device == nullptr)
         {
             LOG_ERROR("Dx12on11Device is null!");
             return false;
@@ -88,7 +88,7 @@ bool XeSSFeatureDx11on12::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_N
 
         LOG_DEBUG("calling InitXeSS");
 
-        if (!InitXeSS(State::Instance().currentD3D12Device, InParameters))
+        if (!InitXeSS(_dx11on12Device, InParameters))
         {
             LOG_ERROR("InitXeSS fail!");
             return false;
@@ -106,10 +106,9 @@ bool XeSSFeatureDx11on12::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_N
             std::this_thread::sleep_for(std::chrono::milliseconds(1500));
         }
 
-        OutputScaler = std::make_unique<OS_Dx12>("Output Scaling", State::Instance().currentD3D12Device,
-                                                 (TargetWidth() < DisplayWidth()));
-        RCAS = std::make_unique<RCAS_Dx12>("RCAS", State::Instance().currentD3D12Device);
-        Bias = std::make_unique<Bias_Dx12>("Bias", State::Instance().currentD3D12Device);
+        OutputScaler = std::make_unique<OS_Dx12>("Output Scaling", _dx11on12Device, (TargetWidth() < DisplayWidth()));
+        RCAS = std::make_unique<RCAS_Dx12>("RCAS", _dx11on12Device);
+        Bias = std::make_unique<Bias_Dx12>("Bias", _dx11on12Device);
     }
 
     if (!IsInited() || !_xessContext || !ModuleLoaded())
@@ -209,8 +208,7 @@ bool XeSSFeatureDx11on12::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_N
 
         if (useSS)
         {
-            if (OutputScaler->CreateBufferResource(State::Instance().currentD3D12Device, dx11Out.Dx12Resource,
-                                                   TargetWidth(), TargetHeight(),
+            if (OutputScaler->CreateBufferResource(_dx11on12Device, dx11Out.Dx12Resource, TargetWidth(), TargetHeight(),
                                                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS))
             {
                 state = 1;
@@ -230,8 +228,7 @@ bool XeSSFeatureDx11on12::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_N
             (_sharpness > 0.0f || (Config::Instance()->MotionSharpnessEnabled.value_or(false) &&
                                    Config::Instance()->MotionSharpness.value_or(0.4) > 0.0f)) &&
             RCAS->IsInit() &&
-            RCAS->CreateBufferResource(State::Instance().currentD3D12Device, params.pOutputTexture,
-                                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS))
+            RCAS->CreateBufferResource(_dx11on12Device, params.pOutputTexture, D3D12_RESOURCE_STATE_UNORDERED_ACCESS))
         {
             state = 1;
             RCAS->SetBufferState(cmdList, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -256,14 +253,14 @@ bool XeSSFeatureDx11on12::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_N
             if (!Config::Instance()->DisableReactiveMask.value_or(true) && supportsFloatResponsivePixelMask)
             {
                 if (Config::Instance()->DlssReactiveMaskBias.value_or_default() > 0.0f && Bias->IsInit() &&
-                    Bias->CreateBufferResource(State::Instance().currentD3D12Device, dx11Reactive.Dx12Resource,
+                    Bias->CreateBufferResource(_dx11on12Device, dx11Reactive.Dx12Resource,
                                                D3D12_RESOURCE_STATE_UNORDERED_ACCESS) &&
                     Bias->CanRender())
                 {
                     state = 1;
                     Bias->SetBufferState(cmdList, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
-                    if (Bias->Dispatch(State::Instance().currentD3D12Device, cmdList, dx11Reactive.Dx12Resource,
+                    if (Bias->Dispatch(_dx11on12Device, cmdList, dx11Reactive.Dx12Resource,
                                        Config::Instance()->DlssReactiveMaskBias.value_or_default(), Bias->Buffer()))
                     {
                         Bias->SetBufferState(cmdList, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -351,8 +348,8 @@ bool XeSSFeatureDx11on12::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_N
 
             if (useSS)
             {
-                if (!RCAS->Dispatch(State::Instance().currentD3D12Device, cmdList, params.pOutputTexture,
-                                    params.pVelocityTexture, rcasConstants, OutputScaler->Buffer()))
+                if (!RCAS->Dispatch(_dx11on12Device, cmdList, params.pOutputTexture, params.pVelocityTexture,
+                                    rcasConstants, OutputScaler->Buffer()))
                 {
                     Config::Instance()->RcasEnabled = false;
                     break;
@@ -360,8 +357,8 @@ bool XeSSFeatureDx11on12::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_N
             }
             else
             {
-                if (!RCAS->Dispatch(State::Instance().currentD3D12Device, cmdList, params.pOutputTexture,
-                                    params.pVelocityTexture, rcasConstants, dx11Out.Dx12Resource))
+                if (!RCAS->Dispatch(_dx11on12Device, cmdList, params.pOutputTexture, params.pVelocityTexture,
+                                    rcasConstants, dx11Out.Dx12Resource))
                 {
                     Config::Instance()->RcasEnabled = false;
                     break;
@@ -374,8 +371,7 @@ bool XeSSFeatureDx11on12::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_N
             LOG_DEBUG("scaling output...");
             OutputScaler->SetBufferState(cmdList, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
-            if (!OutputScaler->Dispatch(State::Instance().currentD3D12Device, cmdList, OutputScaler->Buffer(),
-                                        dx11Out.Dx12Resource))
+            if (!OutputScaler->Dispatch(_dx11on12Device, cmdList, OutputScaler->Buffer(), dx11Out.Dx12Resource))
             {
                 Config::Instance()->OutputScalingEnabled = false;
                 State::Instance().changeBackend[_handle->Id] = true;
