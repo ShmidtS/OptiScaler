@@ -99,16 +99,17 @@ struct SpinLock
         if (!_lock.exchange(true, std::memory_order_acquire))
             return;
 
-        // Slow path: spin
+        int backoff = 1;
         while (true)
         {
-            // Spin read (avoids cache coherency traffic while waiting)
             while (_lock.load(std::memory_order_relaxed))
             {
-                _mm_pause(); // CPU hint: "I am spinning"
+                for (int i = 0; i < backoff; ++i)
+                    _mm_pause();
+
+                backoff = std::min(backoff * 2, 64);
             }
 
-            // Try to grab again
             if (!_lock.exchange(true, std::memory_order_acquire))
                 return;
         }
@@ -141,12 +142,16 @@ struct HeapInfo
     std::shared_ptr<ResourceInfo[]> info;
     UINT lastOffset = 0;
     bool active = true;
+    std::atomic<uint64_t> version { 0 };
 
     HeapInfo(ID3D12DescriptorHeap* heap, SIZE_T cpuStart, SIZE_T cpuEnd, SIZE_T gpuStart, SIZE_T gpuEnd,
              UINT numResources, UINT increment, UINT type)
         : cpuStart(cpuStart), cpuEnd(cpuEnd), gpuStart(gpuStart), gpuEnd(gpuEnd), numDescriptors(numResources),
           increment(increment), info(new ResourceInfo[numResources]), type(type), heap(heap)
     {
+        static std::atomic<uint64_t> globalHeapVersion { 1 };
+        version.store(globalHeapVersion.fetch_add(1, std::memory_order_relaxed), std::memory_order_relaxed);
+
         for (size_t i = 0; i < numDescriptors; i++)
         {
             info[i].buffer = nullptr;
@@ -404,7 +409,7 @@ class ResTrack_Dx12
 
     static bool CheckResource(ID3D12Resource* resource);
 
-    static bool CheckForRealObject(std::string functionName, IUnknown* pObject, IUnknown** ppRealObject);
+    static bool CheckForRealObject(const std::string functionName, IUnknown* pObject, IUnknown** ppRealObject);
 
     static bool CreateBufferResource(ID3D12Device* InDevice, ResourceInfo* InSource, D3D12_RESOURCE_STATES InState,
                                      ID3D12Resource** OutResource);
