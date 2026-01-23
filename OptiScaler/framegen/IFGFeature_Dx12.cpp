@@ -22,14 +22,23 @@ bool IFGFeature_Dx12::GetResourceCopy(FG_ResourceType type, D3D12_RESOURCE_STATE
 
     if (!_uiCommandListResetted[fIndex])
     {
+        if (_copyCommandAllocator[fIndex] == nullptr)
+            return false;
+
         auto result = _copyCommandAllocator[fIndex]->Reset();
         if (result != S_OK)
+            return false;
+
+        if (_copyCommandList[fIndex] == nullptr)
             return false;
 
         result = _copyCommandList[fIndex]->Reset(_copyCommandAllocator[fIndex], nullptr);
         if (result != S_OK)
             return false;
     }
+
+    if (_copyCommandList[fIndex] == nullptr)
+        return false;
 
     _copyCommandList[fIndex]->CopyResource(output, resource->GetResource());
 
@@ -52,6 +61,8 @@ ID3D12GraphicsCommandList* IFGFeature_Dx12::GetUICommandList(int index)
 {
     if (index < 0)
         index = GetIndex();
+    else
+        index = index % BUFFER_COUNT;
 
     LOG_DEBUG("index: {}", index);
 
@@ -69,8 +80,14 @@ ID3D12GraphicsCommandList* IFGFeature_Dx12::GetUICommandList(int index)
     {
         auto i = (index + j) % BUFFER_COUNT;
 
-        if (i != index && _uiCommandListResetted[i])
+        if (i != index && i < BUFFER_COUNT && _uiCommandListResetted[i])
         {
+            if (_uiCommandList[i] == nullptr)
+            {
+                LOG_ERROR("_uiCommandList[{}] is nullptr", i);
+                continue;
+            }
+
             LOG_DEBUG("Executing _uiCommandList[{}]: {:X}", i, (size_t) _uiCommandList[i]);
             auto closeResult = _uiCommandList[i]->Close();
 
@@ -81,12 +98,30 @@ ID3D12GraphicsCommandList* IFGFeature_Dx12::GetUICommandList(int index)
         }
     }
 
+    if (index >= BUFFER_COUNT)
+    {
+        LOG_ERROR("Invalid index: {} >= BUFFER_COUNT ({})", index, BUFFER_COUNT);
+        return nullptr;
+    }
+
     if (!_uiCommandListResetted[index])
     {
+        if (_uiCommandAllocator[index] == nullptr)
+        {
+            LOG_ERROR("_uiCommandAllocator[{}] is nullptr", index);
+            return nullptr;
+        }
+
         auto result = _uiCommandAllocator[index]->Reset();
 
         if (result == S_OK)
         {
+            if (_uiCommandList[index] == nullptr)
+            {
+                LOG_ERROR("_uiCommandList[{}] is nullptr", index);
+                return nullptr;
+            }
+
             result = _uiCommandList[index]->Reset(_uiCommandAllocator[index], nullptr);
 
             if (result == S_OK)
@@ -98,6 +133,12 @@ ID3D12GraphicsCommandList* IFGFeature_Dx12::GetUICommandList(int index)
         {
             LOG_ERROR("_uiCommandAllocator[{}]->Reset() error: {:X}", index, (UINT) result);
         }
+    }
+
+    if (_uiCommandList[index] == nullptr)
+    {
+        LOG_ERROR("_uiCommandList[{}] is nullptr", index);
+        return nullptr;
     }
 
     return _uiCommandList[index];

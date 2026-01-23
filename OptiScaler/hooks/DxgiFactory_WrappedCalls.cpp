@@ -255,6 +255,9 @@ HRESULT DxgiFactoryWrappedCalls::CreateSwapChainForHwnd(IDXGIFactory2* realFacto
         return res;
     }
 
+    __analysis_assume(pDevice != nullptr);
+    __analysis_assume(pDesc != nullptr);
+
     if (pDesc->Height < 100 || pDesc->Width < 100)
     {
         LOG_WARN("Overlay call!");

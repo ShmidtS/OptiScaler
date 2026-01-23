@@ -1,24 +1,24 @@
 /*
-* Copyright (c) 2022-2023 NVIDIA CORPORATION. All rights reserved
-*
-* Permission is hereby granted, free of charge, to any person obtaining a copy
-* of this software and associated documentation files (the "Software"), to deal
-* in the Software without restriction, including without limitation the rights
-* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-* copies of the Software, and to permit persons to whom the Software is
-* furnished to do so, subject to the following conditions:
-*
-* The above copyright notice and this permission notice shall be included in all
-* copies or substantial portions of the Software.
-*
-* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-* SOFTWARE.
-*/
+ * Copyright (c) 2022-2023 NVIDIA CORPORATION. All rights reserved
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
 
 #pragma once
 
@@ -49,7 +49,7 @@ constexpr const char* kDebugMode = "sl.param.global.dbgMode";
 constexpr const char* kPFunGetTag = "sl.param.global.getTag";
 constexpr const char* kVulkanTable = "sl.param.global.vulkanTable";
 constexpr const char* kPreferenceFlags = "sl.param.global.prefFlags";
-}
+} // namespace global
 
 namespace interposer
 {
@@ -70,7 +70,7 @@ constexpr const char* kPFunUpdateCommonEmbeddedJSONConfig = "sl.param.common.upd
 constexpr const char* kPFunNGXGetFeatureRequirements = "sl.param.common.NGXGetFeatureRequirements";
 constexpr const char* kPFunFindAdapter = "sl.param.common.findAdapter";
 
-}
+} // namespace common
 
 namespace template_plugin
 {
@@ -108,7 +108,7 @@ constexpr const char* kMarkerPresentFrame = "sl.param.latency.markerPresentFrame
 //! DEPRECATED (reflex-pcl):
 constexpr const char* kPFunSetLatencyStatsMarker = "sl.param.latency.setLatencyStatsMarker";
 
-}
+} // namespace latency
 
 namespace pcl
 {
@@ -119,9 +119,9 @@ constexpr const char* kPFunSetPCLStatsMarker = "sl.param.pcl.setPCLStatsMarker";
 //! These should only be used to bridge Reflex and PCL plugins.
 namespace _deprecated_reflex_pcl
 {
-    constexpr const char* kSlSetData = "sl.param._deprecated_reflex_pcl.slSetData";
-    constexpr const char* kSlGetData = "sl.param._deprecated_reflex_pcl.slGetData";
-}
+constexpr const char* kSlSetData = "sl.param._deprecated_reflex_pcl.slSetData";
+constexpr const char* kSlGetData = "sl.param._deprecated_reflex_pcl.slGetData";
+} // namespace _deprecated_reflex_pcl
 
 namespace deepDVC
 {
@@ -134,7 +134,7 @@ constexpr const char* kSetConstsFunc = "sl.param.debug_plugin.setConstsFunc";
 constexpr const char* kGetSettingsFunc = "sl.param.debug_plugin.getSettingsFunc";
 constexpr const char* kStats = "sl.param.debug_plugin.stats";
 constexpr const char* kCurrentFrame = "sl.param.debug_plugin.frame";
-}
+} // namespace debug_plugin
 
 namespace imgui
 {
@@ -169,7 +169,7 @@ struct IParameters
 
 // Helpers
 
-template<typename T>
+template <typename T>
 inline bool getPointerParam(IParameters* parameters, const char* key, T** res, bool optional = false, uint32_t id = 0)
 {
     void* p = nullptr;
@@ -180,12 +180,11 @@ inline bool getPointerParam(IParameters* parameters, const char* key, T** res, b
             return false;
         }
     }
-    *res = (T*)p;
+    *res = (T*) p;
     return true;
 };
 
-template<typename T>
-inline bool getParam(IParameters* parameters, const char* key, T* res, bool optional = false)
+template <typename T> inline bool getParam(IParameters* parameters, const char* key, T* res, bool optional = false)
 {
     if (!parameters->get(key, res))
     {

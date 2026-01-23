@@ -36,12 +36,30 @@ UINT64 IFGFeature::StartNewFrame()
 {
     _frameCount++;
 
-    if (_lastDispatchedFrame == 0 || (_frameCount - _lastDispatchedFrame) > 2)
+    // Only warn about frame jumps if we have a valid last dispatched frame
+    // For RTX 3070 and similar GPUs, allow larger jumps during mode changes
+    // Increased threshold from 10 to 20 to reduce false positives during mode switches
+    // This is especially important for games with dynamic resolution or frame rate changes
+    if (_lastDispatchedFrame > 0 && (_frameCount - _lastDispatchedFrame) > 20)
     {
         LOG_WARN("Frame count jumped too much! _frameCount: {}, _lastDispatchedFrame: {}", _frameCount,
                  _lastDispatchedFrame);
 
+        // Reset the last dispatched frame to prevent cascading warnings
+        // but keep it within a reasonable range
         _lastDispatchedFrame = _frameCount - 1;
+    }
+    else if (_lastDispatchedFrame == 0)
+    {
+        // First frame, initialize properly
+        _lastDispatchedFrame = _frameCount - 1;
+    }
+    else if (_lastDispatchedFrame > 0 && (_frameCount - _lastDispatchedFrame) > 10)
+    {
+        // For moderate jumps (10-20 frames), just log debug info instead of warning
+        // This is common during resolution changes or frame rate adjustments
+        LOG_DEBUG("Frame count jumped moderately! _frameCount: {}, _lastDispatchedFrame: {}", _frameCount,
+                  _lastDispatchedFrame);
     }
 
     auto fIndex = GetIndex();

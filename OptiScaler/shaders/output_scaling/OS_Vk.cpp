@@ -350,9 +350,12 @@ bool OS_Vk::Dispatch(VkDevice InDevice, VkCommandBuffer InCmdList, VkImageView I
         UpscaleShaderConstants constants {};
 
         FsrEasuCon(constants.const0, constants.const1, constants.const2, constants.const3,
-                   State::Instance().currentFeature->TargetWidth(), State::Instance().currentFeature->TargetHeight(),
-                   State::Instance().currentFeature->TargetWidth(), State::Instance().currentFeature->TargetHeight(),
-                   State::Instance().currentFeature->DisplayWidth(), State::Instance().currentFeature->DisplayHeight());
+                   static_cast<float>(State::Instance().currentFeature->TargetWidth()),
+                   static_cast<float>(State::Instance().currentFeature->TargetHeight()),
+                   static_cast<float>(State::Instance().currentFeature->TargetWidth()),
+                   static_cast<float>(State::Instance().currentFeature->TargetHeight()),
+                   static_cast<float>(State::Instance().currentFeature->DisplayWidth()),
+                   static_cast<float>(State::Instance().currentFeature->DisplayHeight()));
 
         if (_mappedConstantBuffer)
         {

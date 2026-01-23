@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ffx_upscale.h"
+#include <ffx_upscale.h>
 
 #include <upscalers/IFeature.h>
 

@@ -284,6 +284,11 @@ static bool ImGui_ImplUwp_InitEx(ABI::Windows::UI::Core::ICoreWindow* core_windo
         ComPtr<ABI::Windows::UI::Core::ICoreInputSourceBase> controlInput;
 
         auto winUI = LoadLibraryW(L"Windows.UI.dll");
+        if (winUI == nullptr)
+        {
+            return false;
+        }
+
         auto SystemCreateControlInput = (PFN_CreateControlInput) GetProcAddress(winUI, "CreateControlInput");
 
         HRESULT result = SystemCreateControlInput(ABI::Windows::UI::Core::IID_ICoreInputSourceBase, &controlInput);

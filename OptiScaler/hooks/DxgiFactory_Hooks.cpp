@@ -419,6 +419,9 @@ HRESULT DxgiFactoryHooks::CreateSwapChainForHwnd(IDXGIFactory2* realFactory, IUn
         return result;
     }
 
+    __analysis_assume(pDevice != nullptr);
+    __analysis_assume(pDesc != nullptr);
+
     if (pDesc->Height < 100 || pDesc->Width < 100)
     {
         LOG_WARN("Overlay call!");
@@ -645,14 +648,24 @@ HRESULT DxgiFactoryHooks::CreateSwapChainForCoreWindow(IDXGIFactory2* realFactor
                       pDesc->Height, (UINT) pDesc->Format, pDesc->Flags, pDesc->BufferCount, _skipFGSwapChainCreation);
 
         ScopedSkipDxgiLoadChecks skipDxgiLoadChecks {};
+
         return realFactory->CreateSwapChainForCoreWindow(pDevice, pWindow, pDesc, pRestrictToOutput, ppSwapChain);
     }
 
-    if (pDevice == nullptr || pDesc == nullptr)
+    // Validate required parameters
+    if (pDevice == nullptr || pDesc == nullptr || ppSwapChain == nullptr)
     {
-        LOG_WARN("pDevice or pDesc is nullptr!");
+        LOG_WARN("One or more required parameters are nullptr! pDevice: {}, pDesc: {}, ppSwapChain: {}",
+                 pDevice != nullptr, pDesc != nullptr, ppSwapChain != nullptr);
+
         ScopedSkipDxgiLoadChecks skipDxgiLoadChecks {};
-        return realFactory->CreateSwapChainForCoreWindow(pDevice, pWindow, pDesc, pRestrictToOutput, ppSwapChain);
+
+        if (realFactory)
+        {
+            return realFactory->CreateSwapChainForCoreWindow(pDevice, pWindow, pDesc, pRestrictToOutput, ppSwapChain);
+        }
+
+        return E_INVALIDARG;
     }
 
     if (pDesc->Height < 100 || pDesc->Width < 100)
@@ -695,8 +708,7 @@ HRESULT DxgiFactoryHooks::CreateSwapChainForCoreWindow(IDXGIFactory2* realFactor
     HRESULT result = E_FAIL;
     {
         ScopedSkipDxgiLoadChecks skipDxgiLoadChecks {};
-        auto result =
-            o_CreateSwapChainForCoreWindow(realFactory, pDevice, pWindow, pDesc, pRestrictToOutput, ppSwapChain);
+        result = o_CreateSwapChainForCoreWindow(realFactory, pDevice, pWindow, pDesc, pRestrictToOutput, ppSwapChain);
     }
 
     if (result == S_OK)

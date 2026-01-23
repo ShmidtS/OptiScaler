@@ -711,8 +711,9 @@ bool FSR31FeatureDx11::InitFSR3(const NVSDK_NGX_Parameter* InParameters)
             _targetHeight = DisplayHeight();
         }
 
-        // extended limits changes how resolution
-        if (Config::Instance()->ExtendedLimits.value_or_default() && RenderWidth() > DisplayWidth())
+        // ExtendedLimits should not override OutputScaling when it's enabled
+        if (Config::Instance()->ExtendedLimits.value_or_default() && RenderWidth() > DisplayWidth() &&
+            !Config::Instance()->OutputScalingEnabled.value_or_default())
         {
             _upscalerContextDesc.maxRenderSize.width = RenderWidth();
             _upscalerContextDesc.maxRenderSize.height = RenderHeight();

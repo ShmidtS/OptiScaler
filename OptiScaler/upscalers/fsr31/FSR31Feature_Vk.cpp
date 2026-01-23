@@ -1,6 +1,8 @@
 #include <pch.h>
 #include <Config.h>
 #include <Util.h>
+// FFX SDK 2.1.0 migration: Include VK header before FfxApi_Proxy.h to prevent enum redefinition
+#include <vk/ffx_api_vk.h>
 #include <proxies/FfxApi_Proxy.h>
 #include "FSR31Feature_Vk.h"
 

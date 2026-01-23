@@ -139,6 +139,13 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_Init_Ext(unsigned long long InApp
 {
     LOG_FUNC();
 
+    // Early exit if already initialized to prevent duplicate calls
+    if (State::Instance().NvngxDx12Inited)
+    {
+        LOG_DEBUG("NVNGX already inited, skipping duplicate initialization");
+        return NVSDK_NGX_Result_Success;
+    }
+
     if (Config::Instance()->UseGenericAppIdWithDlss.value_or_default())
         InApplicationId = app_id_override;
 
@@ -150,7 +157,8 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_Init_Ext(unsigned long long InApp
     if (InFeatureInfo != nullptr && InSDKVersion > 0x0000013)
         State::Instance().NVNGX_Logger = InFeatureInfo->LoggingInfo;
 
-    if (Config::Instance()->DLSSEnabled.value_or_default() && !_skipInit)
+    // Only initialize NVNGX if not already done and not skipped
+    if (Config::Instance()->DLSSEnabled.value_or_default() && !_skipInit && !NVNGXProxy::IsDx12Inited())
     {
         if (NVNGXProxy::NVNGXModule() == nullptr)
             NVNGXProxy::InitNVNGX();
@@ -169,12 +177,6 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_Init_Ext(unsigned long long InApp
         {
             LOG_WARN("NVNGXProxy::NVNGXModule or NVNGXProxy::D3D12_Init_Ext is nullptr!");
         }
-    }
-
-    if (State::Instance().NvngxDx12Inited)
-    {
-        LOG_WARN("NVNGX already inited");
-        return NVSDK_NGX_Result_Success;
     }
 
     if (State::Instance().activeFgInput == FGInput::Nukems)
@@ -223,7 +225,14 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_Init(unsigned long long InApplica
 {
     LOG_FUNC();
 
-    if (Config::Instance()->DLSSEnabled.value_or_default() && !_skipInit)
+    // Early exit if already initialized to prevent duplicate calls
+    if (State::Instance().NvngxDx12Inited)
+    {
+        LOG_DEBUG("NVNGX already inited, skipping duplicate initialization");
+        return NVSDK_NGX_Result_Success;
+    }
+
+    if (Config::Instance()->DLSSEnabled.value_or_default() && !_skipInit && !NVNGXProxy::IsDx12Inited())
     {
         if (Config::Instance()->UseGenericAppIdWithDlss.value_or_default())
             InApplicationId = app_id_override;
@@ -243,12 +252,6 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_Init(unsigned long long InApplica
             if (result == NVSDK_NGX_Result_Success)
                 NVNGXProxy::SetDx12Inited(true);
         }
-    }
-
-    if (State::Instance().NvngxDx12Inited)
-    {
-        LOG_WARN("NVNGX already inited");
-        return NVSDK_NGX_Result_Success;
     }
 
     // if (State::Instance().activeFgInput == FGInput::Nukems)
@@ -273,7 +276,14 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_Init_ProjectID(const char* InProj
 {
     LOG_FUNC();
 
-    if (Config::Instance()->DLSSEnabled.value_or_default() && !_skipInit)
+    // Early exit if already initialized to prevent duplicate calls
+    if (State::Instance().NvngxDx12Inited)
+    {
+        LOG_DEBUG("NVNGX already inited, skipping duplicate initialization");
+        return NVSDK_NGX_Result_Success;
+    }
+
+    if (Config::Instance()->DLSSEnabled.value_or_default() && !_skipInit && !NVNGXProxy::IsDx12Inited())
     {
         if (Config::Instance()->UseGenericAppIdWithDlss.value_or_default())
             InProjectId = project_id_override;
@@ -304,12 +314,6 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_Init_ProjectID(const char* InProj
     State::Instance().NVNGX_Engine = InEngineType;
     State::Instance().NVNGX_EngineVersion = std::string(InEngineVersion);
 
-    if (State::Instance().NvngxDx12Inited)
-    {
-        LOG_WARN("NVNGX already inited");
-        return NVSDK_NGX_Result_Success;
-    }
-
     ScopedInit scopedInit {};
     auto result = NVSDK_NGX_D3D12_Init_Ext(0x1337, InApplicationDataPath, InDevice, InSDKVersion, InFeatureInfo);
     return result;
@@ -323,6 +327,13 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_Init_with_ProjectID(
 {
     LOG_FUNC();
 
+    // Early exit if already initialized to prevent duplicate calls
+    if (State::Instance().NvngxDx12Inited)
+    {
+        LOG_DEBUG("NVNGX already inited, skipping duplicate initialization");
+        return NVSDK_NGX_Result_Success;
+    }
+
     LOG_INFO("InProjectId: {0}", InProjectId);
     LOG_INFO("InEngineType: {0}", (int) InEngineType);
     LOG_INFO("InEngineVersion: {0}", InEngineVersion);
@@ -330,12 +341,6 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_Init_with_ProjectID(
     State::Instance().NVNGX_ProjectId = std::string(InProjectId);
     State::Instance().NVNGX_Engine = InEngineType;
     State::Instance().NVNGX_EngineVersion = std::string(InEngineVersion);
-
-    if (State::Instance().NvngxDx12Inited)
-    {
-        LOG_WARN("NVNGX already inited");
-        return NVSDK_NGX_Result_Success;
-    }
 
     auto result = NVSDK_NGX_D3D12_Init_Ext(0x1337, InApplicationDataPath, InDevice, InSDKVersion, InFeatureInfo);
 

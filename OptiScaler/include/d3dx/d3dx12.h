@@ -1,6 +1,10 @@
 // This file is part of the FidelityFX SDK.
 //
 // Copyright (c) 2023 Advanced Micro Devices, Inc. All rights reserved.
+
+// Suppress false positive warnings from static analyzer
+#pragma warning(push)
+#pragma warning(disable: 6001)
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -1693,6 +1697,12 @@ inline HRESULT D3DX12SerializeVersionedRootSignature(_In_ const D3D12_VERSIONED_
             }
             auto pParameters_1_0 = reinterpret_cast<D3D12_ROOT_PARAMETER*>(pParameters);
 
+            // Initialize all parameters to zero to avoid uninitialized memory access
+            if (SUCCEEDED(hr) && pParameters_1_0 != nullptr)
+            {
+                ZeroMemory(pParameters_1_0, ParametersSize);
+            }
+
             if (SUCCEEDED(hr))
             {
                 for (UINT n = 0; n < desc_1_1.NumParameters; n++)
@@ -1768,6 +1778,9 @@ inline HRESULT D3DX12SerializeVersionedRootSignature(_In_ const D3D12_VERSIONED_
                 {
                     if (desc_1_1.pParameters[n].ParameterType == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
                     {
+                        // pDescriptorRanges is only valid for DESCRIPTOR_TABLE parameters
+                        // and is initialized in the switch statement above
+                        __analysis_assume(pParameters_1_0[n].DescriptorTable.pDescriptorRanges != nullptr);
                         HeapFree(GetProcessHeap(), 0,
                                  reinterpret_cast<void*>(const_cast<D3D12_DESCRIPTOR_RANGE*>(
                                      pParameters_1_0[n].DescriptorTable.pDescriptorRanges)));
@@ -3047,5 +3060,8 @@ class CD3DX12_NODE_MASK_SUBOBJECT : public CD3DX12_STATE_OBJECT_DESC::SUBOBJECT_
 #endif
 
 #endif // defined( __cplusplus )
+
+// Restore warning settings
+#pragma warning(pop)
 
 #endif //__D3DX12_H__

@@ -13,29 +13,24 @@
 
 #include <fsr4/FSR4ModelSelection.h>
 
-#include "ffx_api.h"
 #include <detours/detours.h>
-#include <ffx_framegeneration.h>
-#include <ffx_upscale.h>
 
 #include <magic_enum.hpp>
 
-// A mess to be able to import both
-#define FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_WAITCALLBACK FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_WAITCALLBACK_DX12
-#define FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_FRAMEPACINGTUNING FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_FRAMEPACINGTUNING_DX12
+// FFX SDK 2.1.0 migration: Headers reorganized
+// ffx_upscale.h and ffx_framegeneration.h are separate headers in FSR SDK 2.1.0
+// DX12-specific headers are in dx12/ subdirectory
 
+#include <ffx_api.h>
+#include <ffx_upscale.h>
+#include <ffx_framegeneration.h>
+
+// Check if VK header was already included (FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_VK is defined in vk/ffx_api_vk.h)
+// If so, skip DX12 headers to avoid enum redefinition errors
+#if !defined(FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_VK)
 #include <dx12/ffx_api_dx12.h>
-
-#undef FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_WAITCALLBACK
-#undef FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_FRAMEPACINGTUNING
-
-#define FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_WAITCALLBACK FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_WAITCALLBACK_VK
-#define FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_FRAMEPACINGTUNING FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_FRAMEPACINGTUNING_VK
-
-#include <vk/ffx_api_vk.h>
-
-#undef FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_WAITCALLBACK
-#undef FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_FRAMEPACINGTUNING
+#include <dx12/ffx_api_framegeneration_dx12.h>
+#endif
 
 enum class FFXStructType
 {
@@ -128,10 +123,10 @@ class FfxApiProxy
         case FFX_API_EFFECT_ID_FRAMEGENERATION:
             return FFXStructType::FG;
 
-        case FFX_API_EFFECT_ID_FRAMEGENERATIONSWAPCHAIN_DX12:
+        case FFX_API_EFFECT_ID_FRAMEGENERATIONSWAPCHAIN:
             return FFXStructType::SwapchainDX12;
 
-        case FFX_API_EFFECT_ID_FGSC_VK:
+        case FFX_API_EFFECT_ID_FRAMEGENERATIONSWAPCHAIN_VK:
             return FFXStructType::SwapchainVulkan;
 
         case 0x00050000u:

@@ -241,7 +241,7 @@ bool HC_Dx12::Dispatch(IDXGISwapChain3* sc, ID3D12GraphicsCommandList* cmdList, 
     SetBufferState(_counter, cmdList, D3D12_RESOURCE_STATE_COPY_DEST);
     ResourceBarrier(cmdList, scBuffer, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
-    if (_buffer != nullptr)
+    if (_buffer != nullptr && _buffer[_counter] != nullptr)
         cmdList->CopyResource(_buffer[_counter], scBuffer);
 
     ResourceBarrier(cmdList, scBuffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);

@@ -50,6 +50,9 @@ typedef const char*(CDECL* PFN_wine_get_version)(void);
 typedef void (*PFN_InitializeASI)(void);
 typedef bool (*PFN_PatchResult)(void);
 
+// Forward declaration
+static bool CheckProcessFilter();
+
 static inline void* ManualGetProcAddress(HMODULE hModule, const char* functionName)
 {
     if (!hModule)
@@ -125,8 +128,16 @@ const char8_t* customD3D12SDKPath = u8".\\D3D12_Optiscaler\\"; // Hardcoded for 
 static void RunAgilityUpgrade(HMODULE dx12Module)
 {
     typedef HRESULT (*PFN_IsDeveloperModeEnabled)(BOOL* isEnabled);
+
+    HMODULE kernelBase = GetModuleHandle(L"kernelbase.dll");
+    if (kernelBase == nullptr)
+    {
+        LOG_ERROR("Failed to get kernelbase.dll handle");
+        return;
+    }
+
     PFN_IsDeveloperModeEnabled o_IsDeveloperModeEnabled =
-        (PFN_IsDeveloperModeEnabled) GetProcAddress(GetModuleHandle(L"kernelbase.dll"), "IsDeveloperModeEnabled");
+        (PFN_IsDeveloperModeEnabled) GetProcAddress(kernelBase, "IsDeveloperModeEnabled");
 
     if (o_IsDeveloperModeEnabled == nullptr)
     {
@@ -1242,6 +1253,68 @@ static void printQuirks(flag_set<GameQuirk>& quirks)
     return;
 }
 
+static bool CheckProcessFilter()
+{
+    // Use already determined GameExe from State
+    std::string exeNameLower = State::Instance().GameExe;
+    std::transform(exeNameLower.begin(), exeNameLower.end(), exeNameLower.begin(), ::tolower);
+
+    // Check TargetProcessName - only inject into specified process
+    if (Config::Instance()->TargetProcessName.has_value())
+    {
+        std::string targetLower = Config::Instance()->TargetProcessName.value();
+        std::transform(targetLower.begin(), targetLower.end(), targetLower.begin(), ::tolower);
+
+        if (exeNameLower != targetLower)
+        {
+            LOG_INFO("ProcessFilter: Skipping injection - exe '{0}' != target '{1}'", exeNameLower, targetLower);
+            State::Instance().isProcessFiltered = true;
+            return false;
+        }
+    }
+
+    // Check ExcludeProcessName - don't inject into specified process(s)
+    // Supports multiple exclusions separated by pipe (|) character
+    if (Config::Instance()->ExcludeProcessName.has_value())
+    {
+        std::string excludeList = Config::Instance()->ExcludeProcessName.value();
+        std::transform(excludeList.begin(), excludeList.end(), excludeList.begin(), ::tolower);
+
+        // Split by pipe separator
+        size_t start = 0;
+        size_t end = 0;
+        while ((end = excludeList.find('|', start)) != std::string::npos)
+        {
+            std::string excludeName = excludeList.substr(start, end - start);
+            // Trim whitespace
+            excludeName.erase(0, excludeName.find_first_not_of(" \t"));
+            excludeName.erase(excludeName.find_last_not_of(" \t") + 1);
+
+            if (exeNameLower == excludeName)
+            {
+                LOG_INFO("ProcessFilter: Skipping injection - exe '{0}' is excluded", exeNameLower);
+                State::Instance().isProcessFiltered = true;
+                return false;
+            }
+            start = end + 1;
+        }
+
+        // Check the last (or only) item
+        std::string excludeName = excludeList.substr(start);
+        excludeName.erase(0, excludeName.find_first_not_of(" \t"));
+        excludeName.erase(excludeName.find_last_not_of(" \t") + 1);
+
+        if (exeNameLower == excludeName)
+        {
+            LOG_INFO("ProcessFilter: Skipping injection - exe '{0}' is excluded", exeNameLower);
+            State::Instance().isProcessFiltered = true;
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static void CheckQuirks()
 {
     auto exePathFilename = wstring_to_string(Util::ExePath().filename().wstring()); // .string() can crash
@@ -1251,6 +1324,13 @@ static void CheckQuirks()
 
     LOG_INFO("Game's Exe: {0}", exePathFilename);
     LOG_INFO("Game Name: {0}", State::Instance().GameName);
+
+    // Check process filter after determining the process name
+    if (!CheckProcessFilter())
+    {
+        LOG_INFO("ProcessFilter: OptiScaler will not inject into this process");
+        return;
+    }
 
     auto quirks = getQuirksForExe(exePathFilename);
 
@@ -1595,6 +1675,16 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         spdlog::info("");
         CheckQuirks();
+
+        // Check if process was filtered - skip all further initialization
+        if (State::Instance().isProcessFiltered)
+        {
+            spdlog::info("");
+            spdlog::info("ProcessFilter: Skipping all initialization for this process");
+            spdlog::info("---------------------------------------------");
+            spdlog::info("");
+            break;
+        }
 
         // Check for working mode and attach hooks
         spdlog::info("");

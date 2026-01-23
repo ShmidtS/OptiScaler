@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ffx_api.h"
+#include <ffx_api.h>
 
 ffxReturnCode_t ffxCreateContext_Dx12(ffxContext* context, ffxCreateContextDescHeader* desc,
                                       const ffxAllocationCallbacks* memCb);

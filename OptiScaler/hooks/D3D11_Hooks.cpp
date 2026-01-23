@@ -453,6 +453,12 @@ static HRESULT hkCreateSamplerState(ID3D11Device* This, const D3D11_SAMPLER_DESC
                 newDesc.MipLODBias = newDesc.MipLODBias * Config::Instance()->MipmapBiasOverride.value();
             else
                 newDesc.MipLODBias = newDesc.MipLODBias + Config::Instance()->MipmapBiasOverride.value();
+
+            // Clamp to D3D11 valid range [-16.0, 15.99]
+            if (newDesc.MipLODBias < -16.0f)
+                newDesc.MipLODBias = -16.0f;
+            else if (newDesc.MipLODBias > 15.99f)
+                newDesc.MipLODBias = 15.99f;
         }
 
         if (State::Instance().lastMipBiasMax < newDesc.MipLODBias)

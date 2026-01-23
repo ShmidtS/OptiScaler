@@ -124,18 +124,21 @@ xess_result_t hk_xessD3D11CreateContext(ID3D11Device* device, xess_context_handl
             pathStorage.push_back(Config::Instance()->DLSSFeaturePath.value());
 
         // Build pointer array
-        wchar_t const** paths = new const wchar_t*[pathStorage.size()];
-        for (size_t i = 0; i < pathStorage.size(); ++i)
+        size_t pathCount = pathStorage.size();
+        wchar_t const** paths = new const wchar_t*[pathCount];
+        for (size_t i = 0; i < pathCount; ++i)
         {
             paths[i] = pathStorage[i].c_str();
         }
 
         fcInfo.PathListInfo.Path = paths;
-        fcInfo.PathListInfo.Length = (int) pathStorage.size();
+        fcInfo.PathListInfo.Length = (int) pathCount;
 
         auto nvResult = NVSDK_NGX_D3D11_Init_with_ProjectID(
             "OptiScaler", NVSDK_NGX_ENGINE_TYPE_CUSTOM, VER_PRODUCT_VERSION_STR, exePath.c_str(), device, &fcInfo,
             State::Instance().NVNGX_Version == 0 ? NVSDK_NGX_Version_API : State::Instance().NVNGX_Version);
+
+        delete[] paths;
 
         if (nvResult != NVSDK_NGX_Result_Success)
             return XESS_RESULT_ERROR_UNINITIALIZED;

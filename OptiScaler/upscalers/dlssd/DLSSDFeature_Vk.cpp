@@ -166,7 +166,7 @@ bool DLSSDFeatureVk::Evaluate(VkCommandBuffer InCmdBuffer, NVSDK_NGX_Parameter* 
             }
         }
 
-        if (useSS)
+        if (useSS && paramOutput != nullptr)
         {
             if (finalOutputImage != RCAS->GetImage())
             {
@@ -263,8 +263,16 @@ bool DLSSDFeatureVk::Evaluate(VkCommandBuffer InCmdBuffer, NVSDK_NGX_Parameter* 
                 RCAS->Dispatch(Device, InCmdBuffer, rcasConstants, RCAS->GetImageView(),
                                paramVelocity->Resource.ImageViewInfo.ImageView, finalOutputView, outExtent);
 
-                paramOutput->Resource.ImageViewInfo.Image = finalOutputImage;
-                paramOutput->Resource.ImageViewInfo.ImageView = finalOutputView;
+                if (paramOutput != nullptr)
+                {
+                    paramOutput->Resource.ImageViewInfo.Image = finalOutputImage;
+                    paramOutput->Resource.ImageViewInfo.ImageView = finalOutputView;
+                }
+                else
+                {
+                    LOG_ERROR("paramOutput is nullptr when trying to restore final output!");
+                    return false;
+                }
             }
         }
     }

@@ -37,6 +37,20 @@ inline static NVSDK_NGX_Result __stdcall Hooked_Dx12_GetFeatureRequirements(
 {
     LOG_FUNC();
 
+    // Optimize: Cache feature requirements to avoid repeated calls
+    static std::mutex cacheMutex;
+    static std::map<NVSDK_NGX_Feature, NVSDK_NGX_FeatureRequirement> featureCache;
+
+    std::lock_guard<std::mutex> lock(cacheMutex);
+
+    auto it = featureCache.find(FeatureDiscoveryInfo->FeatureID);
+    if (it != featureCache.end())
+    {
+        // Return cached result
+        *OutSupported = it->second;
+        return NVSDK_NGX_Result_Success;
+    }
+
     auto result = Original_D3D12_GetFeatureRequirements(Adapter, FeatureDiscoveryInfo, OutSupported);
 
     if (result == NVSDK_NGX_Result_Success && FeatureDiscoveryInfo->FeatureID == NVSDK_NGX_Feature_SuperSampling)
@@ -45,6 +59,9 @@ inline static NVSDK_NGX_Result __stdcall Hooked_Dx12_GetFeatureRequirements(
         OutSupported->FeatureSupported = NVSDK_NGX_FeatureSupportResult_Supported;
         OutSupported->MinHWArchitecture = 0;
         strcpy_s(OutSupported->MinOSVersion, "10.0.10240.16384");
+
+        // Cache the result for future calls
+        featureCache[FeatureDiscoveryInfo->FeatureID] = *OutSupported;
     }
 
     return result;
@@ -56,6 +73,20 @@ inline static NVSDK_NGX_Result __stdcall Hooked_Dx11_GetFeatureRequirements(
 {
     LOG_FUNC();
 
+    // Optimize: Cache feature requirements to avoid repeated calls
+    static std::mutex cacheMutex;
+    static std::map<NVSDK_NGX_Feature, NVSDK_NGX_FeatureRequirement> featureCache;
+
+    std::lock_guard<std::mutex> lock(cacheMutex);
+
+    auto it = featureCache.find(FeatureDiscoveryInfo->FeatureID);
+    if (it != featureCache.end())
+    {
+        // Return cached result
+        *OutSupported = it->second;
+        return NVSDK_NGX_Result_Success;
+    }
+
     auto result = Original_D3D11_GetFeatureRequirements(Adapter, FeatureDiscoveryInfo, OutSupported);
 
     if (result == NVSDK_NGX_Result_Success && FeatureDiscoveryInfo->FeatureID == NVSDK_NGX_Feature_SuperSampling)
@@ -64,6 +95,9 @@ inline static NVSDK_NGX_Result __stdcall Hooked_Dx11_GetFeatureRequirements(
         OutSupported->FeatureSupported = NVSDK_NGX_FeatureSupportResult_Supported;
         OutSupported->MinHWArchitecture = 0;
         strcpy_s(OutSupported->MinOSVersion, "10.0.10240.16384");
+
+        // Cache the result for future calls
+        featureCache[FeatureDiscoveryInfo->FeatureID] = *OutSupported;
     }
 
     return result;
@@ -75,6 +109,20 @@ inline static NVSDK_NGX_Result __stdcall Hooked_Vulkan_GetFeatureRequirements(
 {
     LOG_FUNC();
 
+    // Optimize: Cache feature requirements to avoid repeated calls
+    static std::mutex cacheMutex;
+    static std::map<NVSDK_NGX_Feature, NVSDK_NGX_FeatureRequirement> featureCache;
+
+    std::lock_guard<std::mutex> lock(cacheMutex);
+
+    auto it = featureCache.find(FeatureDiscoveryInfo->FeatureID);
+    if (it != featureCache.end())
+    {
+        // Return cached result
+        *OutSupported = it->second;
+        return NVSDK_NGX_Result_Success;
+    }
+
     auto result = Original_Vulkan_GetFeatureRequirements(Instance, PhysicalDevice, FeatureDiscoveryInfo, OutSupported);
 
     if (result == NVSDK_NGX_Result_Success && FeatureDiscoveryInfo->FeatureID == NVSDK_NGX_Feature_SuperSampling)
@@ -83,6 +131,9 @@ inline static NVSDK_NGX_Result __stdcall Hooked_Vulkan_GetFeatureRequirements(
         OutSupported->FeatureSupported = NVSDK_NGX_FeatureSupportResult_Supported;
         OutSupported->MinHWArchitecture = 0;
         strcpy_s(OutSupported->MinOSVersion, "10.0.10240.16384");
+
+        // Cache the result for future calls
+        featureCache[FeatureDiscoveryInfo->FeatureID] = *OutSupported;
     }
 
     return result;

@@ -7,8 +7,9 @@
 
 #include <magic_enum.hpp>
 
-#include "ffx_framegeneration.h"
-#include "dx12/ffx_api_dx12.h"
+#include <ffx_framegeneration.h>
+#include <dx12/ffx_api_dx12.h>
+#include <dx12/ffx_api_framegeneration_dx12.h>
 
 static ID3D12Device* _device = nullptr;
 static FG_Constants _fgConst {};

@@ -539,11 +539,22 @@ ffxReturnCode_t FSRFG_Dx12::DispatchCallback(ffxDispatchDescFrameGeneration* par
     LOG_DEBUG("frameID: {}, commandList: {:X}, numGeneratedFrames: {}", params->frameID, (size_t) params->commandList,
               params->numGeneratedFrames);
 
+    static UINT64 _lastFrameId = 0;
+
+    // Reset _lastFrameId if frameID decreased (possible after resolution change or game reset)
+    if (params->frameID < _lastFrameId)
+    {
+        LOG_DEBUG("FrameID decreased from {} to {}, resetting _lastFrameId", _lastFrameId, params->frameID);
+        _lastFrameId = 0;
+    }
+
     // check for status
     if (!Config::Instance()->FGEnabled.value_or_default() || _fgContext == nullptr || state.SCchanged)
     {
         LOG_WARN("Cancel async dispatch");
         params->numGeneratedFrames = 0;
+        _lastFrameId = params->frameID; // Update frame ID to prevent duplicate warnings
+        return FFX_API_RETURN_OK;
     }
 
     // If fg is active but upscaling paused
@@ -552,13 +563,16 @@ ffxReturnCode_t FSRFG_Dx12::DispatchCallback(ffxDispatchDescFrameGeneration* par
     {
         LOG_WARN("Upscaling paused! frameID: {}", params->frameID);
         params->numGeneratedFrames = 0;
+        _lastFrameId = params->frameID; // Update frame ID to prevent duplicate warnings
+        return FFX_API_RETURN_OK;
     }
 
-    static UINT64 _lastFrameId = 0;
     if (params->frameID == _lastFrameId)
     {
         LOG_WARN("Dispatched with the same frame id! frameID: {}", params->frameID);
         params->numGeneratedFrames = 0;
+        _lastFrameId = params->frameID; // Update frame ID to prevent duplicate warnings
+        return FFX_API_RETURN_OK;
     }
 
     auto scFormat = (FfxApiSurfaceFormat) params->presentColor.description.format;
@@ -605,7 +619,7 @@ void* FSRFG_Dx12::SwapchainContext()
 void FSRFG_Dx12::DestroyFGContext()
 {
     _frameCount = 1;
-    // _lastDispatchedFrame = 0;
+    _lastDispatchedFrame = 0; // Reset to prevent frame count issues on reinitialization
     _version = {};
 
     LOG_DEBUG("");

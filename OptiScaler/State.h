@@ -251,6 +251,7 @@ class State
     std::optional<std::wstring> nvngxReplacement = std::nullopt;
     bool libxessExists = false;
     bool fsrHooks = false;
+    bool isProcessFiltered = false; // ProcessFilter: skip injection
 
     IFeature* currentFeature = nullptr;
     IFGFeature_Dx12* currentFG = nullptr;

@@ -559,8 +559,9 @@ bool FSR2FeatureDx12::InitFSR2(const NVSDK_NGX_Parameter* InParameters)
             _targetHeight = DisplayHeight();
         }
 
-        // extended limits changes how resolution
-        if (Config::Instance()->ExtendedLimits.value_or_default() && RenderWidth() > DisplayWidth())
+        // ExtendedLimits should not override OutputScaling when it's enabled
+        if (Config::Instance()->ExtendedLimits.value_or_default() && RenderWidth() > DisplayWidth() &&
+            !Config::Instance()->OutputScalingEnabled.value_or_default())
         {
             _contextDesc.maxRenderSize.width = RenderWidth();
             _contextDesc.maxRenderSize.height = RenderHeight();

@@ -494,69 +494,71 @@ std::optional<NTSTATUS> LibraryLoadHooks::FreeLibrary(PVOID lpLibrary)
 {
     std::optional<NTSTATUS> result;
 
+    // Only log FreeLibrary calls for OptiScaler itself and critical modules
+    // to reduce log noise
     if (lpLibrary == dllModule)
     {
-        LOG_WARN("Call for OptiScaler, caller: {}", Util::WhoIsTheCaller(_ReturnAddress()));
+        LOG_DEBUG("Call for OptiScaler, caller: {}", Util::WhoIsTheCaller(_ReturnAddress()));
         State::Instance().modulesToFree.insert(lpLibrary);
         result = TRUE;
     }
     else if (lpLibrary == FfxApiProxy::Dx12Module())
     {
-        LOG_WARN("Call for FFX Dx12, caller: {}", Util::WhoIsTheCaller(_ReturnAddress()));
+        LOG_DEBUG("Call for FFX Dx12, caller: {}", Util::WhoIsTheCaller(_ReturnAddress()));
         State::Instance().modulesToFree.insert(lpLibrary);
         result = TRUE;
     }
     else if (lpLibrary == FfxApiProxy::VkModule())
     {
-        LOG_WARN("Call for FFX Vulkan, caller: {}", Util::WhoIsTheCaller(_ReturnAddress()));
+        LOG_DEBUG("Call for FFX Vulkan, caller: {}", Util::WhoIsTheCaller(_ReturnAddress()));
         State::Instance().modulesToFree.insert(lpLibrary);
         result = TRUE;
     }
     else if (lpLibrary == XeSSProxy::Module())
     {
-        LOG_WARN("Call for XeSS, caller: {}", Util::WhoIsTheCaller(_ReturnAddress()));
+        LOG_DEBUG("Call for XeSS, caller: {}", Util::WhoIsTheCaller(_ReturnAddress()));
         State::Instance().modulesToFree.insert(lpLibrary);
         result = TRUE;
     }
     else if (lpLibrary == DxgiProxy::Module())
     {
-        LOG_WARN("Call for DXGI, caller: {}", Util::WhoIsTheCaller(_ReturnAddress()));
+        LOG_DEBUG("Call for DXGI, caller: {}", Util::WhoIsTheCaller(_ReturnAddress()));
         State::Instance().modulesToFree.insert(lpLibrary);
         result = TRUE;
     }
     else if (lpLibrary == D3d12Proxy::Module())
     {
-        LOG_WARN("Call for D3D12, caller: {}", Util::WhoIsTheCaller(_ReturnAddress()));
+        LOG_DEBUG("Call for D3D12, caller: {}", Util::WhoIsTheCaller(_ReturnAddress()));
         State::Instance().modulesToFree.insert(lpLibrary);
         result = TRUE;
     }
     else if (lpLibrary == Kernel32Proxy::Module())
     {
-        LOG_WARN("Call for Kernel32, caller: {}", Util::WhoIsTheCaller(_ReturnAddress()));
+        LOG_DEBUG("Call for Kernel32, caller: {}", Util::WhoIsTheCaller(_ReturnAddress()));
         State::Instance().modulesToFree.insert(lpLibrary);
         result = TRUE;
     }
     else if (lpLibrary == KernelBaseProxy::Module())
     {
-        LOG_WARN("Call for KernelBase, caller: {}", Util::WhoIsTheCaller(_ReturnAddress()));
+        LOG_DEBUG("Call for KernelBase, caller: {}", Util::WhoIsTheCaller(_ReturnAddress()));
         State::Instance().modulesToFree.insert(lpLibrary);
         result = TRUE;
     }
     else if (lpLibrary == NtdllProxy::Module())
     {
-        LOG_WARN("Call for ntdll, caller: {}", Util::WhoIsTheCaller(_ReturnAddress()));
+        LOG_DEBUG("Call for ntdll, caller: {}", Util::WhoIsTheCaller(_ReturnAddress()));
         State::Instance().modulesToFree.insert(lpLibrary);
         result = TRUE;
     }
     else if (lpLibrary == vulkanModule)
     {
-        LOG_WARN("Call for Vulkan, caller: {}", Util::WhoIsTheCaller(_ReturnAddress()));
+        LOG_DEBUG("Call for Vulkan, caller: {}", Util::WhoIsTheCaller(_ReturnAddress()));
         State::Instance().modulesToFree.insert(lpLibrary);
         result = TRUE;
     }
     else if (lpLibrary == d3d11Module)
     {
-        LOG_WARN("Call for D3D11, caller: {}", Util::WhoIsTheCaller(_ReturnAddress()));
+        LOG_DEBUG("Call for D3D11, caller: {}", Util::WhoIsTheCaller(_ReturnAddress()));
         State::Instance().modulesToFree.insert(lpLibrary);
         result = TRUE;
     }

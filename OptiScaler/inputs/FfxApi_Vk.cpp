@@ -5,10 +5,11 @@
 #include <resource.h>
 #include <NVNGX_Parameter.h>
 
+// FFX SDK 2.1.0 migration: Include VK header before FfxApi_Proxy.h to prevent enum redefinition
+#include <vk/ffx_api_vk.h>
 #include <proxies/FfxApi_Proxy.h>
 
 #include <ffx_upscale.h>
-#include <vk/ffx_api_vk.h>
 
 #include <nvsdk_ngx_vk.h>
 #include <nvsdk_ngx_helpers_vk.h>
@@ -352,14 +353,23 @@ ffxReturnCode_t ffxCreateContext_Vk(ffxContext* context, ffxCreateContextDescHea
             pathStorage.push_back(Config::Instance()->DLSSFeaturePath.value());
 
         // Build pointer array
-        wchar_t const** paths = new const wchar_t*[pathStorage.size()];
-        for (size_t i = 0; i < pathStorage.size(); ++i)
+        size_t pathCount = pathStorage.size();
+        if (pathCount > 0)
         {
-            paths[i] = pathStorage[i].c_str();
-        }
+            wchar_t const** paths = new const wchar_t*[pathCount];
+            for (size_t i = 0; i < pathCount; ++i)
+            {
+                paths[i] = pathStorage[i].c_str();
+            }
 
-        fcInfo.PathListInfo.Path = paths;
-        fcInfo.PathListInfo.Length = (int) pathStorage.size();
+            fcInfo.PathListInfo.Path = paths;
+            fcInfo.PathListInfo.Length = static_cast<int>(pathCount);
+        }
+        else
+        {
+            fcInfo.PathListInfo.Path = nullptr;
+            fcInfo.PathListInfo.Length = 0;
+        }
 
         auto nvResult = NVSDK_NGX_VULKAN_Init_ProjectID_Ext(
             "OptiScaler", State::Instance().NVNGX_Engine, VER_PRODUCT_VERSION_STR, exePath.c_str(),

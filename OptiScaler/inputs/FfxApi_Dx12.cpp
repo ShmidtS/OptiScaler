@@ -9,8 +9,8 @@
 
 #include "FG/FfxApi_Dx12_FG.h"
 
-#include "ffx_upscale.h"
-#include "dx12/ffx_api_dx12.h"
+#include <ffx_upscale.h>
+#include <dx12/ffx_api_dx12.h>
 
 #include <magic_enum.hpp>
 
@@ -399,14 +399,23 @@ ffxReturnCode_t ffxCreateContext_Dx12(ffxContext* context, ffxCreateContextDescH
             pathStorage.push_back(Config::Instance()->DLSSFeaturePath.value());
 
         // Build pointer array
-        wchar_t const** paths = new const wchar_t*[pathStorage.size()];
-        for (size_t i = 0; i < pathStorage.size(); ++i)
+        size_t pathCount = pathStorage.size();
+        if (pathCount > 0)
         {
-            paths[i] = pathStorage[i].c_str();
-        }
+            wchar_t const** paths = new const wchar_t*[pathCount];
+            for (size_t i = 0; i < pathCount; ++i)
+            {
+                paths[i] = pathStorage[i].c_str();
+            }
 
-        fcInfo.PathListInfo.Path = paths;
-        fcInfo.PathListInfo.Length = (int) pathStorage.size();
+            fcInfo.PathListInfo.Path = paths;
+            fcInfo.PathListInfo.Length = static_cast<int>(pathCount);
+        }
+        else
+        {
+            fcInfo.PathListInfo.Path = nullptr;
+            fcInfo.PathListInfo.Length = 0;
+        }
 
         auto nvResult = NVSDK_NGX_D3D12_Init_with_ProjectID(
             "OptiScaler", state.NVNGX_Engine, VER_PRODUCT_VERSION_STR, exePath.c_str(), _d3d12Device, &fcInfo,

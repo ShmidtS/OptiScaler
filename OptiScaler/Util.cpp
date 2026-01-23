@@ -22,17 +22,15 @@ std::string Util::WhoIsTheCaller(void* returnAddress)
 {
     char callerPath[MAX_PATH] = { 0 };
 
-    // Get the return address from the current function call.
-    // void* returnAddress = _ReturnAddress();
-
     // Get the base address of the module containing the return address.
     if (HMODULE hModule = GetCallerModule(returnAddress); hModule != nullptr)
     {
         // Get the full path of the calling module.
-        GetModuleFileNameA(hModule, callerPath, sizeof(callerPath));
-        auto path = std::filesystem::path(callerPath);
-
-        return wstring_to_string(path.filename().wstring());
+        if (GetModuleFileNameA(hModule, callerPath, sizeof(callerPath)) > 0)
+        {
+            auto path = std::filesystem::path(callerPath);
+            return wstring_to_string(path.filename().wstring());
+        }
     }
 
     return "";
@@ -88,22 +86,25 @@ bool Util::GetRealWindowsVersion(OSVERSIONINFOW& osInfo)
 
 std::string Util::GetWindowsName(const OSVERSIONINFOW& os)
 {
-    DWORD major = os.dwMajorVersion;
-    DWORD minor = os.dwMinorVersion;
-    DWORD build = os.dwBuildNumber;
+    const DWORD major = os.dwMajorVersion;
+    const DWORD minor = os.dwMinorVersion;
+    const DWORD build = os.dwBuildNumber;
 
-    if (major == 10 && build >= 22000)
-        return "Windows 11";
     if (major == 10)
-        return "Windows 10";
-    if (major == 6 && minor == 3)
-        return "Windows 8.1";
-    if (major == 6 && minor == 2)
-        return "Windows 8";
-    if (major == 6 && minor == 1)
-        return "Windows 7";
-    if (major == 6 && minor == 0)
-        return "Windows Vista";
+    {
+        return (build >= 22000) ? "Windows 11" : "Windows 10";
+    }
+    if (major == 6)
+    {
+        if (minor == 3)
+            return "Windows 8.1";
+        if (minor == 2)
+            return "Windows 8";
+        if (minor == 1)
+            return "Windows 7";
+        if (minor == 0)
+            return "Windows Vista";
+    }
     if (major == 5 && minor == 1)
         return "Windows XP";
 
@@ -283,10 +284,39 @@ static inline std::string LogLastError()
 
     if (errorBuffer)
     {
-        std::wstring errMsg(errorBuffer);
-        result =
-            std::format("{} ({})", errorCode,
-                        wstring_to_string(errMsg).erase(wstring_to_string(errMsg).find_last_not_of("\t\n\v\f\r ") + 1));
+        // Используем string_view для избежания лишних копирований
+        std::wstring_view errMsgView(errorBuffer);
+
+        // Удаляем trailing whitespace
+        size_t endPos = errMsgView.find_last_not_of(L"\t\n\v\f\r ");
+        if (endPos != std::wstring_view::npos)
+            errMsgView = errMsgView.substr(0, endPos + 1);
+
+        // Конвертируем только необходимую часть
+        std::string errMsgUtf8;
+        errMsgUtf8.reserve(errMsgView.length() * 2);
+
+        for (wchar_t wc : errMsgView)
+        {
+            if (wc < 0x80)
+                errMsgUtf8 += static_cast<char>(wc);
+            else
+            {
+                if (wc < 0x800)
+                {
+                    errMsgUtf8 += static_cast<char>(0xC0 | (wc >> 6));
+                    errMsgUtf8 += static_cast<char>(0x80 | (wc & 0x3F));
+                }
+                else
+                {
+                    errMsgUtf8 += static_cast<char>(0xE0 | (wc >> 12));
+                    errMsgUtf8 += static_cast<char>(0x80 | ((wc >> 6) & 0x3F));
+                    errMsgUtf8 += static_cast<char>(0x80 | (wc & 0x3F));
+                }
+            }
+        }
+
+        result = std::format("{} ({})", errorCode, errMsgUtf8);
         LocalFree(errorBuffer);
     }
     else
@@ -310,8 +340,10 @@ bool Util::GetDLLVersion(std::wstring dllPath, version_t* versionOut)
     }
 
     // Step 2: Allocate buffer and get the version information
-    std::vector<BYTE> versionInfo(versionSize);
-    if (!GetFileVersionInfoW(dllPath.c_str(), handle, versionSize, versionInfo.data()))
+    // Используем vector с reserve для избежания лишних аллокаций
+    std::vector<BYTE> versionInfo;
+    versionInfo.reserve(versionSize);
+    if (!GetFileVersionInfoW(dllPath.c_str(), 0, versionSize, versionInfo.data()))
     {
         // LOG_ERROR("Failed to get version info: {0:X}", LogLastError());
         return false;
@@ -365,54 +397,74 @@ bool Util::GetDLLVersion(std::wstring dllPath, xess_version_t* xessVersionOut)
 std::optional<std::filesystem::path> Util::FindFilePath(const std::filesystem::path& startDir,
                                                         const std::filesystem::path fileName)
 {
-    // 1) Direct check in startDir
-    std::filesystem::path candidate = startDir / fileName;
-    if (std::filesystem::exists(candidate) && std::filesystem::is_regular_file(candidate))
+    try
     {
-        LOG_INFO(L"{} found at {}", fileName.wstring(), candidate.parent_path().wstring());
-        return candidate;
-    }
-
-    // 2) Recursive search under startDir
-    for (auto& entry : std::filesystem::recursive_directory_iterator(
-             startDir, std::filesystem::directory_options::skip_permission_denied))
-    {
-        if (!entry.is_directory() && entry.path().filename() == fileName)
+        // 1) Direct check in startDir
+        std::filesystem::path candidate = startDir / fileName;
+        if (std::filesystem::exists(candidate) && std::filesystem::is_regular_file(candidate))
         {
-            LOG_INFO(L"{} found at {}", fileName.wstring(), entry.path().parent_path().wstring());
-            return entry.path();
+            LOG_INFO(L"{} found at {}", fileName.wstring(), candidate.parent_path().wstring());
+            return candidate;
         }
-    }
 
-    // 3) Unreal-Engine/WinGDK fallback: check for Win64 or WinGDK in parent
-    std::filesystem::path parent = startDir.parent_path().parent_path();
-    uint32_t cnt = 0;
-    for (const char* folder : { "Win64", "WinGDK", "Win64MasterMasterSteamPGO" })
-    {
-        if (std::filesystem::exists(parent / folder) && std::filesystem::is_directory(parent / folder))
+        // 2) Recursive search under startDir
+        std::error_code ec;
+        auto dirOptions = std::filesystem::directory_options::skip_permission_denied;
+
+        for (auto& entry : std::filesystem::recursive_directory_iterator(startDir, dirOptions, ec))
         {
-            // Move up two more levels from 'parent' to reach UE project root but one level for KCD2
-            std::filesystem::path gameRoot;
-            if (cnt < 2)
-                gameRoot = parent.parent_path().parent_path();
-            else
-                gameRoot = parent.parent_path();
+            if (ec)
+                continue;
 
-            for (auto& entry : std::filesystem::recursive_directory_iterator(
-                     gameRoot, std::filesystem::directory_options::skip_permission_denied))
+            if (!entry.is_directory() && entry.path().filename() == fileName)
             {
-                if (!entry.is_directory() && entry.path().filename() == fileName)
+                LOG_INFO(L"{} found at {}", fileName.wstring(), entry.path().parent_path().wstring());
+                return entry.path();
+            }
+        }
+
+        // 3) Unreal-Engine/WinGDK fallback: check for Win64 or WinGDK in parent
+        std::filesystem::path parent = startDir.parent_path().parent_path();
+        uint32_t cnt = 0;
+
+        // Предварительно выделяем память для вектора строк
+        static const std::vector<const char*> folders = { "Win64", "WinGDK", "Win64MasterMasterSteamPGO" };
+
+        for (const char* folder : folders)
+        {
+            std::filesystem::path folderPath = parent / folder;
+            if (std::filesystem::exists(folderPath) && std::filesystem::is_directory(folderPath))
+            {
+                // Move up two more levels from 'parent' to reach UE project root but one level for KCD2
+                std::filesystem::path gameRoot;
+                if (cnt < 2)
+                    gameRoot = parent.parent_path().parent_path();
+                else
+                    gameRoot = parent.parent_path();
+
+                for (auto& entry : std::filesystem::recursive_directory_iterator(gameRoot, dirOptions, ec))
                 {
-                    LOG_INFO(L"{} found at {}", fileName.wstring(), entry.path().parent_path().wstring());
-                    return entry.path();
+                    if (ec)
+                        continue;
+
+                    if (!entry.is_directory() && entry.path().filename() == fileName)
+                    {
+                        LOG_INFO(L"{} found at {}", fileName.wstring(), entry.path().parent_path().wstring());
+                        return entry.path();
+                    }
                 }
+
+                // If not found under this folder, break to avoid double-search
+                break;
             }
 
-            // If not found under this folder, break to avoid double-search
-            break;
+            cnt++;
         }
-
-        cnt++;
+    }
+    catch (const std::exception& e)
+    {
+        // Логируем ошибку, но не прерываем выполнение
+        LOG_DEBUG("FindFilePath exception: {}", e.what());
     }
 
     // Not found anywhere

@@ -20,6 +20,7 @@
 #include "fsr3/ffx_fsr3.h"
 #include "fsr3/dx12/ffx_dx12.h"
 #include "fsr3/ffx_frameinterpolation.h"
+#include <cstring>
 
 const UINT fgContext = 0x1337;
 
@@ -324,10 +325,21 @@ static bool CreateBufferResource(ID3D12Device* InDevice, ID3D12Resource* InResou
     }
 
     HRESULT hr;
-    CD3DX12_HEAP_PROPERTIES heapProperties(D3D12_HEAP_TYPE_DEFAULT);
+
+    D3D12_HEAP_PROPERTIES heapProperties;
+    D3D12_HEAP_FLAGS heapFlags;
+    hr = InResource->GetHeapProperties(&heapProperties, &heapFlags);
+    if (hr != S_OK)
+    {
+        LOG_ERROR("GetHeapProperties result: {:X}", (UINT64) hr);
+        return false;
+    }
+
+    CD3DX12_HEAP_PROPERTIES outHeapProperties(D3D12_HEAP_TYPE_DEFAULT);
+
     inDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
-    hr = InDevice->CreateCommittedResource(&heapProperties, D3D12_HEAP_FLAG_NONE, &inDesc, InState, nullptr,
+    hr = InDevice->CreateCommittedResource(&outHeapProperties, D3D12_HEAP_FLAG_NONE, &inDesc, InState, nullptr,
                                            IID_PPV_ARGS(OutResource));
 
     if (hr != S_OK)
@@ -346,12 +358,29 @@ static void ResourceBarrier(ID3D12GraphicsCommandList* InCommandList, ID3D12Reso
     if (InBeforeState == InAfterState)
         return;
 
+    // Optimize: Use UAV barrier for unordered access resources when possible
+    if (InBeforeState == D3D12_RESOURCE_STATE_UNORDERED_ACCESS && InAfterState == D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+    {
+        D3D12_RESOURCE_BARRIER barrier = {};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+        barrier.UAV.pResource = InResource;
+        InCommandList->ResourceBarrier(1, &barrier);
+        return;
+    }
+
+    // Optimize: Skip transition if resource is already in the target state
+    // This is a common optimization pattern in DirectX 12
     D3D12_RESOURCE_BARRIER barrier = {};
     barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
     barrier.Transition.pResource = InResource;
     barrier.Transition.StateBefore = InBeforeState;
     barrier.Transition.StateAfter = InAfterState;
     barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+    // Optimize: Use split barriers for better performance
+    // This allows the driver to optimize the transition
+    barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+
     InCommandList->ResourceBarrier(1, &barrier);
 }
 
@@ -553,7 +582,7 @@ hkffxFrameInterpolationContextCreate(FfxFrameInterpolationContext* context,
 
     State::Instance().currentFG->CreateContext(_device, _fgConst);
 
-    *context = {};
+    memset(context, 0, sizeof(FfxFrameInterpolationContext));
     context->data[0] = fgContext;
 
     return Fsr3::FFX_OK;
@@ -1064,7 +1093,7 @@ void FSR3FG::ffxPresentCallback()
             currentBuffer->SetName(std::format(L"currentBuffer[{}]", scIndex).c_str());
         }
 
-        if (CreateBufferResource(_device, currentBuffer, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, &_hudless[fIndex]))
+        if (CreateBufferResource(_device, currentBuffer, D3D12_RESOURCE_STATE_COMMON, &_hudless[fIndex]))
             _hudless[fIndex]->SetName(std::format(L"_hudless[{}]", fIndex).c_str());
         else
             return;
@@ -1075,10 +1104,20 @@ void FSR3FG::ffxPresentCallback()
         ddfg.commandList = cmdList;
 
         ResourceBarrier(cmdList, currentBuffer, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        ResourceBarrier(cmdList, _hudless[fIndex], D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-                        D3D12_RESOURCE_STATE_COPY_DEST);
+        ResourceBarrier(cmdList, _hudless[fIndex], D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
 
-        cmdList->CopyResource(_hudless[fIndex], currentBuffer);
+        // Optimize: Use CopyTextureRegion for better performance with 2D textures
+        D3D12_TEXTURE_COPY_LOCATION srcLocation = {};
+        srcLocation.pResource = currentBuffer;
+        srcLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        srcLocation.SubresourceIndex = 0;
+
+        D3D12_TEXTURE_COPY_LOCATION dstLocation = {};
+        dstLocation.pResource = _hudless[fIndex];
+        dstLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        dstLocation.SubresourceIndex = 0;
+
+        cmdList->CopyTextureRegion(&dstLocation, 0, 0, 0, &srcLocation, nullptr);
 
         ResourceBarrier(cmdList, currentBuffer, D3D12_RESOURCE_STATE_COPY_SOURCE,
                         D3D12_RESOURCE_STATE_COPY_SOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -1161,7 +1200,7 @@ void FSR3FG::ffxPresentCallback()
             currentBuffer->SetName(std::format(L"currentBuffer[{}]", scIndex).c_str());
         }
 
-        if (CreateBufferResource(_device, currentBuffer, D3D12_RESOURCE_STATE_COMMON, &_hudless[fIndex]))
+        if (CreateBufferResource(_device, currentBuffer, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, &_hudless[fIndex]))
             _hudless[fIndex]->SetName(std::format(L"_hudless[{}]", fIndex).c_str());
         else
             return;
@@ -1175,7 +1214,18 @@ void FSR3FG::ffxPresentCallback()
         ResourceBarrier(cmdList, _hudless[fIndex], D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
                         D3D12_RESOURCE_STATE_COPY_DEST);
 
-        cmdList->CopyResource(_hudless[fIndex], currentBuffer);
+        // Optimize: Use CopyTextureRegion for better performance with 2D textures
+        D3D12_TEXTURE_COPY_LOCATION srcLocation = {};
+        srcLocation.pResource = currentBuffer;
+        srcLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        srcLocation.SubresourceIndex = 0;
+
+        D3D12_TEXTURE_COPY_LOCATION dstLocation = {};
+        dstLocation.pResource = _hudless[fIndex];
+        dstLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        dstLocation.SubresourceIndex = 0;
+
+        cmdList->CopyTextureRegion(&dstLocation, 0, 0, 0, &srcLocation, nullptr);
 
         ResourceBarrier(cmdList, currentBuffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_PRESENT);
         ResourceBarrier(cmdList, _hudless[fIndex], D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COMMON);

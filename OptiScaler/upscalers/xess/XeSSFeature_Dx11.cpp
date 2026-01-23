@@ -208,7 +208,9 @@ bool XeSSFeature_Dx11::Init(ID3D11Device* InDevice, ID3D11DeviceContext* InConte
             _targetHeight = DisplayHeight();
         }
 
-        if (Config::Instance()->ExtendedLimits.value_or(false) && RenderWidth() > DisplayWidth())
+        // ExtendedLimits should not override OutputScaling when it's enabled
+        if (Config::Instance()->ExtendedLimits.value_or(false) && RenderWidth() > DisplayWidth() &&
+            !Config::Instance()->OutputScalingEnabled.value_or(false))
         {
             _targetWidth = RenderWidth();
             _targetHeight = RenderHeight();

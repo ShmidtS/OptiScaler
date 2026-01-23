@@ -128,11 +128,11 @@ sl::Result StreamlineHooks::hkslInit(sl::Preferences* pref, uint64_t sdkVersion)
     if (pref->engine == sl::EngineType::eUnreal)
         State::Instance().gameQuirks |= GameQuirk::ForceUnrealEngine;
 
-    // bool hookSetTag =
-    //     (State::Instance().activeFgInput == FGInput::Nukems || State::Instance().activeFgInput == FGInput::DLSSG);
-
-    // if (hookSetTag)
-    //     pref->flags &= ~(sl::PreferenceFlags::eAllowOTA | sl::PreferenceFlags::eLoadDownloadedPlugins);
+    // Note: We do NOT set eUseFrameBasedResourceTagging flag here because:
+    // 1. The game might still call the deprecated slSetTag API
+    // 2. Setting this flag creates an expectation that slSetTagForFrame will be called
+    // 3. Both slSetTag and slSetTagForFrame are hooked, so the game can use either API
+    // 4. Setting this flag incorrectly causes Streamline to log errors when slSetTagForFrame isn't called
 
     return o_slInit(*pref, sdkVersion);
 }
@@ -456,8 +456,8 @@ bool StreamlineHooks::hkdlss_slOnPluginLoad(void* params, const char* loaderJSON
 {
     LOG_FUNC();
 
-    // TODO: do it better than "static" and hoping for the best
-    static std::string config;
+    // Use thread-local storage to avoid race conditions between different plugin loads
+    thread_local std::string config;
 
     uint32_t currentArch = 0;
     if (Config::Instance()->StreamlineSpoofing.value_or_default())
@@ -474,15 +474,21 @@ bool StreamlineHooks::hkdlss_slOnPluginLoad(void* params, const char* loaderJSON
 
     if (Config::Instance()->VulkanExtensionSpoofing.value_or_default())
     {
-        nlohmann::json configJson = nlohmann::json::parse(*pluginJSON);
+        try
+        {
+            nlohmann::json configJson = nlohmann::json::parse(*pluginJSON);
 
-        configJson["external"]["vk"]["instance"]["extensions"].clear();
-        configJson["external"]["vk"]["device"]["extensions"].clear();
-        configJson["external"]["vk"]["device"]["1.2_features"].clear();
+            configJson["external"]["vk"]["instance"]["extensions"].clear();
+            configJson["external"]["vk"]["device"]["extensions"].clear();
+            configJson["external"]["vk"]["device"]["1.2_features"].clear();
 
-        config = configJson.dump();
-
-        *pluginJSON = config.c_str();
+            config = configJson.dump();
+            *pluginJSON = config.c_str();
+        }
+        catch (const std::exception& e)
+        {
+            LOG_ERROR("Failed to parse/modify DLSS plugin JSON: {}", e.what());
+        }
     }
 
     return result;
@@ -492,8 +498,8 @@ bool StreamlineHooks::hkdlssg_slOnPluginLoad(void* params, const char* loaderJSO
 {
     LOG_FUNC();
 
-    // TODO: do it better than "static" and hoping for the best
-    static std::string config;
+    // Use thread-local storage to avoid race conditions between different plugin loads
+    thread_local std::string config;
 
     bool shouldSpoofArch =
         Config::Instance()->StreamlineSpoofing.value_or_default() &&
@@ -512,26 +518,33 @@ bool StreamlineHooks::hkdlssg_slOnPluginLoad(void* params, const char* loaderJSO
     if (shouldSpoofArch)
         setArch(currentArch);
 
-    nlohmann::json configJson = nlohmann::json::parse(*pluginJSON);
-
-    // Kill the DLSSG streamline swapchain hooks
-    if (State::Instance().activeFgInput == FGInput::DLSSG)
+    // Only modify config if we're using DLSSG input
+    if (State::Instance().activeFgInput == FGInput::DLSSG || Config::Instance()->FGInput == FGInput::DLSSG)
     {
-        configJson["hooks"].clear();
-        configJson["exclusive_hooks"].clear();
-        configJson["external"]["feature"]["tags"].clear(); // We handle the DLSSG resources
+        try
+        {
+            nlohmann::json configJson = nlohmann::json::parse(*pluginJSON);
+
+            // Kill the DLSSG streamline swapchain hooks to prevent conflicts
+            configJson["hooks"].clear();
+            configJson["exclusive_hooks"].clear();
+            configJson["external"]["feature"]["tags"].clear(); // We handle the DLSSG resources
+
+            if (Config::Instance()->VulkanExtensionSpoofing.value_or_default())
+            {
+                configJson["external"]["vk"]["instance"]["extensions"].clear();
+                configJson["external"]["vk"]["device"]["extensions"].clear();
+                configJson["external"]["vk"]["device"]["1.2_features"].clear();
+            }
+
+            config = configJson.dump();
+            *pluginJSON = config.c_str();
+        }
+        catch (const std::exception& e)
+        {
+            LOG_ERROR("Failed to parse/modify plugin JSON: {}", e.what());
+        }
     }
-
-    if (Config::Instance()->VulkanExtensionSpoofing.value_or_default())
-    {
-        configJson["external"]["vk"]["instance"]["extensions"].clear();
-        configJson["external"]["vk"]["device"]["extensions"].clear();
-        configJson["external"]["vk"]["device"]["1.2_features"].clear();
-    }
-
-    config = configJson.dump();
-
-    *pluginJSON = config.c_str();
 
     return result;
 }
@@ -551,8 +564,8 @@ bool StreamlineHooks::hkcommon_slOnPluginLoad(void* params, const char* loaderJS
 {
     LOG_FUNC();
 
-    // TODO: do it better than "static" and hoping for the best
-    static std::string config;
+    // Use thread-local storage to avoid race conditions between different plugin loads
+    thread_local std::string config;
 
     auto result = o_common_slOnPluginLoad(params, loaderJSON, pluginJSON);
 
@@ -578,6 +591,26 @@ sl::Result StreamlineHooks::hkslDLSSGSetOptions(const sl::ViewportHandle& viewpo
     sl::DLSSGOptions newOptions = options;
     newOptions.mode = newOptions.mode == sl::DLSSGMode::eOff ? sl::DLSSGMode::eOff : sl::DLSSGMode::eOn;
 
+    // Prevent duplicate calls for the same frame to avoid race conditions
+    // Use a mutex to ensure thread-safe access to the last processed frame tracking
+    static std::mutex dlssgSetOptionsMutex;
+    static uint64_t lastProcessedFrame = 0;
+    static sl::DLSSGMode lastProcessedMode = sl::DLSSGMode::eOff;
+
+    {
+        std::lock_guard<std::mutex> lock(dlssgSetOptionsMutex);
+
+        // Check if this is a duplicate call for the same frame and mode
+        if (lastProcessedFrame == State::Instance().FGLastFrame && lastProcessedMode == newOptions.mode)
+        {
+            LOG_DEBUG("Skipping duplicate slDLSSGSetOptions call for frame {}", State::Instance().FGLastFrame);
+            return sl::Result::eOk;
+        }
+
+        lastProcessedFrame = State::Instance().FGLastFrame;
+        lastProcessedMode = newOptions.mode;
+    }
+
     if (State::Instance().swapchainApi == API::Vulkan)
     {
         // Only matters for Vulkan, DX doesn't use this delay
@@ -591,24 +624,9 @@ sl::Result StreamlineHooks::hkslDLSSGSetOptions(const sl::ViewportHandle& viewpo
             ReflexHooks::setDlssgDetectedState(false);
         }
     }
-    // else
-    //{
-    //     if (State::Instance().currentFGSwapchain != nullptr && Config::Instance()->FGEnabled.value_or_default())
-    //     {
-    //         if (newOptions.mode == sl::DLSSGMode::eOn)
-    //         {
-    //             if (!State::Instance().currentFG->IsActive())
-    //                 State::Instance().currentFG->Activate();
-    //         }
-    //         else
-    //         {
-    //             if (State::Instance().currentFG->IsActive())
-    //                 State::Instance().currentFG->Deactivate();
-    //         }
-    //     }
-    // }
 
-    LOG_TRACE("DLSSG Modified Mode: {}", magic_enum::enum_name(newOptions.mode));
+    LOG_TRACE("DLSSG Modified Mode: {} for frame {}", magic_enum::enum_name(newOptions.mode),
+              State::Instance().FGLastFrame);
 
     return o_slDLSSGSetOptions(viewport, newOptions);
 }
@@ -616,6 +634,11 @@ sl::Result StreamlineHooks::hkslDLSSGSetOptions(const sl::ViewportHandle& viewpo
 sl::Result StreamlineHooks::hkslDLSSGGetState(const sl::ViewportHandle& viewport, sl::DLSSGState& state,
                                               const sl::DLSSGOptions* options)
 {
+    // Synchronize with present thread to prevent race conditions
+    // This addresses the warning: "slDLSSGGetState must be synchronized with the present thread"
+    static std::mutex dlssgGetStateMutex;
+    std::lock_guard<std::mutex> lock(dlssgGetStateMutex);
+
     auto result = o_slDLSSGGetState(viewport, state, options);
 
     auto& s = State::Instance();

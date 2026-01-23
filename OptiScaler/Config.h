@@ -400,6 +400,10 @@ class Config
     CustomOptional<bool> LoadReShade { false };
     CustomOptional<bool> LoadAsiPlugins { false };
 
+    // Process Filtering
+    CustomOptional<std::string, NoDefault> TargetProcessName;  // Only inject into this process
+    CustomOptional<std::string, NoDefault> ExcludeProcessName; // Don't inject into this process
+
     // Frame Generation
     CustomOptional<FGInput> FGInput { FGInput::NoFG };
     CustomOptional<FGOutput> FGOutput { FGOutput::NoFG };

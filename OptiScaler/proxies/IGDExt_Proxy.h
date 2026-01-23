@@ -175,32 +175,41 @@ class IGDExtProxy
 
         INTCExtensionVersion* extensionsVersions = nullptr;
         uint32_t extensionsVersionCount = 0;
+        uint32_t extensionsVersionCountAllocated = 0;
 
         bool foundRequestedVersion = false;
 
-        if (_INTC_D3D12_GetSupportedVersions(device, nullptr, &extensionsVersionCount) == S_OK)
+        if (_INTC_D3D12_GetSupportedVersions(device, nullptr, &extensionsVersionCount) == S_OK &&
+            extensionsVersionCount > 0)
         {
-            extensionsVersions = new INTCExtensionVersion[extensionsVersionCount] {};
+            extensionsVersionCountAllocated = extensionsVersionCount;
+            extensionsVersions = new INTCExtensionVersion[extensionsVersionCountAllocated] {};
         }
 
         INTCExtensionInfo extInfo {};
 
-        if (_INTC_D3D12_GetSupportedVersions(device, extensionsVersions, &extensionsVersionCount) == S_OK &&
-            extensionsVersions != nullptr)
+        if (extensionsVersions != nullptr && extensionsVersionCountAllocated > 0)
         {
-            for (uint32_t i = 0; i < extensionsVersionCount; i++)
+            uint32_t actualCount = extensionsVersionCountAllocated;
+            if (_INTC_D3D12_GetSupportedVersions(device, extensionsVersions, &actualCount) == S_OK && actualCount > 0)
             {
-                if ((extensionsVersions[i].HWFeatureLevel >= atomicVersion.HWFeatureLevel) &&
-                    (extensionsVersions[i].APIVersion >= atomicVersion.APIVersion) &&
-                    (extensionsVersions[i].Revision >= atomicVersion.Revision))
+                // Ensure we don't read beyond allocated size
+                uint32_t countToCheck =
+                    (actualCount < extensionsVersionCountAllocated) ? actualCount : extensionsVersionCountAllocated;
+                for (uint32_t i = 0; i < countToCheck; i++)
                 {
-                    LOG_DEBUG("Intel Extensions loaded requested version: {}.{}.{}",
-                              extensionsVersions[i].HWFeatureLevel, extensionsVersions[i].APIVersion,
-                              extensionsVersions[i].Revision);
+                    if ((extensionsVersions[i].HWFeatureLevel >= atomicVersion.HWFeatureLevel) &&
+                        (extensionsVersions[i].APIVersion >= atomicVersion.APIVersion) &&
+                        (extensionsVersions[i].Revision >= atomicVersion.Revision))
+                    {
+                        LOG_DEBUG("Intel Extensions loaded requested version: {}.{}.{}",
+                                  extensionsVersions[i].HWFeatureLevel, extensionsVersions[i].APIVersion,
+                                  extensionsVersions[i].Revision);
 
-                    foundRequestedVersion = true;
-                    extInfo.RequestedExtensionVersion = extensionsVersions[i];
-                    break;
+                        foundRequestedVersion = true;
+                        extInfo.RequestedExtensionVersion = extensionsVersions[i];
+                        break;
+                    }
                 }
             }
         }

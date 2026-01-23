@@ -6,8 +6,6 @@
 
 #include <shaders/format_transfer/FT_Dx12.h>
 
-#include <ffx_framegeneration.h>
-
 class FSRFG_Dx12 : public virtual IFGFeature_Dx12
 {
   private:

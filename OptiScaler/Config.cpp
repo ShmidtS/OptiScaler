@@ -70,33 +70,39 @@ bool Config::Reload(std::filesystem::path iniPath)
 
             if (auto FGInputString = readString("FrameGen", "FGInput"); FGInputString.has_value())
             {
-                if (lstrcmpiA(FGInputString.value().c_str(), "nofg") == 0)
+                const auto& fgInputStr = FGInputString.value();
+                const char* fgInputCStr = fgInputStr.c_str();
+
+                if (_stricmp(fgInputCStr, "nofg") == 0)
                     FGInput.set_from_config(FGInput::NoFG);
-                else if (lstrcmpiA(FGInputString.value().c_str(), "upscaler") == 0)
+                else if (_stricmp(fgInputCStr, "upscaler") == 0)
                     FGInput.set_from_config(FGInput::Upscaler);
-                else if (lstrcmpiA(FGInputString.value().c_str(), "nukems") == 0)
+                else if (_stricmp(fgInputCStr, "nukems") == 0)
                 {
                     FGInput.set_from_config(FGInput::Nukems);
                     FGOutput.set_from_config(FGOutput::Nukems);
                 }
-                else if (lstrcmpiA(FGInputString.value().c_str(), "dlssg") == 0)
+                else if (_stricmp(fgInputCStr, "dlssg") == 0)
                     FGInput.set_from_config(FGInput::DLSSG);
-                else if (lstrcmpiA(FGInputString.value().c_str(), "fsrfg") == 0)
+                else if (_stricmp(fgInputCStr, "fsrfg") == 0)
                     FGInput.set_from_config(FGInput::FSRFG);
-                else if (lstrcmpiA(FGInputString.value().c_str(), "fsrfg30") == 0)
+                else if (_stricmp(fgInputCStr, "fsrfg30") == 0)
                     FGInput.set_from_config(FGInput::FSRFG30);
             }
 
             if (auto FGOutputString = readString("FrameGen", "FGOutput");
                 FGInput.value_or_default() != FGInput::Nukems && FGOutputString.has_value())
             {
-                if (lstrcmpiA(FGOutputString.value().c_str(), "nofg") == 0)
+                const auto& fgOutputStr = FGOutputString.value();
+                const char* fgOutputCStr = fgOutputStr.c_str();
+
+                if (_stricmp(fgOutputCStr, "nofg") == 0)
                     FGOutput.set_from_config(FGOutput::NoFG);
-                else if (lstrcmpiA(FGOutputString.value().c_str(), "fsrfg") == 0)
+                else if (_stricmp(fgOutputCStr, "fsrfg") == 0)
                     FGOutput.set_from_config(FGOutput::FSRFG);
-                else if (lstrcmpiA(FGOutputString.value().c_str(), "nukems") == 0)
+                else if (_stricmp(fgOutputCStr, "nukems") == 0)
                     FGOutput.set_from_config(FGOutput::Nukems);
-                else if (lstrcmpiA(FGOutputString.value().c_str(), "xefg") == 0)
+                else if (_stricmp(fgOutputCStr, "xefg") == 0)
                     FGOutput.set_from_config(FGOutput::XeFG);
             }
 
@@ -238,7 +244,7 @@ bool Config::Reload(std::filesystem::path iniPath)
             else if (FsrNonLinearSRGB.has_value() && FsrNonLinearSRGB.value())
                 FsrNonLinearPQ.reset();
 
-            if (FsrNonLinearPQ.has_value() || FsrNonLinearPQ.has_value())
+            if (FsrNonLinearPQ.has_value() || FsrNonLinearSRGB.has_value())
                 FsrNonLinearColorSpace.set_volatile_value(true);
         }
 
@@ -627,6 +633,12 @@ bool Config::Reload(std::filesystem::path iniPath)
             LoadSpecialK.set_from_config(readBool("Plugins", "LoadSpecialK"));
             LoadReShade.set_from_config(readBool("Plugins", "LoadReShade"));
             LoadAsiPlugins.set_from_config(readBool("Plugins", "LoadAsiPlugins"));
+        }
+
+        // Process Filtering
+        {
+            TargetProcessName.set_from_config(readString("ProcessFilter", "TargetProcessName"));
+            ExcludeProcessName.set_from_config(readString("ProcessFilter", "ExcludeProcessName"));
         }
 
         // HDR
@@ -1236,6 +1248,12 @@ bool Config::SaveIni()
         ini.SetValue("Plugins", "LoadAsiPlugins", GetBoolValue(Instance()->LoadAsiPlugins.value_for_config()).c_str());
     }
 
+    // Process Filtering
+    {
+        ini.SetValue("ProcessFilter", "TargetProcessName", Instance()->TargetProcessName.value_for_config_or("auto").c_str());
+        ini.SetValue("ProcessFilter", "ExcludeProcessName", Instance()->ExcludeProcessName.value_for_config_or("auto").c_str());
+    }
+
     // inputs
     {
         ini.SetValue("Inputs", "EnableDlssInputs",
@@ -1340,11 +1358,23 @@ bool Config::SaveXeFG()
 
 void Config::CheckUpscalerFiles()
 {
-    if (!State::Instance().nvngxExists)
-        State::Instance().nvngxExists = std::filesystem::exists(Util::ExePath().parent_path() / L"nvngx.dll");
+    // Кэшируем пути для избежания повторных вызовов
+    static std::filesystem::path cachedExeParentPath;
+    static std::filesystem::path cachedDllParentPath;
+    static bool pathsCached = false;
+
+    if (!pathsCached)
+    {
+        cachedExeParentPath = Util::ExePath().parent_path();
+        cachedDllParentPath = Util::DllPath().parent_path();
+        pathsCached = true;
+    }
 
     if (!State::Instance().nvngxExists)
-        State::Instance().nvngxExists = std::filesystem::exists(Util::ExePath().parent_path() / L"_nvngx.dll");
+        State::Instance().nvngxExists = std::filesystem::exists(cachedExeParentPath / L"nvngx.dll");
+
+    if (!State::Instance().nvngxExists)
+        State::Instance().nvngxExists = std::filesystem::exists(cachedExeParentPath / L"_nvngx.dll");
 
     if (!State::Instance().nvngxExists)
     {
@@ -1363,13 +1393,12 @@ void Config::CheckUpscalerFiles()
         LOG_INFO("nvngx.dll found in game folder");
     }
 
-    if (auto nvngxReplacement = Util::FindFilePath(Util::DllPath().remove_filename(), "nvngx_dlss.dll");
-        nvngxReplacement.has_value())
+    if (auto nvngxReplacement = Util::FindFilePath(cachedDllParentPath, "nvngx_dlss.dll"); nvngxReplacement.has_value())
     {
         State::Instance().nvngxReplacement = nvngxReplacement.value().wstring();
     }
 
-    State::Instance().libxessExists = std::filesystem::exists(Util::ExePath().parent_path() / L"libxess.dll");
+    State::Instance().libxessExists = std::filesystem::exists(cachedExeParentPath / L"libxess.dll");
     if (!State::Instance().libxessExists)
     {
         State::Instance().libxessExists = GetModuleHandle(L"libxess.dll") != nullptr;
@@ -1391,30 +1420,38 @@ std::optional<std::string> Config::readString(std::string section, std::string k
 {
     std::string value = ini.GetValue(section.c_str(), key.c_str(), "auto");
 
-    std::string lower = value;
-    std::ranges::transform(lower, lower.begin(), [](unsigned char c) { return std::tolower(c); });
-
-    if (lower == "auto")
+    // Проверяем "auto" без создания копии строки
+    if (value == "auto")
         return std::nullopt;
+
+    if (lowercase)
+    {
+        // Преобразуем в lowercase на месте
+        std::ranges::transform(value, value.begin(), [](unsigned char c) { return std::tolower(c); });
+    }
 
     _log.push_back(std::format("{}.{}: {}", section, key, value));
 
-    return lowercase ? lower : value;
+    return value;
 }
 
 std::optional<std::wstring> Config::readWString(std::string section, std::string key, bool lowercase)
 {
     std::string value = ini.GetValue(section.c_str(), key.c_str(), "auto");
 
-    std::string lower = value;
-    std::ranges::transform(lower, lower.begin(), [](unsigned char c) { return std::tolower(c); });
-
-    if (lower == "auto")
+    // Проверяем "auto" без создания копии строки
+    if (value == "auto")
         return std::nullopt;
+
+    if (lowercase)
+    {
+        // Преобразуем в lowercase на месте
+        std::ranges::transform(value, value.begin(), [](unsigned char c) { return std::tolower(c); });
+    }
 
     _log.push_back(std::format("{}.{}: {}", section, key, value));
 
-    return lowercase ? string_to_wstring(lower) : string_to_wstring(value);
+    return string_to_wstring(value);
 }
 
 std::optional<float> Config::readFloat(std::string section, std::string key)
@@ -1476,11 +1513,11 @@ std::optional<int> Config::readInt(std::string section, std::string key)
     {
         return std::nullopt;
     }
-    catch (const std::invalid_argument&) // invalid float string for std::stof
+    catch (const std::invalid_argument&) // invalid int string
     {
         return std::nullopt;
     }
-    catch (const std::out_of_range&) // out// out of range for 32 bit float
+    catch (const std::out_of_range&) // out of range for 32 bit int
     {
         return std::nullopt;
     }
@@ -1510,7 +1547,7 @@ std::optional<uint32_t> Config::readUInt(std::string section, std::string key)
 
         // ensure we consumed the whole string
         if (idx == s.size())
-            return result;
+            return static_cast<uint32_t>(result);
         else
             return std::nullopt;
     }
@@ -1518,11 +1555,11 @@ std::optional<uint32_t> Config::readUInt(std::string section, std::string key)
     {
         return std::nullopt;
     }
-    catch (const std::invalid_argument&) // invalid float string for std::stof
+    catch (const std::invalid_argument&) // invalid int string
     {
         return std::nullopt;
     }
-    catch (const std::out_of_range&) // out// out of range for 32 bit float
+    catch (const std::out_of_range&) // out of range for 32 bit int
     {
         return std::nullopt;
     }

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ffx_api.h"
+#include <ffx_api.h>
 
 #define PASSTHRU_RETURN_CODE (ffxReturnCode_t) 0xFFFFFFFF
 const size_t scContext = 0x13375CC;

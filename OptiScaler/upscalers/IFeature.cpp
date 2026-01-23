@@ -142,8 +142,21 @@ bool IFeature::SetInitParameters(NVSDK_NGX_Parameter* InParameters)
         {
             _displayWidth = width > outWidth ? width : outWidth;
             _displayHeight = height > outHeight ? height : outHeight;
-            _targetWidth = _displayWidth;
-            _targetHeight = _displayHeight;
+
+            // Apply output scaling multiplier to target size
+            if (Config::Instance()->OutputScalingEnabled.value_or_default())
+            {
+                _targetWidth = static_cast<unsigned int>(
+                    _displayWidth * Config::Instance()->OutputScalingMultiplier.value_or_default());
+                _targetHeight = static_cast<unsigned int>(
+                    _displayHeight * Config::Instance()->OutputScalingMultiplier.value_or_default());
+            }
+            else
+            {
+                _targetWidth = _displayWidth;
+                _targetHeight = _displayHeight;
+            }
+
             _renderWidth = width < outWidth ? width : outWidth;
             _renderHeight = height < outHeight ? height : outHeight;
         }
@@ -151,8 +164,21 @@ bool IFeature::SetInitParameters(NVSDK_NGX_Parameter* InParameters)
         {
             _displayWidth = outWidth;
             _displayHeight = outHeight;
-            _targetWidth = _displayWidth;
-            _targetHeight = _displayHeight;
+
+            // Apply output scaling multiplier to target size
+            if (Config::Instance()->OutputScalingEnabled.value_or_default())
+            {
+                _targetWidth = static_cast<unsigned int>(
+                    _displayWidth * Config::Instance()->OutputScalingMultiplier.value_or_default());
+                _targetHeight = static_cast<unsigned int>(
+                    _displayHeight * Config::Instance()->OutputScalingMultiplier.value_or_default());
+            }
+            else
+            {
+                _targetWidth = _displayWidth;
+                _targetHeight = _displayHeight;
+            }
+
             _renderWidth = width;
             _renderHeight = height;
         }
@@ -304,26 +330,28 @@ bool IFeature::UpdateOutputResolution(const NVSDK_NGX_Parameter* InParameters)
         {
             _targetWidth = static_cast<unsigned int>(fsrDynamicOutputWidth *
                                                      Config::Instance()->OutputScalingMultiplier.value_or_default());
-            _displayWidth = fsrDynamicOutputWidth;
+            // Don't update _displayWidth here - keep the original display resolution
             _targetHeight = static_cast<unsigned int>(fsrDynamicOutputHeight *
                                                       Config::Instance()->OutputScalingMultiplier.value_or_default());
-            _displayHeight = fsrDynamicOutputHeight;
+            // Don't update _displayHeight here - keep the original display resolution
 
             return true;
         }
-    }
-    else
-    {
-        if (fsrDynamicOutputWidth > 0 && fsrDynamicOutputHeight > 0 &&
-            (fsrDynamicOutputWidth != _targetWidth || fsrDynamicOutputWidth != _displayWidth ||
-             fsrDynamicOutputHeight != _targetHeight || fsrDynamicOutputHeight != _displayHeight))
+        // If FSR doesn't provide dynamic resolution, apply multiplier to current target size
+        else
         {
-            _targetWidth = fsrDynamicOutputWidth;
-            _displayWidth = fsrDynamicOutputWidth;
-            _targetHeight = fsrDynamicOutputHeight;
-            _displayHeight = fsrDynamicOutputHeight;
+            unsigned int expectedTargetWidth = static_cast<unsigned int>(
+                _displayWidth * Config::Instance()->OutputScalingMultiplier.value_or_default());
+            unsigned int expectedTargetHeight = static_cast<unsigned int>(
+                _displayHeight * Config::Instance()->OutputScalingMultiplier.value_or_default());
 
-            return true;
+            if (_targetWidth != expectedTargetWidth || _targetHeight != expectedTargetHeight)
+            {
+                _targetWidth = expectedTargetWidth;
+                _targetHeight = expectedTargetHeight;
+
+                return true;
+            }
         }
     }
 

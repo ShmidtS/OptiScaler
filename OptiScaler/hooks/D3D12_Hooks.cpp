@@ -272,7 +272,9 @@ static HRESULT hkD3D12CreateDevice(IDXGIAdapter* pAdapter, D3D_FEATURE_LEVEL Min
 
     if (ppDevice == nullptr)
     {
-        LOG_ERROR("ppDevice is nullptr");
+        LOG_WARN("ppDevice is nullptr - this is expected for some API calls");
+        LOG_DEBUG("Adapter: {:X}, Level: {:X}, Caller: {}", (size_t) pAdapter, (UINT) MinimumFeatureLevel,
+                  Util::WhoIsTheCaller(_ReturnAddress()));
         _creatingD3D12Device = true;
         auto result = o_D3D12CreateDevice(pAdapter, minLevel, riid, ppDevice);
         _creatingD3D12Device = false;
@@ -404,7 +406,9 @@ static HRESULT hkCreateDevice(ID3D12DeviceFactory* pFactory, IDXGIAdapter* pAdap
 
     if (ppDevice == nullptr)
     {
-        LOG_ERROR("ppDevice is nullptr");
+        LOG_WARN("ppDevice is nullptr - this is expected for some API calls");
+        LOG_DEBUG("Adapter: {:X}, Level: {:X}, Caller: {}", (size_t) pAdapter, (UINT) MinimumFeatureLevel,
+                  Util::WhoIsTheCaller(_ReturnAddress()));
         return o_CreateDevice(pFactory, pAdapter, minLevel, riid, ppDevice);
     }
 
@@ -645,9 +649,9 @@ Member Function: RCX = this, RDX = Hidden Ptr, R8 = Arg1
 
 Output: The function must return that same hidden pointer in RAX.
 
-Why Agility SDK crashed but legacy didn't: The Agility SDK is compiled with newer MSVC optimizations that strictly
-enforce the "Return in RAX" rule for chained calls. The legacy DLL likely had some wiggle room or didn't immediately
-dereference RAX after the call.
+Why Agility SDK crashed but legacy didn't: The Agility SDK is compiled with newer MSVC optimizations that
+strictly enforce the "Return in RAX" rule for chained calls. The legacy DLL likely had some wiggle room or
+didn't immediately dereference RAX after the call.
 */
 static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE
 hkGetResourceAllocationInfo(ID3D12Device* device, D3D12_RESOURCE_ALLOCATION_INFO* pResult, UINT visibleMask,
@@ -711,6 +715,12 @@ static void hkCreateSampler(ID3D12Device* device, const D3D12_SAMPLER_DESC* pDes
                 newDesc.MipLODBias = newDesc.MipLODBias * Config::Instance()->MipmapBiasOverride.value();
             else
                 newDesc.MipLODBias = newDesc.MipLODBias + Config::Instance()->MipmapBiasOverride.value();
+
+            // Clamp to D3D12 valid range [-16.0, 15.99]
+            if (newDesc.MipLODBias < -16.0f)
+                newDesc.MipLODBias = -16.0f;
+            else if (newDesc.MipLODBias > 15.99f)
+                newDesc.MipLODBias = 15.99f;
         }
 
         if (State::Instance().lastMipBiasMax < newDesc.MipLODBias)

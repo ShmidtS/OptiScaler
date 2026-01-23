@@ -87,7 +87,9 @@ void DLSSFeature::ProcessInitParams(NVSDK_NGX_Parameter* InParameters)
         _targetHeight = DisplayHeight();
     }
 
-    if (Config::Instance()->ExtendedLimits.value_or_default() && RenderWidth() > DisplayWidth())
+    // ExtendedLimits should not override OutputScaling when it's enabled
+    if (Config::Instance()->ExtendedLimits.value_or_default() && RenderWidth() > DisplayWidth() &&
+        !Config::Instance()->OutputScalingEnabled.value_or_default())
     {
         LOG_DEBUG("Extended limits is active and render size is bigger than display size");
 

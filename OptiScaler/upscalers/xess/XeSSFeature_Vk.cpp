@@ -238,7 +238,9 @@ bool XeSSFeature_Vk::Init(VkInstance InInstance, VkPhysicalDevice InPD, VkDevice
             _targetHeight = DisplayHeight();
         }
 
-        if (Config::Instance()->ExtendedLimits.value_or(false) && RenderWidth() > DisplayWidth())
+        // ExtendedLimits should not override OutputScaling when it's enabled
+        if (Config::Instance()->ExtendedLimits.value_or(false) && RenderWidth() > DisplayWidth() &&
+            !Config::Instance()->OutputScalingEnabled.value_or(false))
         {
             _targetWidth = RenderWidth();
             _targetHeight = RenderHeight();

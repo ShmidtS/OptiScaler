@@ -58,6 +58,10 @@ void Menu_Dx11::CreateRenderTarget(ID3D11Resource* out)
         textureDesc.MiscFlags = 0;
 
         _device->CreateTexture2D(&textureDesc, nullptr, &_renderTargetTexture);
+        if (_renderTargetTexture == nullptr)
+        {
+            return;
+        }
 
         D3D11_RENDER_TARGET_VIEW_DESC rtvDesc;
         ZeroMemory(&rtvDesc, sizeof(rtvDesc));
