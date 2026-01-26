@@ -347,6 +347,10 @@ static const QuirkEntry quirkTable[] = {
     // VK Ext spoof needed for FSR3
     QUIRK_ENTRY("bg3.exe", GameQuirk::EnableVulkanExtensionSpoofing),
 
+    // Arknights: Endfield (Vulkan)
+    QUIRK_ENTRY("endfield.exe", GameQuirk::DontUseNtDllHooks, GameQuirk::EnableVulkanSpoofing,
+                GameQuirk::EnableVulkanExtensionSpoofing),
+
 };
 
 static flag_set<GameQuirk> getQuirksForExe(std::string exeName)
