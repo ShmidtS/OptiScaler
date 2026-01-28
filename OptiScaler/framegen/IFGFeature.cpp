@@ -9,7 +9,9 @@ int IFGFeature::GetIndexWillBeDispatched()
     UINT64 df;
 
     auto diff = _frameCount - _lastDispatchedFrame;
-    if (diff > Config::Instance()->FGAllowedFrameAhead.value_or_default() || diff < 0 || _lastDispatchedFrame == 0)
+    auto allowedAhead = Config::Instance()->FGAllowedFrameAhead.value_or_default();
+
+    if (diff > allowedAhead || diff < 0 || _lastDispatchedFrame == 0)
     {
         // If current index has resources, skip to it
         if (HasResource(FG_ResourceType::Depth))
@@ -18,6 +20,12 @@ int IFGFeature::GetIndexWillBeDispatched()
                       _lastDispatchedFrame);
 
             df = _frameCount; // Set dispatch frame as new one
+        }
+        else if (diff > allowedAhead * 2)
+        {
+            // Large jump without resources - catch up gradually
+            df = _lastDispatchedFrame + (diff / 2);
+            LOG_DEBUG("Large frame jump in GetIndexWillBeDispatched, catching up to frame {}", df);
         }
         else
         {
@@ -36,30 +44,45 @@ UINT64 IFGFeature::StartNewFrame()
 {
     _frameCount++;
 
+    // Adaptive frame jump detection based on FG activity
+    // When FG is not active, we expect larger jumps since dispatch isn't happening
+    // When FG is active, we need tighter synchronization
+    const uint64_t ACTIVE_THRESHOLD = 20;      // Normal threshold when FG is active
+    const uint64_t INACTIVE_THRESHOLD = 100;   // Larger threshold when FG is not active
+    const uint64_t MODERATE_THRESHOLD = 10;    // Debug logging threshold
+
+    uint64_t threshold = (_isActive || _waitingNewFrameData) ? ACTIVE_THRESHOLD : INACTIVE_THRESHOLD;
+
     // Only warn about frame jumps if we have a valid last dispatched frame
-    // For RTX 3070 and similar GPUs, allow larger jumps during mode changes
-    // Increased threshold from 10 to 20 to reduce false positives during mode switches
-    // This is especially important for games with dynamic resolution or frame rate changes
-    if (_lastDispatchedFrame > 0 && (_frameCount - _lastDispatchedFrame) > 20)
+    // Only check when FG is active - when inactive, _lastDispatchedFrame won't be updated
+    if (_isActive && _lastDispatchedFrame > 0 && (_frameCount - _lastDispatchedFrame) > threshold)
     {
-        LOG_WARN("Frame count jumped too much! _frameCount: {}, _lastDispatchedFrame: {}", _frameCount,
-                 _lastDispatchedFrame);
+        LOG_WARN("Frame count jumped too much! _frameCount: {}, _lastDispatchedFrame: {}",
+                 _frameCount, _lastDispatchedFrame);
 
         // Reset the last dispatched frame to prevent cascading warnings
-        // but keep it within a reasonable range
-        _lastDispatchedFrame = _frameCount - 1;
+        // Keep some history to avoid immediate re-triggering
+        _lastDispatchedFrame = _frameCount > 5 ? _frameCount - 5 : _frameCount - 1;
     }
     else if (_lastDispatchedFrame == 0)
     {
         // First frame, initialize properly
         _lastDispatchedFrame = _frameCount - 1;
     }
-    else if (_lastDispatchedFrame > 0 && (_frameCount - _lastDispatchedFrame) > 10)
+    else if (_isActive && _lastDispatchedFrame > 0 && (_frameCount - _lastDispatchedFrame) > MODERATE_THRESHOLD)
     {
-        // For moderate jumps (10-20 frames), just log debug info instead of warning
-        // This is common during resolution changes or frame rate adjustments
-        LOG_DEBUG("Frame count jumped moderately! _frameCount: {}, _lastDispatchedFrame: {}", _frameCount,
-                  _lastDispatchedFrame);
+        // Only log moderate jumps when FG is active
+        // When FG is not active, _lastDispatchedFrame won't be updated, so this is expected
+        LOG_DEBUG("Frame count jumped moderately! _frameCount: {}, _lastDispatchedFrame: {}",
+                  _frameCount, _lastDispatchedFrame);
+
+        // Progressive reset: if we're consistently behind, catch up gradually
+        if (_frameCount - _lastDispatchedFrame > 15)
+        {
+            // Catch up by half the difference to avoid sudden jumps
+            uint64_t diff = _frameCount - _lastDispatchedFrame;
+            _lastDispatchedFrame += diff / 2;
+        }
     }
 
     auto fIndex = GetIndex();
@@ -158,12 +181,30 @@ int IFGFeature::GetDispatchIndex(UINT64& willDispatchFrame)
         return -1;
 
     auto diff = _frameCount - _lastDispatchedFrame;
-    if (diff > Config::Instance()->FGAllowedFrameAhead.value_or_default() || diff < 0 || _lastDispatchedFrame == 0)
+    auto allowedAhead = Config::Instance()->FGAllowedFrameAhead.value_or_default();
+
+    // Handle frame jumps more gracefully
+    if (diff > allowedAhead || diff < 0 || _lastDispatchedFrame == 0)
     {
+        LOG_DEBUG("Frame jump detected! diff: {}, allowed: {}", diff, allowedAhead);
+
         if (HasResource(FG_ResourceType::Depth))
-            willDispatchFrame = _frameCount; // Set dispatch frame as new one
+        {
+            // Have resources for current frame, dispatch it
+            willDispatchFrame = _frameCount;
+        }
+        else if (diff > allowedAhead * 2)
+        {
+            // Large jump without resources - catch up gradually
+            // This prevents the "jump too much" warning from triggering
+            willDispatchFrame = _lastDispatchedFrame + (diff / 2);
+            LOG_DEBUG("Large frame jump, catching up gradually to frame {}", willDispatchFrame);
+        }
         else
-            willDispatchFrame = _lastDispatchedFrame + 1; // Render next one
+        {
+            // Normal case - just render next frame
+            willDispatchFrame = _lastDispatchedFrame + 1;
+        }
     }
     else
     {

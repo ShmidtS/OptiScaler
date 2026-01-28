@@ -510,6 +510,11 @@ powershell -Command "Start-Sleep -Seconds 2; $commit = git rev-parse --short HEA
     <ClInclude Include="version_check.h" />
     <ClInclude Include="upscalers\xess\XeSSFeature_Dx11.h" />
     <ClInclude Include="proxies\XeSS_Proxy.h" />
+    <ClInclude Include="misc\CommandListPool.h" />
+    <ClInclude Include="misc\HighResTimer.h" />
+    <ClInclude Include="misc\ResourcePool.h" />
+    <ClInclude Include="misc\AsyncResourcePreparer.h" />
+    <ClInclude Include="misc\VulkanSyncOptimizer.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="framegen\ffx\FSRFG_Dx12.cpp" />
@@ -648,6 +653,9 @@ powershell -Command "Start-Sleep -Seconds 2; $commit = git rev-parse --short HEA
     <ClCompile Include="version_check.cpp" />
     <ClCompile Include="inputs\XeSS_Debug.cpp" />
     <ClCompile Include="inputs\XeSS_Dx12.cpp" />
+    <ClCompile Include="misc\CommandListPool.cpp" />
+    <ClCompile Include="misc\AsyncResourcePreparer.cpp" />
+    <ClCompile Include="misc\VulkanSyncOptimizer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="OptiScaler.rc" />
