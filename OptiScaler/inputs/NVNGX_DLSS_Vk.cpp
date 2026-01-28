@@ -150,6 +150,7 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_VULKAN_Init_Ext2(
     }
 
     State::Instance().currentVkDevice = InDevice;
+    State::Instance().currentVkPD = InPD;
 
     UpscalerTimeVk::Init(InDevice, InPD);
 

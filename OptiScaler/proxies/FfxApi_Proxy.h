@@ -25,12 +25,14 @@
 #include <ffx_upscale.h>
 #include <ffx_framegeneration.h>
 
-// Check if VK header was already included (FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_VK is defined in vk/ffx_api_vk.h)
-// If so, skip DX12 headers to avoid enum redefinition errors
-#if !defined(FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_VK)
+// Include Vulkan FFX API headers
+#include <vk/ffx_api_vk.h>
+
+// Include DX12 FFX API headers
+// Note: ffx_api_framegeneration_dx12.h is NOT included here because it defines
+// enum values that conflict with ffx_api_vk.h (FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_*)
+// Include it directly in files that need DX12-specific frame generation types
 #include <dx12/ffx_api_dx12.h>
-#include <dx12/ffx_api_framegeneration_dx12.h>
-#endif
 
 enum class FFXStructType
 {
@@ -107,7 +109,7 @@ class FfxApiProxy
     static HMODULE Dx12Module_SR() { return upscaling_dx12.dll; }
     static HMODULE Dx12Module_FG() { return fg_dx12.dll; }
 
-    static bool IsFGReady() { return (main_dx12.dll && !main_dx12.isLoader) || fg_dx12.dll != nullptr; }
+    static bool IsFGReady() { return (main_dx12.dll && !main_dx12.isLoader) || fg_dx12.dll != nullptr || (main_vk.dll && !main_vk.isLoader); }
     static bool IsSRReady() { return (main_dx12.dll && !main_dx12.isLoader) || upscaling_dx12.dll != nullptr; }
 
     static FFXStructType GetType(ffxStructType_t type)
@@ -977,6 +979,55 @@ class FfxApiProxy
     static PfnFfxConfigure VULKAN_Configure() { return main_vk.Configure; }
     static PfnFfxQuery VULKAN_Query() { return main_vk.Query; }
     static PfnFfxDispatch VULKAN_Dispatch() { return main_vk.Dispatch; }
+
+    // Vulkan FG API function pointer getters - used by FSRFG_Vk
+    static PfnFfxCreateContext VK_GetCreateContext() { return main_vk.CreateContext; }
+    static PfnFfxDestroyContext VK_GetDestroyContext() { return main_vk.DestroyContext; }
+    static PfnFfxConfigure VK_GetConfigure() { return main_vk.Configure; }
+    static PfnFfxQuery VK_GetQuery() { return main_vk.Query; }
+    static PfnFfxDispatch VK_GetDispatch() { return main_vk.Dispatch; }
+
+    // Vulkan FG API wrappers - matching DX12 naming convention (for direct calls)
+    static ffxReturnCode_t VK_CreateContext(ffxContext* context, ffxCreateContextDescHeader* desc,
+                                            const ffxAllocationCallbacks* memCb)
+    {
+        if (main_vk.dll != nullptr && main_vk.CreateContext != nullptr)
+            return main_vk.CreateContext(context, desc, memCb);
+        return FFX_API_RETURN_NO_PROVIDER;
+    }
+
+    static ffxReturnCode_t VK_DestroyContext(ffxContext* context, const ffxAllocationCallbacks* memCb)
+    {
+        if (main_vk.dll != nullptr && main_vk.DestroyContext != nullptr)
+            return main_vk.DestroyContext(context, memCb);
+        return FFX_API_RETURN_NO_PROVIDER;
+    }
+
+    static ffxReturnCode_t VK_Configure(ffxContext* context, const ffxConfigureDescHeader* desc)
+    {
+        if (main_vk.dll != nullptr && main_vk.Configure != nullptr)
+            return main_vk.Configure(context, desc);
+        return FFX_API_RETURN_NO_PROVIDER;
+    }
+
+    static ffxReturnCode_t VK_Query(ffxContext* context, ffxQueryDescHeader* desc)
+    {
+        if (main_vk.dll != nullptr && main_vk.Query != nullptr)
+            return main_vk.Query(context, desc);
+        return FFX_API_RETURN_NO_PROVIDER;
+    }
+
+    static ffxReturnCode_t VK_Dispatch(ffxContext* context, const ffxDispatchDescHeader* desc)
+    {
+        if (main_vk.dll != nullptr && main_vk.Dispatch != nullptr)
+            return main_vk.Dispatch(context, desc);
+        return FFX_API_RETURN_NO_PROVIDER;
+    }
+
+    static feature_version VersionVk_FG()
+    {
+        return VersionVk();
+    }
 
     static std::string ReturnCodeToString(ffxReturnCode_t result)
     {

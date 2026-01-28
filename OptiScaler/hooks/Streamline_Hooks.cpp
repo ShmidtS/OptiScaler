@@ -140,9 +140,9 @@ sl::Result StreamlineHooks::hkslInit(sl::Preferences* pref, uint64_t sdkVersion)
 sl::Result StreamlineHooks::hkslSetTag(sl::ViewportHandle& viewport, sl::ResourceTag* tags, uint32_t numTags,
                                        sl::CommandBuffer* cmdBuffer)
 {
-    if (renderApi == sl::RenderAPI::eD3D11 || renderApi == sl::RenderAPI::eVulkan)
+    if (renderApi == sl::RenderAPI::eD3D11)
     {
-        LOG_ERROR("hkslSetTag only supports DX12");
+        LOG_ERROR("hkslSetTag only supports DX12 and Vulkan");
         return o_slSetTag(viewport, tags, numTags, cmdBuffer);
     }
 
@@ -163,25 +163,42 @@ sl::Result StreamlineHooks::hkslSetTag(sl::ViewportHandle& viewport, sl::Resourc
             continue;
         }
 
-        // Cyberpunk hudless state fix for RDNA 2
-        if (State::Instance().gameQuirks & GameQuirk::CyberpunkHudlessStateOverride &&
-            tags[i].resource->state ==
-                (D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) &&
-            tags[i].type == sl::kBufferTypeHUDLessColor)
+        // DX12-specific handling
+        if (renderApi == sl::RenderAPI::eD3D12)
         {
-            tags[i].resource->state = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-            LOG_TRACE("Changing hudless resource state");
+            // Cyberpunk hudless state fix for RDNA 2
+            if (State::Instance().gameQuirks & GameQuirk::CyberpunkHudlessStateOverride &&
+                tags[i].resource->state ==
+                    (D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE) &&
+                tags[i].type == sl::kBufferTypeHUDLessColor)
+            {
+                tags[i].resource->state = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+                LOG_TRACE("Changing hudless resource state");
+            }
+
+            if (State::Instance().activeFgInput == FGInput::DLSSG &&
+                (tags[i].type == sl::kBufferTypeHUDLessColor || tags[i].type == sl::kBufferTypeDepth ||
+                 tags[i].type == sl::kBufferTypeHiResDepth || tags[i].type == sl::kBufferTypeLinearDepth ||
+                 tags[i].type == sl::kBufferTypeMotionVectors || tags[i].type == sl::kBufferTypeUIColorAndAlpha ||
+                 tags[i].type == sl::kBufferTypeBidirectionalDistortionField))
+            {
+                State::Instance().slFGInputs.reportResource(tags[i], (ID3D12GraphicsCommandList*) cmdBuffer, 0);
+            }
+        }
+        // Vulkan-specific handling
+        else if (renderApi == sl::RenderAPI::eVulkan)
+        {
+            if (State::Instance().activeFgInput == FGInput::DLSSG &&
+                (tags[i].type == sl::kBufferTypeHUDLessColor || tags[i].type == sl::kBufferTypeDepth ||
+                 tags[i].type == sl::kBufferTypeHiResDepth || tags[i].type == sl::kBufferTypeLinearDepth ||
+                 tags[i].type == sl::kBufferTypeMotionVectors || tags[i].type == sl::kBufferTypeUIColorAndAlpha ||
+                 tags[i].type == sl::kBufferTypeBidirectionalDistortionField))
+            {
+                State::Instance().slFGInputsVk.reportResource(tags[i], (VkCommandBuffer) cmdBuffer, 0);
+            }
         }
 
-        if (State::Instance().activeFgInput == FGInput::DLSSG &&
-            (tags[i].type == sl::kBufferTypeHUDLessColor || tags[i].type == sl::kBufferTypeDepth ||
-             tags[i].type == sl::kBufferTypeHiResDepth || tags[i].type == sl::kBufferTypeLinearDepth ||
-             tags[i].type == sl::kBufferTypeMotionVectors || tags[i].type == sl::kBufferTypeUIColorAndAlpha ||
-             tags[i].type == sl::kBufferTypeBidirectionalDistortionField))
-        {
-            State::Instance().slFGInputs.reportResource(tags[i], (ID3D12GraphicsCommandList*) cmdBuffer, 0);
-        }
-        else if (State::Instance().activeFgInput == FGInput::Nukems)
+        if (State::Instance().activeFgInput == FGInput::Nukems)
         {
             LOG_TRACE("Tagging resource of type: {}", tags[i].type);
         }
@@ -195,9 +212,9 @@ sl::Result StreamlineHooks::hkslSetTagForFrame(const sl::FrameToken& frame, cons
                                                const sl::ResourceTag* resources, uint32_t numResources,
                                                sl::CommandBuffer* cmdBuffer)
 {
-    if (renderApi == sl::RenderAPI::eD3D11 || renderApi == sl::RenderAPI::eVulkan)
+    if (renderApi == sl::RenderAPI::eD3D11)
     {
-        LOG_ERROR("hkslSetTagForFrame only supports DX12");
+        LOG_ERROR("hkslSetTagForFrame only supports DX12 and Vulkan");
         return o_slSetTagForFrame(frame, viewport, resources, numResources, cmdBuffer);
     }
 
@@ -220,16 +237,34 @@ sl::Result StreamlineHooks::hkslSetTagForFrame(const sl::FrameToken& frame, cons
             continue;
         }
 
-        if (State::Instance().activeFgInput == FGInput::DLSSG &&
-            (resources[i].type == sl::kBufferTypeHUDLessColor || resources[i].type == sl::kBufferTypeDepth ||
-             resources[i].type == sl::kBufferTypeHiResDepth || resources[i].type == sl::kBufferTypeLinearDepth ||
-             resources[i].type == sl::kBufferTypeMotionVectors || resources[i].type == sl::kBufferTypeUIColorAndAlpha ||
-             resources[i].type == sl::kBufferTypeBidirectionalDistortionField))
+        // DX12-specific handling
+        if (renderApi == sl::RenderAPI::eD3D12)
         {
-            State::Instance().slFGInputs.reportResource(resources[i], (ID3D12GraphicsCommandList*) cmdBuffer,
-                                                        (uint32_t) frame);
+            if (State::Instance().activeFgInput == FGInput::DLSSG &&
+                (resources[i].type == sl::kBufferTypeHUDLessColor || resources[i].type == sl::kBufferTypeDepth ||
+                 resources[i].type == sl::kBufferTypeHiResDepth || resources[i].type == sl::kBufferTypeLinearDepth ||
+                 resources[i].type == sl::kBufferTypeMotionVectors || resources[i].type == sl::kBufferTypeUIColorAndAlpha ||
+                 resources[i].type == sl::kBufferTypeBidirectionalDistortionField))
+            {
+                State::Instance().slFGInputs.reportResource(resources[i], (ID3D12GraphicsCommandList*) cmdBuffer,
+                                                            (uint32_t) frame);
+            }
         }
-        else if (State::Instance().activeFgInput == FGInput::Nukems)
+        // Vulkan-specific handling
+        else if (renderApi == sl::RenderAPI::eVulkan)
+        {
+            if (State::Instance().activeFgInput == FGInput::DLSSG &&
+                (resources[i].type == sl::kBufferTypeHUDLessColor || resources[i].type == sl::kBufferTypeDepth ||
+                 resources[i].type == sl::kBufferTypeHiResDepth || resources[i].type == sl::kBufferTypeLinearDepth ||
+                 resources[i].type == sl::kBufferTypeMotionVectors || resources[i].type == sl::kBufferTypeUIColorAndAlpha ||
+                 resources[i].type == sl::kBufferTypeBidirectionalDistortionField))
+            {
+                State::Instance().slFGInputsVk.reportResource(resources[i], (VkCommandBuffer) cmdBuffer,
+                                                              (uint32_t) frame);
+            }
+        }
+
+        if (State::Instance().activeFgInput == FGInput::Nukems)
         {
             LOG_TRACE("Tagging resource of type: {}", resources[i].type);
         }
@@ -261,8 +296,18 @@ sl::Result StreamlineHooks::hkslEvaluateFeature(sl::Feature feature, const sl::F
                     tag->type == sl::kBufferTypeMotionVectors || tag->type == sl::kBufferTypeUIColorAndAlpha ||
                     tag->type == sl::kBufferTypeBidirectionalDistortionField)
                 {
-                    State::Instance().slFGInputs.reportResource(*tag, (ID3D12GraphicsCommandList*) cmdBuffer,
-                                                                (uint32_t) frame);
+                    // DX12-specific handling
+                    if (renderApi == sl::RenderAPI::eD3D12)
+                    {
+                        State::Instance().slFGInputs.reportResource(*tag, (ID3D12GraphicsCommandList*) cmdBuffer,
+                                                                    (uint32_t) frame);
+                    }
+                    // Vulkan-specific handling
+                    else if (renderApi == sl::RenderAPI::eVulkan)
+                    {
+                        State::Instance().slFGInputsVk.reportResource(*tag, (VkCommandBuffer) cmdBuffer,
+                                                                      (uint32_t) frame);
+                    }
                 }
             }
         }
@@ -555,7 +600,16 @@ sl::Result StreamlineHooks::hkslSetConstants(const sl::Constants& values, const 
     std::scoped_lock lock(setConstantsMutex);
     LOG_TRACE("called with frameIndex: {}, viewport: {}", (unsigned int) frame, (unsigned int) viewport);
 
-    State::Instance().slFGInputs.setConstants(values, (uint32_t) frame);
+    // DX12-specific handling
+    if (renderApi == sl::RenderAPI::eD3D12)
+    {
+        State::Instance().slFGInputs.setConstants(values, (uint32_t) frame);
+    }
+    // Vulkan-specific handling
+    else if (renderApi == sl::RenderAPI::eVulkan)
+    {
+        State::Instance().slFGInputsVk.setConstants(values, (uint32_t) frame);
+    }
 
     return o_slSetConstants(values, frame, viewport);
 }
@@ -642,18 +696,37 @@ sl::Result StreamlineHooks::hkslDLSSGGetState(const sl::ViewportHandle& viewport
     auto result = o_slDLSSGGetState(viewport, state, options);
 
     auto& s = State::Instance();
-    auto fg = s.currentFG;
 
-    if (fg != nullptr)
+    // Use appropriate frame generation based on API
+    if (renderApi == sl::RenderAPI::eVulkan)
     {
-        state.estimatedVRAMUsageInBytes = 256 * 1024 * 1024;
+        auto fg = s.currentVkFG;
+        if (fg != nullptr)
+        {
+            state.estimatedVRAMUsageInBytes = 256 * 1024 * 1024;
 
-        if (fg->IsActive() && !fg->IsPaused())
-            state.numFramesActuallyPresented = 2;
-        else
-            state.numFramesActuallyPresented = 1;
+            if (fg->IsActive() && !fg->IsPaused())
+                state.numFramesActuallyPresented = 2;
+            else
+                state.numFramesActuallyPresented = 1;
 
-        state.numFramesToGenerateMax = 1;
+            state.numFramesToGenerateMax = 1;
+        }
+    }
+    else
+    {
+        auto fg = s.currentFG;
+        if (fg != nullptr)
+        {
+            state.estimatedVRAMUsageInBytes = 256 * 1024 * 1024;
+
+            if (fg->IsActive() && !fg->IsPaused())
+                state.numFramesActuallyPresented = 2;
+            else
+                state.numFramesActuallyPresented = 1;
+
+            state.numFramesToGenerateMax = 1;
+        }
     }
 
     LOG_DEBUG("Status: {}, numFramesActuallyPresented: {}", magic_enum::enum_name(state.status),

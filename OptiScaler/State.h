@@ -3,7 +3,9 @@
 
 #include "upscalers/IFeature.h"
 #include "framegen/IFGFeature_Dx12.h"
+#include "framegen/IFGFeature_Vk.h"
 #include <inputs/FG/Streamline_Inputs_Dx12.h>
+#include <inputs/FG/Streamline_Inputs_Vk.h>
 #include "misc/Quirks.h"
 
 #include <set>
@@ -97,6 +99,7 @@ class State
 
     // Streamline FG inputs
     Sl_Inputs_Dx12 slFGInputs = {};
+    Sl_Inputs_Vk slFGInputsVk = {};
 
     // OptiFG
     bool FGonlyGenerated = false;
@@ -255,14 +258,17 @@ class State
 
     IFeature* currentFeature = nullptr;
     IFGFeature_Dx12* currentFG = nullptr;
+    IFGFeature_Vk* currentVkFG = nullptr;
     IDXGISwapChain* currentSwapchain = nullptr;
     IDXGISwapChain* currentWrappedSwapchain = nullptr;
     IDXGISwapChain* currentRealSwapchain = nullptr;
     IDXGISwapChain* currentFGSwapchain = nullptr;
+    VkSwapchainKHR currentVkFGSwapchain = nullptr;
     ID3D12Device* currentD3D12Device = nullptr;
     ID3D11Device* currentD3D11Device = nullptr;
     ID3D12CommandQueue* currentCommandQueue = nullptr;
     VkDevice currentVkDevice = nullptr;
+    VkPhysicalDevice currentVkPD = nullptr;
     DXGI_SWAP_CHAIN_DESC currentSwapchainDesc {};
 
     std::vector<ID3D12Device*> d3d12Devices;

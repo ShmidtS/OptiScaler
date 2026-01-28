@@ -1,3 +1,6 @@
+// Include DX12 FG header BEFORE FfxApi_Proxy.h to avoid enum redefinition
+#include <dx12/ffx_api_framegeneration_dx12.h>
+
 #include "FfxApi_Dx12.h"
 
 #include "Util.h"

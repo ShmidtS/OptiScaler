@@ -5,7 +5,11 @@
 
 #include <menu/menu_overlay_vk.h>
 #include <proxies/KernelBase_Proxy.h>
+#include <proxies/FfxApi_Proxy.h>
 #include <upscaler_time/UpscalerTime_Vk.h>
+
+#include <framegen/ffx/FSRFG_Vk.h>
+#include <framegen/IFGFeature.h>
 
 #include <misc/FrameLimit.h>
 #include "Reflex_Hooks.h"
@@ -22,12 +26,40 @@ static HWND _hwnd = nullptr;
 
 static std::mutex _vkPresentMutex;
 
+// Helper function to check if FG should be enabled for Vulkan
+static bool CheckForFGStatusVk()
+{
+    if (State::Instance().activeFgInput == FGInput::NoFG || State::Instance().activeFgInput == FGInput::Nukems)
+        return false;
+
+    // Disable FG if amd dll is not found
+    if (State::Instance().activeFgOutput == FGOutput::FSRFG)
+    {
+        FfxApiProxy::InitFfxVk();
+        if (!FfxApiProxy::IsFGReady())
+        {
+            LOG_DEBUG("Can't init FfxApiProxy VK, disabling FGOutput");
+            Config::Instance()->FGOutput.set_volatile_value(FGOutput::NoFG);
+            State::Instance().activeFgOutput = Config::Instance()->FGOutput.value_or_default();
+        }
+    }
+
+    if (State::Instance().activeFgOutput != FGOutput::FSRFG)
+    {
+        LOG_WARN("FGOutput is not set to FSR-FG for Vulkan");
+        return false;
+    }
+
+    return true;
+}
+
 // hooking
 typedef VkResult (*PFN_QueuePresentKHR)(VkQueue, const VkPresentInfoKHR*);
 typedef VkResult (*PFN_CreateSwapchainKHR)(VkDevice, const VkSwapchainCreateInfoKHR*, const VkAllocationCallbacks*,
                                            VkSwapchainKHR*);
 typedef VkResult (*PFN_vkCreateWin32SurfaceKHR)(VkInstance, const VkWin32SurfaceCreateInfoKHR*,
                                                 const VkAllocationCallbacks*, VkSurfaceKHR*);
+typedef void (*PFN_vkGetDeviceQueue)(VkDevice, uint32_t, uint32_t, VkQueue*);
 
 PFN_vkCreateDevice o_vkCreateDevice = nullptr;
 PFN_vkCreateInstance o_vkCreateInstance = nullptr;
@@ -35,12 +67,17 @@ PFN_vkCreateWin32SurfaceKHR o_vkCreateWin32SurfaceKHR = nullptr;
 PFN_vkCmdPipelineBarrier o_vkCmdPipelineBarrier = nullptr;
 PFN_QueuePresentKHR o_QueuePresentKHR = nullptr;
 PFN_CreateSwapchainKHR o_CreateSwapchainKHR = nullptr;
+PFN_vkGetDeviceQueue o_vkGetDeviceQueue = nullptr;
+
+// Store queue family index from device creation
+static uint32_t s_queueFamilyIndex = UINT32_MAX;
 
 static VkResult hkvkCreateDevice(VkPhysicalDevice physicalDevice, const VkDeviceCreateInfo* pCreateInfo,
                                  const VkAllocationCallbacks* pAllocator, VkDevice* pDevice);
 static VkResult hkvkQueuePresentKHR(VkQueue queue, VkPresentInfoKHR* pPresentInfo);
 static VkResult hkvkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR* pCreateInfo,
                                        VkAllocationCallbacks* pAllocator, VkSwapchainKHR* pSwapchain);
+static void hkvkGetDeviceQueue(VkDevice device, uint32_t queueFamilyIndex, uint32_t queueIndex, VkQueue* pQueue);
 
 static void HookDevice(VkDevice InDevice)
 {
@@ -51,6 +88,7 @@ static void HookDevice(VkDevice InDevice)
 
     o_QueuePresentKHR = (PFN_QueuePresentKHR) (vkGetDeviceProcAddr(InDevice, "vkQueuePresentKHR"));
     o_CreateSwapchainKHR = (PFN_CreateSwapchainKHR) (vkGetDeviceProcAddr(InDevice, "vkCreateSwapchainKHR"));
+    o_vkGetDeviceQueue = (PFN_vkGetDeviceQueue) (vkGetDeviceProcAddr(InDevice, "vkGetDeviceQueue"));
 
     if (o_CreateSwapchainKHR)
     {
@@ -62,6 +100,12 @@ static void HookDevice(VkDevice InDevice)
 
         DetourAttach(&(PVOID&) o_QueuePresentKHR, hkvkQueuePresentKHR);
         DetourAttach(&(PVOID&) o_CreateSwapchainKHR, hkvkCreateSwapchainKHR);
+
+        if (o_vkGetDeviceQueue != nullptr)
+        {
+            DetourAttach(&(PVOID&) o_vkGetDeviceQueue, hkvkGetDeviceQueue);
+            LOG_DEBUG("Hooked vkGetDeviceQueue");
+        }
 
         DetourTransactionCommit();
     }
@@ -122,6 +166,26 @@ static void hkvkCmdPipelineBarrier(VkCommandBuffer commandBuffer, VkPipelineStag
                                   imageMemoryBarrierCount, pImageMemoryBarriers);
 }
 
+static void hkvkGetDeviceQueue(VkDevice device, uint32_t queueFamilyIndex, uint32_t queueIndex, VkQueue* pQueue)
+{
+    o_vkGetDeviceQueue(device, queueFamilyIndex, queueIndex, pQueue);
+
+    if (pQueue != nullptr && *pQueue != VK_NULL_HANDLE)
+    {
+        LOG_DEBUG("hkvkGetDeviceQueue: queueFamilyIndex={}, queueIndex={}, queue={:X}",
+                  queueFamilyIndex, queueIndex, (size_t)*pQueue);
+
+        // Store the queue for frame generation if this is the graphics queue family
+        // The graphics queue family is typically the first one and the one used for present
+        if (s_queueFamilyIndex == UINT32_MAX || queueFamilyIndex == s_queueFamilyIndex)
+        {
+            s_queueFamilyIndex = queueFamilyIndex;
+            State::Instance().slFGInputsVk.SetCommandQueue(*pQueue, queueFamilyIndex);
+            LOG_DEBUG("Stored game queue for FG: {:X}, family: {}", (size_t)*pQueue, queueFamilyIndex);
+        }
+    }
+}
+
 static VkResult hkvkCreateWin32SurfaceKHR(VkInstance instance, const VkWin32SurfaceCreateInfoKHR* pCreateInfo,
                                           const VkAllocationCallbacks* pAllocator, VkSurfaceKHR* pSurface)
 {
@@ -178,6 +242,19 @@ static VkResult hkvkCreateDevice(VkPhysicalDevice physicalDevice, const VkDevice
 {
     LOG_FUNC();
 
+    // Store queue family index from device creation for later use
+    // The first queue family is typically the graphics/present queue
+    if (pCreateInfo != nullptr && pCreateInfo->queueCreateInfoCount > 0 &&
+        pCreateInfo->pQueueCreateInfos != nullptr)
+    {
+        uint32_t queueFamilyIndex = pCreateInfo->pQueueCreateInfos[0].queueFamilyIndex;
+        LOG_DEBUG("Storing queue family index from device creation: {}", queueFamilyIndex);
+
+        // We'll store this temporarily and get the actual queue from QueuePresent
+        // But we need to know which queue family to use
+        // For now, just store the index - the actual queue handle comes from QueuePresent
+    }
+
     auto result = o_vkCreateDevice(physicalDevice, pCreateInfo, pAllocator, pDevice);
 
     if (o_vkCmdPipelineBarrier == nullptr)
@@ -223,6 +300,9 @@ static VkResult hkvkQueuePresentKHR(VkQueue queue, VkPresentInfoKHR* pPresentInf
 {
     LOG_FUNC();
 
+    // Queue info is now captured in hkvkGetDeviceQueue for earlier availability
+    // This ensures the queue is available before CreateSwapchain is called
+
     // get upscaler time
     UpscalerTimeVk::ReadUpscalingTime(_device);
 
@@ -241,6 +321,12 @@ static VkResult hkvkQueuePresentKHR(VkQueue queue, VkPresentInfoKHR* pPresentInf
     }
 
     ReflexHooks::update(false, true);
+
+    // Call Vulkan Frame Generation Present if active
+    if (auto vkFG = State::Instance().currentVkFG; vkFG != nullptr && vkFG->IsActive())
+    {
+        vkFG->Present();
+    }
 
     // original call
     ScopedVulkanCreatingSC scopedVulkanCreatingSC {};
@@ -275,6 +361,47 @@ static VkResult hkvkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateI
         LOG_DEBUG("_device captured: {0:X}", (UINT64) _device);
 
         MenuOverlayVk::CreateSwapchain(device, _PD, _instance, _hwnd, pCreateInfo, pAllocator, pSwapchain);
+
+        // Initialize Vulkan Frame Generation if enabled
+        if (CheckForFGStatusVk())
+        {
+            LOG_DEBUG("FG is enabled for Vulkan, initializing...");
+
+            // Create FG instance if not already created
+            if (State::Instance().currentVkFG == nullptr)
+            {
+                LOG_DEBUG("Creating FSRFG_Vk instance");
+                State::Instance().currentVkFG = new FSRFG_Vk();
+            }
+
+            // Create FG swapchain
+            auto fg = State::Instance().currentVkFG;
+            if (fg != nullptr)
+            {
+                LOG_DEBUG("Creating FG swapchain via FSRFG_Vk");
+                bool fgScResult = fg->CreateSwapchain(_instance, _PD, device, pCreateInfo->surface, pSwapchain);
+
+                if (fgScResult)
+                {
+                    LOG_DEBUG("FG swapchain created successfully");
+                    State::Instance().currentVkFGSwapchain = *pSwapchain;
+                    State::Instance().currentVkDevice = device;
+                    State::Instance().currentVkPD = _PD;
+
+                    // Create FG context with default constants
+                    LOG_DEBUG("Creating FG context");
+                    FG_Constants fgConstants {};
+                    fgConstants.displayWidth = pCreateInfo->imageExtent.width;
+                    fgConstants.displayHeight = pCreateInfo->imageExtent.height;
+                    fg->CreateContext(device, _PD, fgConstants);
+                    LOG_DEBUG("FG context created");
+                }
+                else
+                {
+                    LOG_ERROR("Failed to create FG swapchain");
+                }
+            }
+        }
     }
 
     LOG_FUNC_RESULT(result);
@@ -337,6 +464,9 @@ void VulkanHooks::Unhook()
 
     if (o_vkCmdPipelineBarrier != nullptr)
         DetourDetach(&(PVOID&) o_vkCmdPipelineBarrier, hkvkCmdPipelineBarrier);
+
+    if (o_vkGetDeviceQueue != nullptr)
+        DetourDetach(&(PVOID&) o_vkGetDeviceQueue, hkvkGetDeviceQueue);
 
     DetourTransactionCommit();
 }

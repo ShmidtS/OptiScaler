@@ -1,3 +1,6 @@
+// Include DX12 FG header first to avoid enum redefinition with vk/ffx_api_vk.h
+#include <dx12/ffx_api_framegeneration_dx12.h>
+
 #include "FfxApi_Dx12_FG.h"
 
 #include "pch.h"
@@ -9,7 +12,6 @@
 
 #include <ffx_framegeneration.h>
 #include <dx12/ffx_api_dx12.h>
-#include <dx12/ffx_api_framegeneration_dx12.h>
 
 static ID3D12Device* _device = nullptr;
 static FG_Constants _fgConst {};

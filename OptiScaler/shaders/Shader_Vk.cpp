@@ -1,5 +1,5 @@
 #include "Shader_Vk.h"
-#include "Util.h"
+#include "../Logger.h"
 
 Shader_Vk::Shader_Vk(std::string InName, VkDevice InDevice, VkPhysicalDevice InPhysicalDevice)
     : _name(InName), _device(InDevice), _physicalDevice(InPhysicalDevice)

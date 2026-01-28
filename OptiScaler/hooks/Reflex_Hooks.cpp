@@ -121,8 +121,19 @@ NvAPI_Status ReflexHooks::hkNvAPI_D3D_SetLatencyMarker(IUnknown* pDev,
             State::Instance().slFGInputs.evaluateState(device12);
     }
 
+    // Vulkan handling
+    if (State::Instance().api == API::Vulkan && State::Instance().currentVkDevice)
+    {
+        State::Instance().slFGInputsVk.evaluateState(State::Instance().currentVkDevice);
+    }
+
     if (pSetLatencyMarkerParams->markerType == PRESENT_START && State::Instance().activeFgInput == FGInput::DLSSG)
-        State::Instance().slFGInputs.markPresent(pSetLatencyMarkerParams->frameID);
+    {
+        if (State::Instance().api == API::DX12)
+            State::Instance().slFGInputs.markPresent(pSetLatencyMarkerParams->frameID);
+        else if (State::Instance().api == API::Vulkan)
+            State::Instance().slFGInputsVk.markPresent(pSetLatencyMarkerParams->frameID);
+    }
 
     if (State::Instance().activeFgOutput == FGOutput::XeFG && fakenvapi::ForNvidia_SetLatencyMarker)
         return fakenvapi::ForNvidia_SetLatencyMarker(pDev, pSetLatencyMarkerParams);
