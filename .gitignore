@@ -443,3 +443,45 @@ external/FidelityFX-SDK/*
 # Allow tracking of specific files that are needed for the project
 !external/FidelityFX-SDK/Kits/FidelityFX/api/include/vk/ffx_api_vk.h
 !external/FidelityFX-SDK/Kits/FidelityFX/api/include/vk/ffx_api_vk.hpp
+
+# Ignore locally deleted files from submodules
+# spdlog - only include/ and src/ are needed
+external/spdlog/.clang-format
+external/spdlog/.clang-tidy
+external/spdlog/.git-blame-ignore-revs
+external/spdlog/.gitattributes
+external/spdlog/.github/
+external/spdlog/.gitignore
+external/spdlog/INSTALL
+external/spdlog/LICENSE
+external/spdlog/README.md
+external/spdlog/appveyor.yml
+external/spdlog/bench/
+external/spdlog/cmake/
+external/spdlog/example/
+external/spdlog/logos/
+external/spdlog/scripts/
+external/spdlog/tests/
+
+# unordered_dense - only include/ankerl/ is needed
+external/unordered_dense/.clang-format
+external/unordered_dense/.clang-tidy
+external/unordered_dense/.fuzz-corpus-base-dir
+external/unordered_dense/.github/
+external/unordered_dense/.gitignore
+external/unordered_dense/CMakeLists.txt
+external/unordered_dense/CODE_OF_CONDUCT.md
+external/unordered_dense/CONTRIBUTING.md
+external/unordered_dense/LICENSE
+external/unordered_dense/README.md
+external/unordered_dense/cmake/
+external/unordered_dense/data/
+external/unordered_dense/doc/
+external/unordered_dense/example/
+external/unordered_dense/meson.build
+external/unordered_dense/requirements.txt
+external/unordered_dense/scripts/
+external/unordered_dense/src/
+external/unordered_dense/subprojects/
+external/unordered_dense/test/
+external/unordered_dense/xmake.lua

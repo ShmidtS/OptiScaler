@@ -7,6 +7,7 @@
 	url = https://github.com/martinus/unordered_dense.git
 	branch = main
 	update = none
+	ignore = all
 [submodule "external/xess"]
 	path = external/xess
 	url = https://github.com/intel/xess.git
@@ -20,6 +21,7 @@
 	url = https://github.com/gabime/spdlog.git
 	branch = main
 	update = none
+	ignore = all
 [submodule "external/magic_enum"]
 	path = external/magic_enum
 	url = https://github.com/Neargye/magic_enum
