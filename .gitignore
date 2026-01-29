@@ -32,14 +32,6 @@ bld/
 [Ll]og/
 [Ll]ogs/
 
-# ffx-sdk
-external/ffx-sdk/*
-
-# Allow tracking of specific files that are needed for the project
-!external/FidelityFX-SDK/Kits/FidelityFX/api/include/vk/ffx_api_vk.h
-!external/FidelityFX-SDK/Kits/FidelityFX/api/include/vk/ffx_api_vk.hpp
-!external/dlssg-to-fsr3/source/maindll/NGX/NvNGX.h
-
 # Visual Studio 2015/2017 cache/options directory
 .vs/
 # Uncomment if you have tasks that create the project's static files in wwwroot

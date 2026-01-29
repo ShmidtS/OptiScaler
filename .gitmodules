@@ -18,15 +18,7 @@
 	path = external/spdlog
 	url = https://github.com/gabime/spdlog.git
 	branch = main
-[submodule "external/FidelityFX-SDK"]
-	path = external/FidelityFX-SDK
-	url = https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK
-	branch = main
 [submodule "external/magic_enum"]
 	path = external/magic_enum
 	url = https://github.com/Neargye/magic_enum
-	branch = main
-[submodule "external/dlssg-to-fsr3"]
-	path = external/dlssg-to-fsr3
-	url = https://github.com/Nukem9/dlssg-to-fsr3
 	branch = main
