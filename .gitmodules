@@ -1,24 +1,32 @@
 [submodule "external/simpleini"]
 	path = external/simpleini
 	url = https://github.com/brofield/simpleini
+	branch = main
 [submodule "external/unordered_dense"]
 	path = external/unordered_dense
 	url = https://github.com/martinus/unordered_dense.git
+	branch = main
 [submodule "external/xess"]
 	path = external/xess
 	url = https://github.com/intel/xess.git
+	branch = main
 [submodule "external/vulkan"]
 	path = external/vulkan
 	url = https://github.com/KhronosGroup/Vulkan-Headers.git
+	branch = main
 [submodule "external/spdlog"]
 	path = external/spdlog
 	url = https://github.com/gabime/spdlog.git
+	branch = main
 [submodule "external/FidelityFX-SDK"]
 	path = external/FidelityFX-SDK
 	url = https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK
+	branch = main
 [submodule "external/magic_enum"]
 	path = external/magic_enum
 	url = https://github.com/Neargye/magic_enum
+	branch = main
 [submodule "external/dlssg-to-fsr3"]
 	path = external/dlssg-to-fsr3
 	url = https://github.com/Nukem9/dlssg-to-fsr3
+	branch = main
