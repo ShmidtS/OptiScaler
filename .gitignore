@@ -438,3 +438,8 @@ CyberFSR/imgui.ini
 Build_Optimized_RTX3070.ps1
 .serena/
 .vscode/settings.json
+external/FidelityFX-SDK/*
+
+# Allow tracking of specific files that are needed for the project
+!external/FidelityFX-SDK/Kits/FidelityFX/api/include/vk/ffx_api_vk.h
+!external/FidelityFX-SDK/Kits/FidelityFX/api/include/vk/ffx_api_vk.hpp
