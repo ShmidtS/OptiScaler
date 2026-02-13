@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "D3D12_Hooks.h"
 
+#include <atomic>
 #include <Util.h>
 #include <Config.h>
 
@@ -90,8 +91,8 @@ struct UE_D3D12_RESOURCE_DESC
 
 static ID3D12Device* _intelD3D12Device = nullptr;
 static ULONG _intelD3D12DeviceRefTarget = 0;
-static bool _skipCommitedResource = false;
-static bool _skipGetResourceAllocationInfo = false;
+static std::atomic<bool> _skipCommitedResource(false);
+static std::atomic<bool> _skipGetResourceAllocationInfo(false);
 
 #ifdef ENABLE_DEBUG_LAYER_DX12
 static ID3D12Debug3* debugController = nullptr;
@@ -544,7 +545,7 @@ static ULONG hkD3D12DeviceRelease(IUnknown* device)
             IGDExtProxy::DestroyContext();
         }
 
-        o_D3D12DeviceRelease(device);
+        return o_D3D12DeviceRelease(device);
     }
     else if (State::Instance().currentD3D12Device == device)
     {
@@ -559,8 +560,7 @@ static ULONG hkD3D12DeviceRelease(IUnknown* device)
         }
     }
 
-    auto result = o_D3D12DeviceRelease(device);
-    return result;
+    return o_D3D12DeviceRelease(device);
 }
 
 static HRESULT hkCheckFeatureSupport(ID3D12Device* device, D3D12_FEATURE Feature, void* pFeatureSupportData,
@@ -587,19 +587,19 @@ static HRESULT hkCreateCommittedResource(ID3D12Device* device, const D3D12_HEAP_
                                          const D3D12_CLEAR_VALUE* pOptimizedClearValue, REFIID riidResource,
                                          void** ppvResource)
 {
-    if (!_skipCommitedResource)
+    if (!_skipCommitedResource.load())
     {
         auto ueDesc = reinterpret_cast<UE_D3D12_RESOURCE_DESC*>(pDesc);
 
         if (Config::Instance()->UESpoofIntelAtomics64.value_or_default() && ueDesc != nullptr &&
             ueDesc->bRequires64BitAtomicSupport)
         {
-            _skipCommitedResource = true;
+            _skipCommitedResource.store(true);
             auto result = IGDExtProxy::CreateCommitedResource(pHeapProperties, HeapFlags, pDesc, InitialResourceState,
                                                               pOptimizedClearValue, riidResource, ppvResource);
 
             LOG_DEBUG("IGDExtProxy::hkCreateCommittedResource result: {:X}", (UINT) result);
-            _skipCommitedResource = false;
+            _skipCommitedResource.store(false);
 
             return result;
         }
@@ -609,24 +609,24 @@ static HRESULT hkCreateCommittedResource(ID3D12Device* device, const D3D12_HEAP_
                                      pOptimizedClearValue, riidResource, ppvResource);
 }
 
-static bool skipPlacedResource = false;
+static std::atomic<bool> skipPlacedResource(false);
 
 static HRESULT hkCreatePlacedResource(ID3D12Device* device, ID3D12Heap* pHeap, UINT64 HeapOffset,
                                       D3D12_RESOURCE_DESC* pDesc, D3D12_RESOURCE_STATES InitialState,
                                       const D3D12_CLEAR_VALUE* pOptimizedClearValue, REFIID riid, void** ppvResource)
 {
-    if (!skipPlacedResource)
+    if (!skipPlacedResource.load())
     {
         auto ueDesc = reinterpret_cast<UE_D3D12_RESOURCE_DESC*>(pDesc);
 
         if (Config::Instance()->UESpoofIntelAtomics64.value_or_default() && ueDesc != nullptr &&
             ueDesc->bRequires64BitAtomicSupport)
         {
-            skipPlacedResource = true;
+            skipPlacedResource.store(true);
             auto result = IGDExtProxy::CreatePlacedResource(pHeap, HeapOffset, pDesc, InitialState,
                                                             pOptimizedClearValue, riid, ppvResource);
             LOG_DEBUG("IGDExtProxy::hkCreatePlacedResource result: {:X}", (UINT) result);
-            skipPlacedResource = false;
+            skipPlacedResource.store(false);
 
             return result;
         }
@@ -656,17 +656,17 @@ static D3D12_RESOURCE_ALLOCATION_INFO* STDMETHODCALLTYPE
 hkGetResourceAllocationInfo(ID3D12Device* device, D3D12_RESOURCE_ALLOCATION_INFO* pResult, UINT visibleMask,
                             UINT numResourceDescs, D3D12_RESOURCE_DESC* pResourceDescs)
 {
-    if (!_skipGetResourceAllocationInfo)
+    if (!_skipGetResourceAllocationInfo.load())
     {
         auto ueDesc = reinterpret_cast<UE_D3D12_RESOURCE_DESC*>(pResourceDescs);
 
         if (Config::Instance()->UESpoofIntelAtomics64.value_or_default() && ueDesc != nullptr &&
             ueDesc->bRequires64BitAtomicSupport)
         {
-            _skipGetResourceAllocationInfo = true;
+            _skipGetResourceAllocationInfo.store(true);
             auto result = IGDExtProxy::GetResourceAllocationInfo(visibleMask, numResourceDescs, pResourceDescs);
             LOG_DEBUG("IGDExtProxy::GetResourceAllocationInfo result: SizeInBytes={}", result.SizeInBytes);
-            _skipGetResourceAllocationInfo = false;
+            _skipGetResourceAllocationInfo.store(false);
             *pResult = result;
             return pResult;
         }

@@ -63,7 +63,8 @@ class DLSSGMod
     {
         LOG_FUNC();
 
-        if (_dx12_inited || Config::Instance()->FGInput.value_or_default() != FGInput::Nukems)
+        auto fgInput = Config::Instance()->FGInput.value_or_default();
+        if (_dx12_inited || (fgInput != FGInput::Nukems && fgInput != FGInput::DLSSG))
             return;
 
         if (_dll == nullptr)
@@ -107,7 +108,8 @@ class DLSSGMod
     {
         LOG_FUNC();
 
-        if (_vulkan_inited || Config::Instance()->FGInput.value_or_default() != FGInput::Nukems)
+        auto fgInput = Config::Instance()->FGInput.value_or_default();
+        if (_vulkan_inited || (fgInput != FGInput::Nukems && fgInput != FGInput::DLSSG))
             return;
 
         if (_dll == nullptr)

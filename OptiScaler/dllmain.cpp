@@ -118,7 +118,9 @@ static bool IsRunningOnWine()
     return false;
 }
 
-UINT customD3D12SDKVersion = 615;
+// D3D12 Agility SDK version for OptiScaler's custom D3D12 implementation
+constexpr UINT D3D12_AGILITY_SDK_VERSION = 615;
+UINT customD3D12SDKVersion = D3D12_AGILITY_SDK_VERSION;
 
 const char8_t* customD3D12SDKPath = u8".\\D3D12_Optiscaler\\"; // Hardcoded for now
 
@@ -839,22 +841,27 @@ static void CheckWorkingMode()
                 D3D11Hooks::Hook(d3d11Module);
             }
 
-            // Vulkan
-            if (State::Instance().isRunningOnDXVK || State::Instance().isRunningOnLinux ||
-                (State::Instance().gameQuirks & GameQuirk::LoadVulkanManually))
+            // Vulkan - Always try to hook for Vulkan games on Windows
+            // First check if already loaded, otherwise try to load it
+            vulkanModule = GetDllNameWModule(&vkNamesW);
+
+            if (vulkanModule == nullptr && !State::Instance().isRunningOnLinux)
             {
+                // Try to load vulkan-1.dll for Windows Vulkan games
                 vulkanModule = NtdllProxy::LoadLibraryExW_Ldr(L"vulkan-1.dll", NULL, 0);
-                LOG_DEBUG("Loading vulkan-1.dll for Linux, result: {:X}", (size_t) vulkanModule);
-            }
-            else
-            {
-                vulkanModule = GetDllNameWModule(&vkNamesW);
+                LOG_DEBUG("Loading vulkan-1.dll for Windows Vulkan game, result: {:X}", (size_t) vulkanModule);
             }
 
             if (vulkanModule != nullptr)
             {
                 LOG_DEBUG("Hooking vulkan-1.dll");
                 VulkanHooks::Hook(vulkanModule);
+
+                // Load FFX Vulkan for Frame Generation support
+                if (Config::Instance()->FGEnabled.value_or_default())
+                {
+                    FfxApiProxy::InitFfxVk();
+                }
             }
 
             // NVAPI
@@ -1952,6 +1959,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
     case DLL_PROCESS_DETACH:
         State::Instance().isShuttingDown = true;
+
+        // Clean up FG object to prevent memory leak
+        if (State::Instance().currentFG != nullptr)
+        {
+            State::Instance().currentFG->Shutdown();
+            delete State::Instance().currentFG;
+            State::Instance().currentFG = nullptr;
+        }
 
         // Unhooking and cleaning stuff causing issues during shutdown.
         // Disabled for now to check if it cause any issues

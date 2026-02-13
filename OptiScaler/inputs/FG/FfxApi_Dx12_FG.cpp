@@ -9,6 +9,7 @@
 
 #include "ffx_framegeneration.h"
 #include "dx12/ffx_api_dx12.h"
+#include "dx12/ffx_api_framegeneration_dx12.h"
 
 #define FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2 0x2000C
 struct ffxDispatchDescFrameGenerationPrepareV2
@@ -412,11 +413,17 @@ ffxReturnCode_t ffxConfigure_Dx12FG(ffxContext* context, ffxConfigureDescHeader*
                                         void* pUserCtx) -> ffxReturnCode_t
             {
                 IDXGISwapChain3* sc = (IDXGISwapChain3*) State::Instance().currentFGSwapchain;
+                if (sc == nullptr)
+                {
+                    LOG_ERROR("currentFGSwapchain is null in presentCallback");
+                    return FFX_API_RETURN_ERROR_RUNTIME_ERROR;
+                }
                 auto scIndex = sc->GetCurrentBackBufferIndex();
 
                 ID3D12Resource* currentBuffer = nullptr;
                 auto hr = sc->GetBuffer(scIndex, IID_PPV_ARGS(&currentBuffer));
-                currentBuffer->Release();
+                if (currentBuffer != nullptr)
+                    currentBuffer->Release();
 
                 auto result = _presentCallback(params, pUserCtx);
                 return result;
@@ -943,8 +950,103 @@ ffxReturnCode_t ffxDispatch_Dx12FG(ffxContext* context, ffxDispatchDescHeader* d
         LOG_DEBUG("FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION");
         return FFX_API_RETURN_OK;
     }
+    else if (desc->type == FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2)
+    {
+        // New V2 API - preferred path
+        auto cdDesc = (ffxDispatchDescFrameGenerationPrepareV2*) desc;
+        LOG_DEBUG("DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2, frameID: {}", cdDesc->frameID);
+
+        CheckForFrame(fg, cdDesc->frameID);
+        auto fIndex = IndexForFrameId(cdDesc->frameID);
+        if (fIndex < 0)
+            fIndex = fg->GetIndex();
+
+        auto device = _device == nullptr ? s.currentD3D12Device : _device;
+        fg->EvaluateState(device, _fgConst);
+
+        if (!fg->IsActive() || fg->IsPaused())
+            return FFX_API_RETURN_OK;
+
+        // Camera data is now part of V2 structure
+        fg->SetCameraData(cdDesc->cameraPosition, cdDesc->cameraUp, cdDesc->cameraRight,
+                          cdDesc->cameraForward, fIndex);
+
+        // Camera Values
+        UINT64 dispWidth = 0;
+        UINT dispHeight = 0;
+        fg->GetInterpolationRect(dispWidth, dispHeight, fIndex);
+        auto aspectRatio = (float) dispWidth / (float) dispHeight;
+        fg->SetCameraValues(cdDesc->cameraNear, cdDesc->cameraFar, cdDesc->cameraFovAngleVertical, aspectRatio, 0.0f,
+                            fIndex);
+
+        // Other values
+        fg->SetFrameTimeDelta(cdDesc->frameTimeDelta, fIndex);
+        fg->SetJitter(cdDesc->jitterOffset.x, cdDesc->jitterOffset.y, fIndex);
+        fg->SetMVScale(cdDesc->motionVectorScale.x, cdDesc->motionVectorScale.y, fIndex);
+        fg->SetReset(cdDesc->reset ? 1 : 0, fIndex);
+
+        if (cdDesc->depth.resource != nullptr)
+        {
+            Dx12Resource depth {};
+            depth.cmdList = (ID3D12GraphicsCommandList*) cdDesc->commandList;
+            depth.height = cdDesc->renderSize.height;
+            depth.resource = (ID3D12Resource*) cdDesc->depth.resource;
+            depth.state = GetD3D12State((FfxApiResourceState) cdDesc->depth.state);
+            depth.type = FG_ResourceType::Depth;
+
+            if (Config::Instance()->FGDepthValidNow.value_or_default())
+                depth.validity = FG_ResourceValidity::ValidNow;
+            else
+                depth.validity = FG_ResourceValidity::JustTrackCmdlist;
+
+            depth.width = cdDesc->renderSize.width;
+            depth.frameIndex = fIndex;
+
+            fg->SetResource(&depth);
+        }
+
+        if (cdDesc->motionVectors.resource != nullptr)
+        {
+            uint32_t width = 0;
+            uint32_t height = 0;
+
+            if (_fgConst.flags & FG_Flags::DisplayResolutionMVs)
+            {
+                width = _fgConst.displayWidth;
+                height = _fgConst.displayHeight;
+            }
+            else
+            {
+                width = cdDesc->renderSize.width;
+                height = cdDesc->renderSize.height;
+            }
+
+            Dx12Resource velocity {};
+            velocity.cmdList = (ID3D12GraphicsCommandList*) cdDesc->commandList;
+            velocity.height = height;
+            velocity.resource = (ID3D12Resource*) cdDesc->motionVectors.resource;
+            velocity.state = GetD3D12State((FfxApiResourceState) cdDesc->motionVectors.state);
+            velocity.type = FG_ResourceType::Velocity;
+
+            if (Config::Instance()->FGVelocityValidNow.value_or_default())
+                velocity.validity = FG_ResourceValidity::ValidNow;
+            else
+                velocity.validity = FG_ResourceValidity::JustTrackCmdlist;
+
+            velocity.width = width;
+            velocity.frameIndex = fIndex;
+
+            fg->SetResource(&velocity);
+        }
+
+        LOG_DEBUG("DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2 done");
+        return FFX_API_RETURN_OK;
+    }
+#pragma warning(push)
+#pragma warning(disable: 4996) // Suppress deprecation warnings for legacy API support
     else if (desc->type == FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE)
     {
+        // Legacy API - kept for backward compatibility with older games
         auto cdDesc = (ffxDispatchDescFrameGenerationPrepare*) desc;
         LOG_DEBUG("DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE, frameID: {}", cdDesc->frameID);
 
@@ -957,8 +1059,7 @@ ffxReturnCode_t ffxDispatch_Dx12FG(ffxContext* context, ffxDispatchDescHeader* d
         if (!fg->IsActive() || fg->IsPaused())
             return FFX_API_RETURN_OK;
 
-        //  Camera Data
-        bool cameraDataFound = false;
+        //  Camera Data (from linked CameraInfo structure in legacy API)
         ffxDispatchDescHeader* next = nullptr;
         next = desc;
         while (next->pNext != nullptr)
@@ -972,7 +1073,6 @@ ffxReturnCode_t ffxDispatch_Dx12FG(ffxContext* context, ffxDispatchDescHeader* d
                 fg->SetCameraData(cameraDesc->cameraPosition, cameraDesc->cameraUp, cameraDesc->cameraRight,
                                   cameraDesc->cameraForward, fIndex);
 
-                cameraDataFound = true;
                 break;
             }
         }

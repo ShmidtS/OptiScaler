@@ -10,6 +10,9 @@
 #include <vulkan/vulkan_win32.h>
 #endif
 
+// CUDA extensions require vulkan_beta.h
+#include <vulkan/vulkan_beta.h>
+
 class Vulkan_wDx12
 {
   private:

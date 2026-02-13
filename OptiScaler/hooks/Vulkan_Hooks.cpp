@@ -15,6 +15,10 @@
 
 #include <spoofing/Vulkan_Spoofing.h>
 
+#include <framegen/ffx/FSRFG_Vk.h>
+#include <proxies/FfxApi_Proxy.h>
+#include <inputs/FfxApi_Vk.h>
+
 #include <vulkan/vulkan.hpp>
 
 #include <detours/detours.h>
@@ -249,6 +253,40 @@ static VkResult hkvkQueuePresentKHR(VkQueue queue, VkPresentInfoKHR* pPresentInf
     if (auto currentFeature = State::Instance().currentFeature; currentFeature != nullptr)
         currentFeature->TickFrozenCheck();
 
+    // Vulkan Frame Generation Present
+    if (State::Instance().currentFGVk != nullptr)
+    {
+        // Check if we have FG resources from FfxApi
+        if (FfxApiVk_HasFGResources())
+        {
+            VkImage depthImage = VK_NULL_HANDLE;
+            VkImage mvImage = VK_NULL_HANDLE;
+            uint32_t width = 0, height = 0;
+
+            FfxApiVk_GetFGResources(&depthImage, &mvImage, &width, &height);
+
+            // Set depth resource
+            VkResource depthRes {};
+            depthRes.type = FG_ResourceType::Depth;
+            depthRes.image = depthImage;
+            depthRes.width = width;
+            depthRes.height = height;
+            depthRes.validity = FG_ResourceValidity::ValidNow;
+            State::Instance().currentFGVk->SetResource(&depthRes);
+
+            // Set motion vector resource
+            VkResource mvRes {};
+            mvRes.type = FG_ResourceType::Velocity;
+            mvRes.image = mvImage;
+            mvRes.width = width;
+            mvRes.height = height;
+            mvRes.validity = FG_ResourceValidity::ValidNow;
+            State::Instance().currentFGVk->SetResource(&mvRes);
+        }
+
+        State::Instance().currentFGVk->Present();
+    }
+
     // render menu if needed
     if (!MenuOverlayVk::QueuePresent(queue, pPresentInfo))
     {
@@ -295,6 +333,67 @@ static VkResult hkvkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateI
         LOG_DEBUG("_device captured: {0:X}", (UINT64) _device);
 
         MenuOverlayVk::CreateSwapchain(device, _PD, _instance, _hwnd, pCreateInfo, pAllocator, pSwapchain);
+
+        // Vulkan Frame Generation temporarily disabled - FFX API returns runtime error
+        // TODO: Investigate FFX Vulkan FG compatibility with non-RTX40xx GPUs
+        // Initialize Vulkan Frame Generation if enabled
+        if (State::Instance().currentFGVk == nullptr && Config::Instance()->FGEnabled.value_or_default() &&
+            State::Instance().activeFgOutput == FGOutput::FSRFG)
+        {
+            LOG_DEBUG("Creating FSRFG_Vk instance for Vulkan Frame Generation");
+
+            // Get queue family index for graphics
+            uint32_t queueFamilyIndex = 0;
+            uint32_t queueFamilyCount = 0;
+            vkGetPhysicalDeviceQueueFamilyProperties(_PD, &queueFamilyCount, nullptr);
+
+            if (queueFamilyCount > 0)
+            {
+                std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+                vkGetPhysicalDeviceQueueFamilyProperties(_PD, &queueFamilyCount, queueFamilies.data());
+
+                for (uint32_t i = 0; i < queueFamilyCount; i++)
+                {
+                    if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+                    {
+                        queueFamilyIndex = i;
+                        break;
+                    }
+                }
+            }
+
+            // Get graphics queue
+            VkQueue graphicsQueue = VK_NULL_HANDLE;
+            vkGetDeviceQueue(device, queueFamilyIndex, 0, &graphicsQueue);
+
+            // Create FSRFG_Vk instance
+            auto fg = new FSRFG_Vk();
+            fg->SetQueue(FG_ResourceType::Depth, graphicsQueue, queueFamilyIndex);
+
+            // Create FG swapchain
+            if (fg->CreateSwapchain(device, _PD, pCreateInfo, pSwapchain))
+            {
+                // Create FG context
+                FG_Constants fgConstants {};
+                fgConstants.displayWidth = pCreateInfo->imageExtent.width;
+                fgConstants.displayHeight = pCreateInfo->imageExtent.height;
+                fg->CreateContext(device, _PD, _instance, fgConstants);
+                fg->Activate();
+
+                State::Instance().currentFGVk = fg;
+                LOG_INFO("FSRFG_Vk initialized successfully");
+            }
+            else
+            {
+                LOG_ERROR("Failed to create FSRFG_Vk swapchain");
+                delete fg;
+            }
+
+            // Store device info for FG
+            State::Instance().currentVkDevice = device;
+            State::Instance().currentVkPhysicalDevice = _PD;
+            State::Instance().currentVkSwapchain = *pSwapchain;
+        }
     }
 
     LOG_FUNC_RESULT(result);
@@ -407,6 +506,13 @@ void VulkanHooks::Hook(HMODULE vulkan1)
 
 void VulkanHooks::Unhook()
 {
+    // Cleanup Vulkan Frame Generation
+    if (State::Instance().currentFGVk != nullptr)
+    {
+        delete State::Instance().currentFGVk;
+        State::Instance().currentFGVk = nullptr;
+    }
+
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());
 

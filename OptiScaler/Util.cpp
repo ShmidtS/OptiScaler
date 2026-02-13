@@ -473,6 +473,9 @@ Util::MonitorInfo Util::GetMonitorInfoForOutput(IDXGIOutput* pOutput)
 {
     MonitorInfo out {};
 
+    if (pOutput == nullptr)
+        return out;
+
     DXGI_OUTPUT_DESC desc {};
     pOutput->GetDesc(&desc);
 

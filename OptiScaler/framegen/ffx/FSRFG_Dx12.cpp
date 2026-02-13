@@ -402,7 +402,7 @@ bool FSRFG_Dx12::Dispatch()
     {
         // use swapchain buffer info
         DXGI_SWAP_CHAIN_DESC scDesc1 {};
-        bool hasSwapChainDesc = _swapChain->GetDesc(&scDesc1) == S_OK;
+        bool hasSwapChainDesc = _swapChain != nullptr && _swapChain->GetDesc(&scDesc1) == S_OK;
 
         int bufferWidth = hasSwapChainDesc ? scDesc1.BufferDesc.Width : 0;
         int bufferHeight = hasSwapChainDesc ? scDesc1.BufferDesc.Height : 0;
@@ -457,18 +457,16 @@ bool FSRFG_Dx12::Dispatch()
         backendDesc.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
         backendDesc.device = _device;
 
-        ffxDispatchDescFrameGenerationPrepareCameraInfo dfgCameraData {};
-        dfgCameraData.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_CAMERAINFO;
-        dfgCameraData.header.pNext = &backendDesc.header;
+        // Use V2 structure which includes camera data
+        ffxDispatchDescFrameGenerationPrepareV2 dfgPrepare {};
+        dfgPrepare.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2;
+        dfgPrepare.header.pNext = &backendDesc.header;
 
-        std::memcpy(dfgCameraData.cameraPosition, _cameraPosition[fIndex], 3 * sizeof(float));
-        std::memcpy(dfgCameraData.cameraUp, _cameraUp[fIndex], 3 * sizeof(float));
-        std::memcpy(dfgCameraData.cameraRight, _cameraRight[fIndex], 3 * sizeof(float));
-        std::memcpy(dfgCameraData.cameraForward, _cameraForward[fIndex], 3 * sizeof(float));
-
-        ffxDispatchDescFrameGenerationPrepare dfgPrepare {};
-        dfgPrepare.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
-        dfgPrepare.header.pNext = &dfgCameraData.header;
+        // Camera data (now part of V2 structure)
+        std::memcpy(dfgPrepare.cameraPosition, _cameraPosition[fIndex], 3 * sizeof(float));
+        std::memcpy(dfgPrepare.cameraUp, _cameraUp[fIndex], 3 * sizeof(float));
+        std::memcpy(dfgPrepare.cameraRight, _cameraRight[fIndex], 3 * sizeof(float));
+        std::memcpy(dfgPrepare.cameraForward, _cameraForward[fIndex], 3 * sizeof(float));
 
         // Prepare command list
         auto allocator = _fgCommandAllocator[fIndex];
@@ -533,6 +531,7 @@ bool FSRFG_Dx12::Dispatch()
         dfgPrepare.cameraFovAngleVertical = _cameraVFov[fIndex];
         dfgPrepare.frameTimeDelta = static_cast<float>(state.lastFGFrameTime); // _ftDelta[fIndex];
         dfgPrepare.viewSpaceToMetersFactor = _meterFactor[fIndex];
+        dfgPrepare.reset = false;
 
         retCode = FfxApiProxy::D3D12_Dispatch(&_fgContext, &dfgPrepare.header);
         LOG_DEBUG("D3D12_Dispatch result: {0}, frame: {1}, fIndex: {2}, commandList: {3:X}", retCode, willDispatchFrame,
@@ -908,7 +907,8 @@ void FSRFG_Dx12::CreateContext(ID3D12Device* device, FG_Constants& fgConstants)
 
     // use swapchain buffer info
     DXGI_SWAP_CHAIN_DESC desc {};
-    if (State::Instance().currentSwapchain->GetDesc(&desc) == S_OK)
+    auto currentSwapchain = State::Instance().currentSwapchain;
+    if (currentSwapchain != nullptr && currentSwapchain->GetDesc(&desc) == S_OK)
     {
         createFg.displaySize = { desc.BufferDesc.Width, desc.BufferDesc.Height };
 
@@ -1174,6 +1174,19 @@ void FSRFG_Dx12::ReleaseObjects()
 
     _mvFlip.reset();
     _depthFlip.reset();
+
+    for (size_t i = 0; i < BUFFER_COUNT; i++)
+    {
+        _hudCopy[i].reset();
+        _hudlessTransfer[i].reset();
+        _uiTransfer[i].reset();
+
+        if (_hudlessCopyResource[i] != nullptr)
+        {
+            _hudlessCopyResource[i]->Release();
+            _hudlessCopyResource[i] = nullptr;
+        }
+    }
 }
 
 bool FSRFG_Dx12::ExecuteCommandList(int index)

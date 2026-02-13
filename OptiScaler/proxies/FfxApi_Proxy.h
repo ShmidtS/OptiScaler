@@ -25,6 +25,7 @@
 #define FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_FRAMEPACINGTUNING FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_FRAMEPACINGTUNING_DX12
 
 #include <dx12/ffx_api_dx12.h>
+#include <dx12/ffx_api_framegeneration_dx12.h>
 
 #undef FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_WAITCALLBACK
 #undef FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_FRAMEPACINGTUNING
@@ -36,6 +37,11 @@
 
 #undef FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_WAITCALLBACK
 #undef FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_FRAMEPACINGTUNING
+
+// New SDK compatibility defines
+#ifndef FFX_API_EFFECT_ID_FRAMEGENERATIONSWAPCHAIN_DX12
+#define FFX_API_EFFECT_ID_FRAMEGENERATIONSWAPCHAIN_DX12 FFX_API_EFFECT_ID_FRAMEGENERATIONSWAPCHAIN
+#endif
 
 enum class FFXStructType
 {
@@ -112,8 +118,9 @@ class FfxApiProxy
     static HMODULE Dx12Module_SR() { return upscaling_dx12.dll; }
     static HMODULE Dx12Module_FG() { return fg_dx12.dll; }
 
-    static bool IsFGReady() { return (main_dx12.dll && !main_dx12.isLoader) || fg_dx12.dll != nullptr; }
-    static bool IsSRReady() { return (main_dx12.dll && !main_dx12.isLoader) || upscaling_dx12.dll != nullptr; }
+    static bool IsFGReady() { return (main_dx12.dll && !main_dx12.isLoader) || fg_dx12.dll != nullptr || main_vk.dll != nullptr; }
+    static bool IsSRReady() { return (main_dx12.dll && !main_dx12.isLoader) || upscaling_dx12.dll != nullptr || main_vk.dll != nullptr; }
+    static bool IsVkReady() { return main_vk.dll != nullptr && main_vk.CreateContext != nullptr; }
 
     static FFXStructType GetType(ffxStructType_t type)
     {

@@ -14,10 +14,17 @@
 #include <sl1_reflex.h>
 #include <nvapi/fakenvapi.h>
 
+#include <unordered_map>
+#include <mutex>
+
 sl::RenderAPI StreamlineHooks::renderApi = sl::RenderAPI::eCount;
 std::mutex StreamlineHooks::setConstantsMutex {};
 SystemCaps* StreamlineHooks::systemCaps = nullptr;
 SystemCapsSl15* StreamlineHooks::systemCapsSl15 = nullptr;
+
+// Persistent config storage per plugin (fixes static string lifetime issue)
+static std::unordered_map<std::string, std::string> g_slPluginConfigs;
+static std::mutex g_slPluginConfigsMutex;
 
 // interposer
 decltype(&slInit) StreamlineHooks::o_slInit = nullptr;
@@ -458,9 +465,6 @@ bool StreamlineHooks::hkdlss_slOnPluginLoad(void* params, const char* loaderJSON
 {
     LOG_FUNC();
 
-    // TODO: do it better than "static" and hoping for the best
-    static std::string config;
-
     uint32_t currentArch = 0;
     if (Config::Instance()->StreamlineSpoofing.value_or_default())
     {
@@ -494,9 +498,11 @@ bool StreamlineHooks::hkdlss_slOnPluginLoad(void* params, const char* loaderJSON
         }
     }
 
-    config = configJson.dump();
-
-    *pluginJSON = config.c_str();
+    {
+        std::lock_guard<std::mutex> lock(g_slPluginConfigsMutex);
+        g_slPluginConfigs["dlss"] = configJson.dump();
+        *pluginJSON = g_slPluginConfigs["dlss"].c_str();
+    }
 
     return result;
 }
@@ -504,9 +510,6 @@ bool StreamlineHooks::hkdlss_slOnPluginLoad(void* params, const char* loaderJSON
 bool StreamlineHooks::hkdlssg_slOnPluginLoad(void* params, const char* loaderJSON, const char** pluginJSON)
 {
     LOG_FUNC();
-
-    // TODO: do it better than "static" and hoping for the best
-    static std::string config;
 
     bool shouldSpoofArch =
         Config::Instance()->StreamlineSpoofing.value_or_default() &&
@@ -573,9 +576,11 @@ bool StreamlineHooks::hkdlssg_slOnPluginLoad(void* params, const char* loaderJSO
             configJson["external"]["vk"]["device"]["extensions"].clear();
     }
 
-    config = configJson.dump();
-
-    *pluginJSON = config.c_str();
+    {
+        std::lock_guard<std::mutex> lock(g_slPluginConfigsMutex);
+        g_slPluginConfigs["dlssg"] = configJson.dump();
+        *pluginJSON = g_slPluginConfigs["dlssg"].c_str();
+    }
 
     return result;
 }
@@ -595,22 +600,21 @@ bool StreamlineHooks::hkcommon_slOnPluginLoad(void* params, const char* loaderJS
 {
     LOG_FUNC();
 
-    // TODO: do it better than "static" and hoping for the best
-    static std::string config;
-
     auto result = o_common_slOnPluginLoad(params, loaderJSON, pluginJSON);
 
     // Completely disables Streamline hooks
     // if (true)
     //{
     //    nlohmann::json configJson = nlohmann::json::parse(*pluginJSON);
-
+    //
     //    configJson["hooks"].clear();
     //    configJson["exclusive_hooks"].clear();
-
-    //    config = configJson.dump();
-
-    //    *pluginJSON = config.c_str();
+    //
+    //    {
+    //        std::lock_guard<std::mutex> lock(g_slPluginConfigsMutex);
+    //        g_slPluginConfigs["common"] = configJson.dump();
+    //        *pluginJSON = g_slPluginConfigs["common"].c_str();
+    //    }
     //}
 
     return result;
@@ -684,9 +688,6 @@ bool StreamlineHooks::hkreflex_slOnPluginLoad(void* params, const char* loaderJS
 {
     LOG_FUNC();
 
-    // TODO: do it better than "static" and hoping for the best
-    static std::string config;
-
     uint32_t currentArch = 0;
     if (Config::Instance()->StreamlineSpoofing.value_or_default())
     {
@@ -717,9 +718,11 @@ bool StreamlineHooks::hkreflex_slOnPluginLoad(void* params, const char* loaderJS
             configJson["external"]["vk"]["device"]["1.3_features"].clear();
     }
 
-    config = configJson.dump();
-
-    *pluginJSON = config.c_str();
+    {
+        std::lock_guard<std::mutex> lock(g_slPluginConfigsMutex);
+        g_slPluginConfigs["reflex"] = configJson.dump();
+        *pluginJSON = g_slPluginConfigs["reflex"].c_str();
+    }
 
     return result;
 }

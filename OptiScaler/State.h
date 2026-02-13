@@ -1,6 +1,7 @@
 #pragma once
 #include "upscalers/IFeature.h"
 #include "framegen/IFGFeature_Dx12.h"
+#include "framegen/IFGFeature_Vk.h"
 #include <inputs/FG/Streamline_Inputs_Dx12.h>
 #include "misc/Quirks.h"
 
@@ -207,6 +208,13 @@ class State
     bool vulkanCreatingSC = false;
     bool vulkanSkipHooks = false;
     VkInstance VulkanInstance = nullptr;
+
+    // Vulkan FG
+    IFGFeature_Vk* currentFGVk = nullptr;
+    VkPhysicalDevice currentVkPhysicalDevice = nullptr;
+    VkQueue currentVkQueue = nullptr;
+    uint32_t currentVkQueueFamilyIndex = 0;
+    VkSwapchainKHR currentVkSwapchain = nullptr;
 
     // Framegraph
     std::deque<double> upscaleTimes;

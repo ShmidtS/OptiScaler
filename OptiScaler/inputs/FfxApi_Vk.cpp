@@ -5,8 +5,10 @@
 #include <Config.h>
 #include <resource.h>
 #include <NVNGX_Parameter.h>
+#include <State.h>
 
 #include <proxies/FfxApi_Proxy.h>
+#include <framegen/ffx/FSRFG_Vk.h>
 
 #include <ffx_upscale.h>
 #include <vk/ffx_api_vk.h>
@@ -38,6 +40,13 @@ static NVSDK_NGX_Resource_VK mvNVRes {};
 static NVSDK_NGX_Resource_VK outputNVRes {};
 static NVSDK_NGX_Resource_VK fsrReactiveNVRes {};
 static NVSDK_NGX_Resource_VK fsrTransparencyNVRes {};
+
+// Frame Generation resources
+static VkImage _fgDepthImage = VK_NULL_HANDLE;
+static VkImage _fgMotionVectorImage = VK_NULL_HANDLE;
+static VkImageView _fgDepthView = VK_NULL_HANDLE;
+static VkImageView _fgMotionVectorView = VK_NULL_HANDLE;
+static uint32_t _fgWidth = 0, _fgHeight = 0;
 
 static VkFormat ffxApiGetVkFormat(uint32_t fmt)
 {
@@ -323,6 +332,48 @@ ffxReturnCode_t ffxCreateContext_Vk(ffxContext* context, ffxCreateContextDescHea
         return FFX_API_RETURN_ERROR_PARAMETER;
 
     LOG_DEBUG("type: {:X}", desc->type);
+
+    // Check for Frame Generation Swapchain context (Vulkan)
+    if (desc->type == FFX_API_CREATE_CONTEXT_DESC_TYPE_FGSWAPCHAIN_VK)
+    {
+        LOG_INFO("Frame Generation Swapchain VK context requested");
+
+        // Check if FG is enabled and configured
+        if (State::Instance().activeFgInput != FGInput::NoFG &&
+            State::Instance().activeFgInput != FGInput::Nukems &&
+            State::Instance().activeFgOutput == FGOutput::FSRFG)
+        {
+            LOG_INFO("Passing FG Swapchain context to OptiScaler FG handler");
+            // Let the original FFX API handle it, but we intercept the swapchain
+        }
+
+        // Call original
+        auto ffxApiResult = FfxApiProxy::VULKAN_CreateContext()(context, desc, memCb);
+        if (ffxApiResult != FFX_API_RETURN_OK)
+        {
+            LOG_ERROR("FG Swapchain context creation failed: {:X}", (UINT) ffxApiResult);
+            return ffxApiResult;
+        }
+
+        LOG_INFO("FG Swapchain VK context created successfully");
+        return ffxApiResult;
+    }
+
+    // Check for Frame Generation context
+    if (desc->type == FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION)
+    {
+        LOG_INFO("Frame Generation VK context requested");
+        auto ffxApiResult = FfxApiProxy::VULKAN_CreateContext()(context, desc, memCb);
+
+        if (ffxApiResult != FFX_API_RETURN_OK)
+        {
+            LOG_ERROR("FG context creation failed: {:X}", (UINT) ffxApiResult);
+            return ffxApiResult;
+        }
+
+        LOG_INFO("FG VK context created successfully");
+        return ffxApiResult;
+    }
 
     auto ffxApiResult = FfxApiProxy::VULKAN_CreateContext()(context, desc, memCb);
 
@@ -670,8 +721,38 @@ ffxReturnCode_t ffxDispatch_Vk(ffxContext* context, ffxDispatchDescHeader* desc)
         NVSDK_NGX_VULKAN_EvaluateFeature((VkCommandBuffer) dispatchDesc->commandList, handle, params, nullptr);
 
     if (evalResult == NVSDK_NGX_Result_Success)
+    {
+        // Store depth and motion vector resources for FG use
+        _fgDepthImage = (VkImage) dispatchDesc->depth.resource;
+        _fgMotionVectorImage = (VkImage) dispatchDesc->motionVectors.resource;
+        _fgDepthView = depthImageView;
+        _fgMotionVectorView = mvImageView;
+        _fgWidth = dispatchDesc->renderSize.width;
+        _fgHeight = dispatchDesc->renderSize.height;
+
         return FFX_API_RETURN_OK;
+    }
 
     LOG_ERROR("evalResult: {:X}", (UINT) evalResult);
     return FFX_API_RETURN_ERROR_RUNTIME_ERROR;
+}
+
+bool FfxApiVk_HasFGResources()
+{
+    return _fgDepthImage != VK_NULL_HANDLE && _fgMotionVectorImage != VK_NULL_HANDLE;
+}
+
+void FfxApiVk_GetFGResources(VkImage* depth, VkImage* motionVectors, uint32_t* width, uint32_t* height)
+{
+    if (depth != nullptr)
+        *depth = _fgDepthImage;
+
+    if (motionVectors != nullptr)
+        *motionVectors = _fgMotionVectorImage;
+
+    if (width != nullptr)
+        *width = _fgWidth;
+
+    if (height != nullptr)
+        *height = _fgHeight;
 }

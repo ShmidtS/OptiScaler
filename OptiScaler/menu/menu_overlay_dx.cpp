@@ -94,12 +94,11 @@ static void CreateRenderTargetDx12(ID3D12Device* device, IDXGISwapChain* pSwapCh
         ID3D12Resource* pBackBuffer = nullptr;
         auto result = pSwapChain->GetBuffer(i, IID_PPV_ARGS(&pBackBuffer));
 
-        if (pBackBuffer != nullptr)
-            pBackBuffer->Release();
-
         if (result != S_OK)
         {
             LOG_ERROR("pSwapChain->GetBuffer: {:X}", (unsigned long) result);
+            if (pBackBuffer != nullptr)
+                pBackBuffer->Release();
             return;
         }
 
@@ -111,6 +110,7 @@ static void CreateRenderTargetDx12(ID3D12Device* device, IDXGISwapChain* pSwapCh
 
             device->CreateRenderTargetView(pBackBuffer, &desc, g_mainRenderTargetDescriptor[i]);
             g_mainRenderTargetResource[i] = pBackBuffer;
+            // Note: Release() should only be called in CleanupRenderTargetDx12()
         }
     }
 
@@ -127,7 +127,10 @@ static void CleanupRenderTargetDx12(bool clearQueue)
     for (UINT i = 0; i < NUM_BACK_BUFFERS; ++i)
     {
         if (g_mainRenderTargetResource[i])
+        {
+            g_mainRenderTargetResource[i]->Release();
             g_mainRenderTargetResource[i] = nullptr;
+        }
     }
 
     if (clearQueue)
