@@ -1,3 +1,14 @@
+// ===========================================================================
+// Config.h - Configuration Management
+// ===========================================================================
+// Thread Safety Notes:
+// - Config is a singleton accessed from multiple threads
+// - CustomOptional provides thread-safe atomic operations via set_volatile_value()
+// - Config values are generally safe to read from any thread after initialization
+// - For runtime changes, use set_volatile_value() to avoid race conditions
+// - The _volatile flag prevents changes from being overwritten during ini reloads
+// ===========================================================================
+
 #pragma once
 #include "SysUtils.h"
 #include "State.h"
@@ -429,7 +440,7 @@ class Config
     CustomOptional<bool> FGOnlyAcceptFirstHudless { false };
 
     // OptiFG
-    CustomOptional<bool> FGEnabled { false };
+    CustomOptional<bool> FGEnabled { true };
     CustomOptional<bool> FGUseMutexForSwapchain { true };
     CustomOptional<bool> FGMakeMVCopy { true };
     CustomOptional<bool> FGMakeDepthCopy { true };
@@ -544,6 +555,14 @@ class Config
     std::vector<std::string> GetConfigLog();
 
     static Config* Instance();
+    static void Cleanup()
+    {
+        if (_config != nullptr)
+        {
+            delete _config;
+            _config = nullptr;
+        }
+    }
 
   private:
     inline static Config* _config;

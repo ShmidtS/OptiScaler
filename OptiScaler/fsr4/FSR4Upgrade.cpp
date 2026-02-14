@@ -147,7 +147,7 @@ void CheckForGPU()
 
     UINT adapterIndex = 0;
     DXGI_ADAPTER_DESC adapterDesc {};
-    IDXGIAdapter* adapter;
+    IDXGIAdapter* adapter = nullptr;
 
     while (factory->EnumAdapters(adapterIndex, &adapter) == S_OK)
     {
@@ -224,6 +224,11 @@ struct AmdExtFfxApi : public IAmdExtFfxApi
     {
         // To prevent crashes with amd_fidelityfx_dx12.dll & amd_fidelityfx_framegeneration_dx12.dll combo added this
         // check after ML FG update this should be disabled!
+        if (pData == nullptr || dataSizeInBytes < sizeof(ExternalProviderData))
+        {
+            LOG_ERROR("Invalid pData or dataSizeInBytes");
+            return E_INVALIDARG;
+        }
         auto effectType = FfxApiProxy::GetType(reinterpret_cast<ExternalProviderData*>(pData)->descType);
 
         switch (effectType)
@@ -385,6 +390,9 @@ struct AmdExtD3DDevice8 : public IAmdExtD3DDevice8
     STUB(13)
     HRESULT STDMETHODCALLTYPE GetWaveMatrixProperties(uint64_t* count, AmdExtWaveMatrixProperties* waveMatrixProperties)
     {
+        if (count == nullptr || waveMatrixProperties == nullptr)
+            return E_POINTER;
+
         LOG_TRACE(": {}", *count);
 
         waveMatrixProperties->mSize = 16;
@@ -550,4 +558,59 @@ HRESULT STDMETHODCALLTYPE hkAmdExtD3DCreateInterface(IUnknown* pOuter, REFIID ri
         return o_AmdExtD3DCreateInterface(pOuter, riid, ppvObject);
 
     return E_NOINTERFACE;
+}
+
+void CleanupFSR4Update()
+{
+    // Clean up static objects to prevent memory leaks
+    if (amdExtD3DShaderIntrinsics != nullptr)
+    {
+        delete amdExtD3DShaderIntrinsics;
+        amdExtD3DShaderIntrinsics = nullptr;
+    }
+
+    if (amdExtD3DDevice8 != nullptr)
+    {
+        delete amdExtD3DDevice8;
+        amdExtD3DDevice8 = nullptr;
+    }
+
+    if (amdExtD3DFactory != nullptr)
+    {
+        delete amdExtD3DFactory;
+        amdExtD3DFactory = nullptr;
+    }
+
+    if (amdExtFfxApi != nullptr)
+    {
+        delete amdExtFfxApi;
+        amdExtFfxApi = nullptr;
+    }
+
+    // Note: o_amdExtD3DFactory is not owned by us, don't delete it
+
+    // Detach the hook to prevent dangling pointer
+    if (o_AmdExtD3DCreateInterface != nullptr)
+    {
+        DetourTransactionBegin();
+        DetourUpdateThread(GetCurrentThread());
+        DetourDetach(&(PVOID&)o_AmdExtD3DCreateInterface, hkAmdExtD3DCreateInterface);
+        DetourTransactionCommit();
+        o_AmdExtD3DCreateInterface = nullptr;
+    }
+
+    // Free module handles to prevent resource leak
+    if (fsr4Module != nullptr)
+    {
+        NtdllProxy::FreeLibrary_Ldr(fsr4Module);
+        fsr4Module = nullptr;
+    }
+
+    if (moduleAmdxc64 != nullptr)
+    {
+        NtdllProxy::FreeLibrary_Ldr(moduleAmdxc64);
+        moduleAmdxc64 = nullptr;
+    }
+
+    LOG_INFO("FSR4 update objects cleaned up");
 }

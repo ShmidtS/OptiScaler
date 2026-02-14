@@ -19,6 +19,7 @@
 #include <ffx_upscale.h>
 
 #include <magic_enum.hpp>
+#include <mutex>
 
 // A mess to be able to import both
 #define FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_WAITCALLBACK FFX_API_CONFIGURE_FG_SWAPCHAIN_KEY_WAITCALLBACK_DX12
@@ -77,6 +78,8 @@ struct FfxModule
 class FfxApiProxy
 {
   private:
+    inline static std::mutex _proxyMutex;
+
     inline static FfxModule main_dx12;
     inline static FfxModule upscaling_dx12;
     inline static FfxModule fg_dx12;
@@ -121,6 +124,19 @@ class FfxApiProxy
     static bool IsFGReady() { return (main_dx12.dll && !main_dx12.isLoader) || fg_dx12.dll != nullptr || main_vk.dll != nullptr; }
     static bool IsSRReady() { return (main_dx12.dll && !main_dx12.isLoader) || upscaling_dx12.dll != nullptr || main_vk.dll != nullptr; }
     static bool IsVkReady() { return main_vk.dll != nullptr && main_vk.CreateContext != nullptr; }
+
+    // Check if DX12 Frame Generation is ready (for Vulkan w/DX12 interop or DX12 games)
+    static bool IsDx12FGReady() { return (main_dx12.dll && !main_dx12.isLoader) || fg_dx12.dll != nullptr; }
+
+    // Check if Vulkan Frame Generation is ready (requires FFX VK 3.2+)
+    static bool IsVkFGReady()
+    {
+        if (main_vk.dll == nullptr || main_vk.CreateContext == nullptr)
+            return false;
+        auto version = VersionVk();
+        // FFX VK Frame Generation requires version 3.2 or higher
+        return version.major > 3 || (version.major == 3 && version.minor >= 2);
+    }
 
     static FFXStructType GetType(ffxStructType_t type)
     {
@@ -169,6 +185,8 @@ class FfxApiProxy
 
     static bool InitFfxDx12(HMODULE module = nullptr)
     {
+        std::lock_guard<std::mutex> lock(_proxyMutex);
+
         // if dll already loaded
         if (main_dx12.dll != nullptr && main_dx12.CreateContext != nullptr)
             return true;
@@ -278,8 +296,12 @@ class FfxApiProxy
 
         LOG_INFO("LoadResult: {}", loadResult);
 
-        if (!loadResult)
+        // Free loaded DLL if initialization failed to prevent memory leak
+        if (!loadResult && main_dx12.dll != nullptr && module == nullptr)
+        {
+            NtdllProxy::FreeLibrary_Ldr(main_dx12.dll);
             main_dx12.dll = nullptr;
+        }
 
         return loadResult;
     }

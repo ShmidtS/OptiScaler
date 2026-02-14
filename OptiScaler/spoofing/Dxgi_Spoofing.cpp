@@ -27,6 +27,13 @@ inline static std::string toLower(std::string s)
 
 inline static bool iequals(const std::string& a, const std::string& b) { return toLower(a) == toLower(b); }
 
+// Helper function to create a unique 64-bit key from LUID
+// Using XOR instead of OR to prevent collisions (e.g., 0x1000 | 0x0001 == 0x1001 == 0x0001 | 0x1000)
+inline static UINT64 MakeLuidKey(LUID luid)
+{
+    return ((UINT64)luid.HighPart << 32) | (UINT64)luid.LowPart;
+}
+
 #pragma region DXGI Adapter methods
 
 inline static bool SkipSpoofing()
@@ -36,7 +43,7 @@ inline static bool SkipSpoofing()
     if (skip)
     {
         LOG_TRACE("DxgiSpoofing: {}, skipSpoofing: {}, skipping spoofing",
-                  Config::Instance()->DxgiSpoofing.value_or_default(), State::Instance().skipSpoofing);
+                  Config::Instance()->DxgiSpoofing.value_or_default(), State::Instance().skipSpoofing.load());
     }
 
     return skip;
@@ -49,7 +56,9 @@ HRESULT DxgiSpoofing::hkGetDesc3(IDXGIAdapter4* This, DXGI_ADAPTER_DESC3* pDesc)
     auto caller = Util::WhoIsTheCaller(_ReturnAddress());
 
     if (iequals(caller, "fakenvapi.dll") || iequals(caller, "vulkan-1.dll") || iequals(caller, "amdvlk64.dll") ||
-        iequals(caller, "dxgi.dll") || iequals(caller, "d3d12.dll") || iequals(caller, "d3d12Core.dll"))
+        iequals(caller, "dxgi.dll") || iequals(caller, "d3d12.dll") || iequals(caller, "d3d12Core.dll") ||
+        iequals(caller, "nvngx_dlssg.dll") || iequals(caller, "sl.common.dll") || iequals(caller, "sl.dlss_g.dll") ||
+        iequals(caller, "sl.dll") || iequals(caller, "_nvngx.dll"))
     {
         return result;
     }
@@ -60,16 +69,19 @@ HRESULT DxgiSpoofing::hkGetDesc3(IDXGIAdapter4* This, DXGI_ADAPTER_DESC3* pDesc)
 
     if (result == S_OK)
     {
-        if (pDesc->VendorId != VendorId::Microsoft &&
-            !State::Instance().adapterDescs.contains(pDesc->AdapterLuid.HighPart | pDesc->AdapterLuid.LowPart))
+        if (pDesc->VendorId != VendorId::Microsoft)
         {
-            std::wstring szName(pDesc->Description);
-            std::string descStr =
-                std::format("Adapter: {}, VRAM: {} MB, VendorId: {:#x}, DeviceId: {:#x}", wstring_to_string(szName),
-                            pDesc->DedicatedVideoMemory / (1024 * 1024), pDesc->VendorId, pDesc->DeviceId);
-            LOG_INFO("{}", descStr);
-            State::Instance().adapterDescs.insert_or_assign(pDesc->AdapterLuid.HighPart | pDesc->AdapterLuid.LowPart,
-                                                            descStr);
+            auto luidKey = MakeLuidKey(pDesc->AdapterLuid);
+            std::lock_guard<std::mutex> lock(State::Instance().adapterDescsMutex);
+            if (!State::Instance().adapterDescs.contains(luidKey))
+            {
+                std::wstring szName(pDesc->Description);
+                std::string descStr =
+                    std::format("Adapter: {}, VRAM: {} MB, VendorId: {:#x}, DeviceId: {:#x}", wstring_to_string(szName),
+                                pDesc->DedicatedVideoMemory / (1024 * 1024), pDesc->VendorId, pDesc->DeviceId);
+                LOG_INFO("{}", descStr);
+                State::Instance().adapterDescs.insert_or_assign(luidKey, descStr);
+            }
         }
 
         if (Config::Instance()->DxgiVRAM.has_value())
@@ -107,7 +119,9 @@ HRESULT DxgiSpoofing::hkGetDesc2(IDXGIAdapter2* This, DXGI_ADAPTER_DESC2* pDesc)
     auto caller = Util::WhoIsTheCaller(_ReturnAddress());
 
     if (iequals(caller, "fakenvapi.dll") || iequals(caller, "vulkan-1.dll") || iequals(caller, "amdvlk64.dll") ||
-        iequals(caller, "dxgi.dll") || iequals(caller, "d3d12.dll") || iequals(caller, "d3d12Core.dll"))
+        iequals(caller, "dxgi.dll") || iequals(caller, "d3d12.dll") || iequals(caller, "d3d12Core.dll") ||
+        iequals(caller, "nvngx_dlssg.dll") || iequals(caller, "sl.common.dll") || iequals(caller, "sl.dlss_g.dll") ||
+        iequals(caller, "sl.dll") || iequals(caller, "_nvngx.dll"))
     {
         return result;
     }
@@ -118,16 +132,19 @@ HRESULT DxgiSpoofing::hkGetDesc2(IDXGIAdapter2* This, DXGI_ADAPTER_DESC2* pDesc)
 
     if (result == S_OK)
     {
-        if (pDesc->VendorId != VendorId::Microsoft &&
-            !State::Instance().adapterDescs.contains(pDesc->AdapterLuid.HighPart | pDesc->AdapterLuid.LowPart))
+        if (pDesc->VendorId != VendorId::Microsoft)
         {
-            std::wstring szName(pDesc->Description);
-            std::string descStr =
-                std::format("Adapter: {}, VRAM: {} MB, VendorId: {:#x}, DeviceId: {:#x}", wstring_to_string(szName),
-                            pDesc->DedicatedVideoMemory / (1024 * 1024), pDesc->VendorId, pDesc->DeviceId);
-            LOG_INFO("{}", descStr);
-            State::Instance().adapterDescs.insert_or_assign(pDesc->AdapterLuid.HighPart | pDesc->AdapterLuid.LowPart,
-                                                            descStr);
+            auto luidKey = MakeLuidKey(pDesc->AdapterLuid);
+            std::lock_guard<std::mutex> lock(State::Instance().adapterDescsMutex);
+            if (!State::Instance().adapterDescs.contains(luidKey))
+            {
+                std::wstring szName(pDesc->Description);
+                std::string descStr =
+                    std::format("Adapter: {}, VRAM: {} MB, VendorId: {:#x}, DeviceId: {:#x}", wstring_to_string(szName),
+                                pDesc->DedicatedVideoMemory / (1024 * 1024), pDesc->VendorId, pDesc->DeviceId);
+                LOG_INFO("{}", descStr);
+                State::Instance().adapterDescs.insert_or_assign(luidKey, descStr);
+            }
         }
 
         if (Config::Instance()->DxgiVRAM.has_value())
@@ -165,7 +182,9 @@ HRESULT DxgiSpoofing::hkGetDesc1(IDXGIAdapter1* This, DXGI_ADAPTER_DESC1* pDesc)
     auto caller = Util::WhoIsTheCaller(_ReturnAddress());
 
     if (iequals(caller, "fakenvapi.dll") || iequals(caller, "vulkan-1.dll") || iequals(caller, "amdvlk64.dll") ||
-        iequals(caller, "dxgi.dll") || iequals(caller, "d3d12.dll") || iequals(caller, "d3d12Core.dll"))
+        iequals(caller, "dxgi.dll") || iequals(caller, "d3d12.dll") || iequals(caller, "d3d12Core.dll") ||
+        iequals(caller, "nvngx_dlssg.dll") || iequals(caller, "sl.common.dll") || iequals(caller, "sl.dlss_g.dll") ||
+        iequals(caller, "sl.dll") || iequals(caller, "_nvngx.dll"))
     {
         return result;
     }
@@ -176,16 +195,19 @@ HRESULT DxgiSpoofing::hkGetDesc1(IDXGIAdapter1* This, DXGI_ADAPTER_DESC1* pDesc)
 
     if (result == S_OK)
     {
-        if (pDesc->VendorId != VendorId::Microsoft &&
-            !State::Instance().adapterDescs.contains(pDesc->AdapterLuid.HighPart | pDesc->AdapterLuid.LowPart))
+        if (pDesc->VendorId != VendorId::Microsoft)
         {
-            std::wstring szName(pDesc->Description);
-            std::string descStr =
-                std::format("Adapter: {}, VRAM: {} MB, VendorId: {:#x}, DeviceId: {:#x}", wstring_to_string(szName),
-                            pDesc->DedicatedVideoMemory / (1024 * 1024), pDesc->VendorId, pDesc->DeviceId);
-            LOG_INFO("{}", descStr);
-            State::Instance().adapterDescs.insert_or_assign(pDesc->AdapterLuid.HighPart | pDesc->AdapterLuid.LowPart,
-                                                            descStr);
+            auto luidKey = MakeLuidKey(pDesc->AdapterLuid);
+            std::lock_guard<std::mutex> lock(State::Instance().adapterDescsMutex);
+            if (!State::Instance().adapterDescs.contains(luidKey))
+            {
+                std::wstring szName(pDesc->Description);
+                std::string descStr =
+                    std::format("Adapter: {}, VRAM: {} MB, VendorId: {:#x}, DeviceId: {:#x}", wstring_to_string(szName),
+                                pDesc->DedicatedVideoMemory / (1024 * 1024), pDesc->VendorId, pDesc->DeviceId);
+                LOG_INFO("{}", descStr);
+                State::Instance().adapterDescs.insert_or_assign(luidKey, descStr);
+            }
         }
 
         if (Config::Instance()->DxgiVRAM.has_value())
@@ -223,7 +245,9 @@ HRESULT DxgiSpoofing::hkGetDesc(IDXGIAdapter* This, DXGI_ADAPTER_DESC* pDesc)
     auto caller = Util::WhoIsTheCaller(_ReturnAddress());
 
     if (iequals(caller, "fakenvapi.dll") || iequals(caller, "vulkan-1.dll") || iequals(caller, "amdvlk64.dll") ||
-        iequals(caller, "dxgi.dll") || iequals(caller, "d3d12.dll") || iequals(caller, "d3d12Core.dll"))
+        iequals(caller, "dxgi.dll") || iequals(caller, "d3d12.dll") || iequals(caller, "d3d12Core.dll") ||
+        iequals(caller, "nvngx_dlssg.dll") || iequals(caller, "sl.common.dll") || iequals(caller, "sl.dlss_g.dll") ||
+        iequals(caller, "sl.dll") || iequals(caller, "_nvngx.dll"))
     {
         return result;
     }
@@ -234,16 +258,19 @@ HRESULT DxgiSpoofing::hkGetDesc(IDXGIAdapter* This, DXGI_ADAPTER_DESC* pDesc)
 
     if (result == S_OK)
     {
-        if (pDesc->VendorId != VendorId::Microsoft &&
-            !State::Instance().adapterDescs.contains(pDesc->AdapterLuid.HighPart | pDesc->AdapterLuid.LowPart))
+        if (pDesc->VendorId != VendorId::Microsoft)
         {
-            std::wstring szName(pDesc->Description);
-            std::string descStr =
-                std::format("Adapter: {}, VRAM: {} MB, VendorId: {:#x}, DeviceId: {:#x}", wstring_to_string(szName),
-                            pDesc->DedicatedVideoMemory / (1024 * 1024), pDesc->VendorId, pDesc->DeviceId);
-            LOG_INFO("{}", descStr);
-            State::Instance().adapterDescs.insert_or_assign(pDesc->AdapterLuid.HighPart | pDesc->AdapterLuid.LowPart,
-                                                            descStr);
+            auto luidKey = MakeLuidKey(pDesc->AdapterLuid);
+            std::lock_guard<std::mutex> lock(State::Instance().adapterDescsMutex);
+            if (!State::Instance().adapterDescs.contains(luidKey))
+            {
+                std::wstring szName(pDesc->Description);
+                std::string descStr =
+                    std::format("Adapter: {}, VRAM: {} MB, VendorId: {:#x}, DeviceId: {:#x}", wstring_to_string(szName),
+                                pDesc->DedicatedVideoMemory / (1024 * 1024), pDesc->VendorId, pDesc->DeviceId);
+                LOG_INFO("{}", descStr);
+                State::Instance().adapterDescs.insert_or_assign(luidKey, descStr);
+            }
         }
 
         if (Config::Instance()->DxgiVRAM.has_value())

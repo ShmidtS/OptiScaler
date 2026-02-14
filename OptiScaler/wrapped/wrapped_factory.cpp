@@ -13,7 +13,7 @@ static HRESULT hkGetParent(IDXGIAdapter* This, REFIID riid, void** ppParent)
 {
     auto result = o_GetParent(This, riid, ppParent);
 
-    if (State::Instance().skipParentWrapping)
+    if (State::Instance().skipParentWrapping.load())
         return result;
 
     if (result != S_OK)

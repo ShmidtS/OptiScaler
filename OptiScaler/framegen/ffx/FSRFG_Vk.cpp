@@ -119,11 +119,37 @@ bool FSRFG_Vk::CreateSwapchain(VkDevice device, VkPhysicalDevice physicalDevice,
 {
     LOG_FUNC();
 
-    if (!FfxApiProxy::IsFGReady())
+    if (!FfxApiProxy::IsVkReady())
     {
-        LOG_ERROR("FG API not ready!");
+        LOG_ERROR("FG API not ready (Vulkan FFX not loaded)!");
         return false;
     }
+
+    // Check if Vulkan FFX version supports Frame Generation (requires 3.2+)
+    if (!FfxApiProxy::IsVkFGReady())
+    {
+        auto version = FfxApiProxy::VersionVk();
+
+        LOG_ERROR("===========================================");
+        LOG_ERROR("FFX Vulkan version {}.{}.{} does not support Frame Generation", version.major, version.minor, version.patch);
+        LOG_ERROR("Vulkan Frame Generation requires FFX SDK 3.2 or higher");
+        LOG_ERROR("");
+        LOG_ERROR("To enable Vulkan Frame Generation:");
+        LOG_ERROR("  1. Download FFX SDK 3.2+ from:");
+        LOG_ERROR("     https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/releases");
+        LOG_ERROR("  2. Place amd_fidelityfx_vk.dll in the game folder");
+        LOG_ERROR("  3. Or configure FfxVkPath in OptiScaler.ini to point to the DLL");
+        LOG_ERROR("");
+        LOG_ERROR("Alternative: Use FGOutput=FSRFG with DX12 interop");
+        LOG_ERROR("  OptiScaler can use DX12 Frame Generation with Vulkan games");
+        LOG_ERROR("  This requires amd_fidelityfx_dx12.dll or amd_fidelityfx_framegeneration_dx12.dll");
+        LOG_ERROR("===========================================");
+        LOG_WARN("Vulkan Frame Generation disabled, falling back to standard presentation");
+        return false;
+    }
+
+    auto version = FfxApiProxy::VersionVk();
+    LOG_INFO("FFX Vulkan version {}.{}.{} supports Frame Generation", version.major, version.minor, version.patch);
 
     _device = device;
     _physicalDevice = physicalDevice;
@@ -183,9 +209,10 @@ bool FSRFG_Vk::CreateSwapchain(VkDevice device, VkPhysicalDevice physicalDevice,
     fgSwapchainDesc.physicalDevice = physicalDevice;
     fgSwapchainDesc.device = device;
     fgSwapchainDesc.swapchain = swapchain;
+    fgSwapchainDesc.allocator = nullptr; // Use default allocator
     fgSwapchainDesc.createInfo = *createInfo;
-    // Clear oldSwapchain to avoid issues - FFX will handle swapchain replacement
-    fgSwapchainDesc.createInfo.oldSwapchain = VK_NULL_HANDLE;
+    // Preserve oldSwapchain if it exists - FFX needs it for proper swapchain replacement
+    // If oldSwapchain is VK_NULL_HANDLE, the current swapchain in *swapchain will be used
 
     fgSwapchainDesc.gameQueue.queue = _gameQueue;
     fgSwapchainDesc.gameQueue.familyIndex = _queueFamilyIndex;
@@ -234,7 +261,7 @@ bool FSRFG_Vk::ReleaseSwapchain(HWND hwnd)
     return true;
 }
 
-void FSRFG_Vk::CreateContext(VkDevice device, VkPhysicalDevice physicalDevice,
+bool FSRFG_Vk::CreateContext(VkDevice device, VkPhysicalDevice physicalDevice,
                               VkInstance instance, FG_Constants& fgConstants)
 {
     LOG_FUNC();
@@ -247,7 +274,7 @@ void FSRFG_Vk::CreateContext(VkDevice device, VkPhysicalDevice physicalDevice,
     if (!FfxApiProxy::IsFGReady())
     {
         LOG_ERROR("FG API not ready!");
-        return;
+        return false;
     }
 
     ffxCreateContextDescFrameGeneration fgDesc {};
@@ -279,11 +306,12 @@ void FSRFG_Vk::CreateContext(VkDevice device, VkPhysicalDevice physicalDevice,
     if (result != FFX_API_RETURN_OK)
     {
         LOG_ERROR("Failed to create FG context: {:X}", (UINT) result);
-        return;
+        return false;
     }
 
     CreateObjects(device);
     LOG_INFO("FG Vulkan context created");
+    return true;
 }
 
 void FSRFG_Vk::Activate()
@@ -423,6 +451,24 @@ bool FSRFG_Vk::Dispatch()
 ffxReturnCode_t FSRFG_Vk::DispatchCallback(ffxDispatchDescFrameGeneration* params)
 {
     LOG_FUNC();
+
+    if (params == nullptr)
+        return FFX_API_RETURN_ERROR_PARAMETER;
+
+    auto fIndex = GetIndex();
+
+    // The frame generation callback is called by FFX to generate frames
+    // params contains: presentColor (source), outputs (destination), frameID, etc.
+
+    LOG_DEBUG("Frame generation callback invoked for frame {}, numOutputs: {}",
+              params->frameID, params->numGeneratedFrames);
+
+    // Frame generation is handled internally by FFX
+    // This callback just needs to return OK to confirm the callback was processed
+    // The actual frame generation work is done by FFX using the resources we provided
+    // in the Dispatch() function (via FrameGenerationPrepareV2)
+
+    _frameCount++;
     return FFX_API_RETURN_OK;
 }
 

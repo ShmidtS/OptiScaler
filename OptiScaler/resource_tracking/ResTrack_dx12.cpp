@@ -875,7 +875,7 @@ HRESULT ResTrack_Dx12::hkCreateDescriptorHeap(ID3D12Device* This, D3D12_DESCRIPT
 {
     auto result = o_CreateDescriptorHeap(This, pDescriptorHeapDesc, riid, ppvHeap);
 
-    if (State::Instance().skipHeapCapture)
+    if (State::Instance().skipHeapCapture.load())
         return result;
 
     // try to calculate handle ranges for heap

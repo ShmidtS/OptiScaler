@@ -141,7 +141,7 @@ HRESULT DxgiFactoryHooks::CreateSwapChain(IDXGIFactory* realFactory, IUnknown* p
 {
     *ppSwapChain = nullptr;
 
-    if (State::Instance().vulkanCreatingSC)
+    if (State::Instance().vulkanCreatingSC.load())
     {
         LOG_WARN("Vulkan is creating swapchain!");
 
@@ -381,7 +381,7 @@ HRESULT DxgiFactoryHooks::CreateSwapChainForHwnd(IDXGIFactory2* realFactory, IUn
         _skipFGSwapChainCreation = true;
     }
 
-    if (State::Instance().vulkanCreatingSC)
+    if (State::Instance().vulkanCreatingSC.load())
     {
         LOG_WARN("Vulkan is creating swapchain!");
         HRESULT result;
@@ -635,7 +635,7 @@ HRESULT DxgiFactoryHooks::CreateSwapChainForCoreWindow(IDXGIFactory2* realFactor
                                                        DXGI_SWAP_CHAIN_DESC1* pDesc, IDXGIOutput* pRestrictToOutput,
                                                        IDXGISwapChain1** ppSwapChain)
 {
-    if (State::Instance().vulkanCreatingSC)
+    if (State::Instance().vulkanCreatingSC.load())
     {
         LOG_WARN("Vulkan is creating swapchain!");
 

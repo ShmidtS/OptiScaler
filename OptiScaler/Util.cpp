@@ -297,6 +297,13 @@ static inline std::string LogLastError()
     return result;
 }
 
+// ---------------------------------------------------------------------------
+// GetDLLVersion - Extracts version information from a DLL file
+// ---------------------------------------------------------------------------
+// Returns true if version info was successfully extracted, false otherwise.
+// IMPORTANT: Callers must check the return value before using versionOut.
+// On failure, versionOut contents are undefined and should not be used.
+// ---------------------------------------------------------------------------
 bool Util::GetDLLVersion(std::wstring dllPath, version_t* versionOut)
 {
     // Step 1: Get the size of the version information
@@ -374,14 +381,21 @@ std::optional<std::filesystem::path> Util::FindFilePath(const std::filesystem::p
     }
 
     // 2) Recursive search under startDir
-    for (auto& entry : std::filesystem::recursive_directory_iterator(
-             startDir, std::filesystem::directory_options::skip_permission_denied))
+    try
     {
-        if (!entry.is_directory() && entry.path().filename() == fileName)
+        for (auto& entry : std::filesystem::recursive_directory_iterator(
+                 startDir, std::filesystem::directory_options::skip_permission_denied))
         {
-            LOG_INFO(L"{} found at {}", fileName.wstring(), entry.path().parent_path().wstring());
-            return entry.path();
+            if (!entry.is_directory() && entry.path().filename() == fileName)
+            {
+                LOG_INFO(L"{} found at {}", fileName.wstring(), entry.path().parent_path().wstring());
+                return entry.path();
+            }
         }
+    }
+    catch (const std::filesystem::filesystem_error& e)
+    {
+        LOG_ERROR("Filesystem error during search: {}", e.what());
     }
 
     // 3) Unreal-Engine/WinGDK fallback: check for Win64 or WinGDK in parent
@@ -398,14 +412,21 @@ std::optional<std::filesystem::path> Util::FindFilePath(const std::filesystem::p
             else
                 gameRoot = parent.parent_path();
 
-            for (auto& entry : std::filesystem::recursive_directory_iterator(
-                     gameRoot, std::filesystem::directory_options::skip_permission_denied))
+            try
             {
-                if (!entry.is_directory() && entry.path().filename() == fileName)
+                for (auto& entry : std::filesystem::recursive_directory_iterator(
+                         gameRoot, std::filesystem::directory_options::skip_permission_denied))
                 {
-                    LOG_INFO(L"{} found at {}", fileName.wstring(), entry.path().parent_path().wstring());
-                    return entry.path();
+                    if (!entry.is_directory() && entry.path().filename() == fileName)
+                    {
+                        LOG_INFO(L"{} found at {}", fileName.wstring(), entry.path().parent_path().wstring());
+                        return entry.path();
+                    }
                 }
+            }
+            catch (const std::filesystem::filesystem_error& e)
+            {
+                LOG_ERROR("Filesystem error during UE fallback search: {}", e.what());
             }
 
             // If not found under this folder, break to avoid double-search

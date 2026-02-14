@@ -1,4 +1,18 @@
+// ===========================================================================
+// State.h - Global Application State Singleton
+// ===========================================================================
+// Thread Safety Notes:
+// - State is a singleton accessed from multiple threads (main thread, hook threads)
+// - Most fields are written during initialization (DLL_PROCESS_ATTACH) and read-only after
+// - Fields that may be modified at runtime should use appropriate synchronization:
+//   - frameTimes/upscaleTimes: protected by frameTimeMutex
+//   - versionCheck*: protected by versionCheckMutex
+// - Config access is generally thread-safe via ConfigOptions atomic operations
+// - For runtime state changes, prefer using the Scoped* helper classes
+// ===========================================================================
+
 #pragma once
+#include <atomic>
 #include "upscalers/IFeature.h"
 #include "framegen/IFGFeature_Dx12.h"
 #include "framegen/IFGFeature_Vk.h"
@@ -56,6 +70,9 @@ typedef struct CapturedHudlessInfo
 class State
 {
   public:
+    // Thread-safe singleton using Meyers' singleton pattern
+    // C++11 guarantees static local initialization is thread-safe
+    // Note: Individual field access still requires appropriate synchronization
     static State& Instance()
     {
         static State instance;
@@ -103,10 +120,9 @@ class State
     bool FGHudlessCompare = false;
     bool FGchanged = false;
     bool SCchanged = false;
-    bool skipHeapCapture = false;
 
     bool FGcaptureResources = false;
-    size_t FGcapturedResourceCount = false;
+    size_t FGcapturedResourceCount = 0;
     bool FGresetCapturedResources = false;
     bool FGonlyUseCapturedResources = false;
 
@@ -135,6 +151,7 @@ class State
     std::string NGX_OTA_Dlssd;
 
     feature_version streamlineVersion = { 0, 0, 0 };
+    bool streamlineLoaded = false;
 
     API api = API::NotSelected;
     API swapchainApi = API::NotSelected;
@@ -178,10 +195,13 @@ class State
     uint32_t dlssdRenderPresetUltraPerformance = 0;
 
     // Spoofing
-    bool skipSpoofing = false;
+    std::atomic<bool> skipSpoofing{false};
     // For DXVK, it calls DXGI which cause softlock
-    bool skipDxgiLoadChecks = false;
-    bool skipParentWrapping = false;
+    std::atomic<bool> skipDxgiLoadChecks{false};
+    std::atomic<bool> skipParentWrapping{false};
+    std::atomic<bool> skipHeapCapture{false};
+    std::atomic<bool> vulkanCreatingSC{false};
+    std::atomic<bool> vulkanSkipHooks{false};
 
     // quirks
     std::vector<std::string> detectedQuirks {};
@@ -205,8 +225,6 @@ class State
     bool isWorkingAsNvngx = false;
 
     // Vulkan stuff
-    bool vulkanCreatingSC = false;
-    bool vulkanSkipHooks = false;
     VkInstance VulkanInstance = nullptr;
 
     // Vulkan FG
@@ -216,14 +234,20 @@ class State
     uint32_t currentVkQueueFamilyIndex = 0;
     VkSwapchainKHR currentVkSwapchain = nullptr;
 
-    // Framegraph
+    // -----------------------------------------------------------------------
+    // THREAD-SAFE SECTION: Frame timing data
+    // Access to upscaleTimes and frameTimes is protected by frameTimeMutex
+    // -----------------------------------------------------------------------
     std::deque<double> upscaleTimes;
     std::deque<double> frameTimes;
     double lastFGFrameTime = 0.0;
     double presentFrameTime = 0.0;
     std::mutex frameTimeMutex;
 
-    // Version check
+    // -----------------------------------------------------------------------
+    // THREAD-SAFE SECTION: Version check state
+    // Access to version check fields is protected by versionCheckMutex
+    // -----------------------------------------------------------------------
     std::mutex versionCheckMutex;
     bool versionCheckInProgress = false;
     bool versionCheckCompleted = false;
@@ -274,6 +298,7 @@ class State
     std::vector<ID3D12Device*> d3d12Devices;
     std::vector<ID3D11Device*> d3d11Devices;
     std::unordered_map<UINT64, std::string> adapterDescs;
+    std::mutex adapterDescsMutex;
 
     // Moved checks here to prevent circular includes
     /// <summary>
@@ -327,12 +352,12 @@ class State
     static bool ServeOriginal() { return _serveOriginal; }
 
   private:
-    inline static bool _skipChecks = false;
+    inline static std::atomic<bool> _skipChecks{false};
     inline static std::string _skipDllName = "";
-    inline static UINT _skipOwner = 0;
+    inline static std::atomic<UINT> _skipOwner{0};
 
-    inline static bool _serveOriginal = false;
-    inline static UINT _serveOwner = 0;
+    inline static std::atomic<bool> _serveOriginal{false};
+    inline static std::atomic<UINT> _serveOwner{0};
 
     State() = default;
 };
@@ -345,11 +370,11 @@ class ScopedSkipSpoofing
   public:
     ScopedSkipSpoofing()
     {
-        previousState = State::Instance().skipSpoofing;
-        State::Instance().skipSpoofing = true;
+        previousState = State::Instance().skipSpoofing.load();
+        State::Instance().skipSpoofing.store(true);
     }
 
-    ~ScopedSkipSpoofing() { State::Instance().skipSpoofing = previousState; }
+    ~ScopedSkipSpoofing() { State::Instance().skipSpoofing.store(previousState); }
 };
 
 class ScopedSkipDxgiLoadChecks
@@ -360,11 +385,11 @@ class ScopedSkipDxgiLoadChecks
   public:
     ScopedSkipDxgiLoadChecks()
     {
-        previousState = State::Instance().skipDxgiLoadChecks;
-        State::Instance().skipDxgiLoadChecks = true;
+        previousState = State::Instance().skipDxgiLoadChecks.load();
+        State::Instance().skipDxgiLoadChecks.store(true);
     }
 
-    ~ScopedSkipDxgiLoadChecks() { State::Instance().skipDxgiLoadChecks = previousState; }
+    ~ScopedSkipDxgiLoadChecks() { State::Instance().skipDxgiLoadChecks.store(previousState); }
 };
 
 class ScopedSkipParentWrapping
@@ -375,11 +400,11 @@ class ScopedSkipParentWrapping
   public:
     ScopedSkipParentWrapping()
     {
-        previousState = State::Instance().skipParentWrapping;
-        State::Instance().skipParentWrapping = true;
+        previousState = State::Instance().skipParentWrapping.load();
+        State::Instance().skipParentWrapping.store(true);
     }
 
-    ~ScopedSkipParentWrapping() { State::Instance().skipParentWrapping = previousState; }
+    ~ScopedSkipParentWrapping() { State::Instance().skipParentWrapping.store(previousState); }
 };
 
 class ScopedSkipHeapCapture
@@ -390,11 +415,11 @@ class ScopedSkipHeapCapture
   public:
     ScopedSkipHeapCapture()
     {
-        previousState = State::Instance().skipHeapCapture;
-        State::Instance().skipHeapCapture = true;
+        previousState = State::Instance().skipHeapCapture.load();
+        State::Instance().skipHeapCapture.store(true);
     }
 
-    ~ScopedSkipHeapCapture() { State::Instance().skipHeapCapture = previousState; }
+    ~ScopedSkipHeapCapture() { State::Instance().skipHeapCapture.store(previousState); }
 };
 
 class ScopedSkipVulkanHooks
@@ -405,10 +430,10 @@ class ScopedSkipVulkanHooks
   public:
     ScopedSkipVulkanHooks()
     {
-        previousState = State::Instance().vulkanSkipHooks;
-        State::Instance().vulkanSkipHooks = true;
+        previousState = State::Instance().vulkanSkipHooks.load();
+        State::Instance().vulkanSkipHooks.store(true);
     }
-    ~ScopedSkipVulkanHooks() { State::Instance().vulkanSkipHooks = previousState; }
+    ~ScopedSkipVulkanHooks() { State::Instance().vulkanSkipHooks.store(previousState); }
 };
 
 class ScopedVulkanCreatingSC
@@ -419,8 +444,8 @@ class ScopedVulkanCreatingSC
   public:
     ScopedVulkanCreatingSC()
     {
-        previousState = State::Instance().vulkanCreatingSC;
-        State::Instance().vulkanCreatingSC = true;
+        previousState = State::Instance().vulkanCreatingSC.load();
+        State::Instance().vulkanCreatingSC.store(true);
     }
-    ~ScopedVulkanCreatingSC() { State::Instance().vulkanCreatingSC = previousState; }
+    ~ScopedVulkanCreatingSC() { State::Instance().vulkanCreatingSC.store(previousState); }
 };

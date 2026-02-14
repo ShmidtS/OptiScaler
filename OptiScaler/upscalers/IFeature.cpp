@@ -1,9 +1,15 @@
-#include <pch.h>
-#include <Config.h>
+#include "pch.h"
+#include "Config.h"
 #include "IFeature.h"
 
 void IFeature::SetHandle(unsigned int InHandleId)
 {
+    // Clean up existing handle to prevent memory leak on re-initialization
+    if (_handle != nullptr)
+    {
+        delete _handle;
+        _handle = nullptr;
+    }
     _handle = new NVSDK_NGX_Handle { InHandleId };
     LOG_INFO("Handle: {0}", _handle->Id);
 }

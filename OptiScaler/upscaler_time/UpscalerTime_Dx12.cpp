@@ -62,7 +62,7 @@ void UpscalerTimeDx12::ReadUpscalingTime(ID3D12CommandQueue* commandQueue)
 
     _dx12UpscaleTrig = false;
 
-    UINT64* timestampData;
+    UINT64* timestampData = nullptr;
     _readbackBuffer->Map(0, nullptr, reinterpret_cast<void**>(&timestampData));
 
     if (timestampData != nullptr)
@@ -79,10 +79,9 @@ void UpscalerTimeDx12::ReadUpscalingTime(ID3D12CommandQueue* commandQueue)
         // filter out posibly wrong measured high values
         if (elapsedTimeMs < 100.0)
         {
-            State::Instance().frameTimeMutex.lock();
+            std::lock_guard<std::mutex> lock(State::Instance().frameTimeMutex);
             State::Instance().upscaleTimes.push_back(elapsedTimeMs);
             State::Instance().upscaleTimes.pop_front();
-            State::Instance().frameTimeMutex.unlock();
         }
     }
     else

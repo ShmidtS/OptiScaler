@@ -38,7 +38,8 @@ class FSRFG_Vk : public virtual IFGFeature_Vk
         {
             if (isdigit((unsigned char) p[0]))
             {
-                if (sscanf(p, "%u.%u.%u", &_version->major, &_version->minor, &_version->patch) == 3)
+                // Use %5u to limit field width and prevent integer overflow
+                if (sscanf(p, "%5u.%5u.%5u", &_version->major, &_version->minor, &_version->patch) == 3)
                     return;
             }
 
@@ -66,7 +67,7 @@ class FSRFG_Vk : public virtual IFGFeature_Vk
                          VkSwapchainKHR* swapchain) override final;
     bool ReleaseSwapchain(HWND hwnd) override final;
 
-    void CreateContext(VkDevice device, VkPhysicalDevice physicalDevice,
+    bool CreateContext(VkDevice device, VkPhysicalDevice physicalDevice,
                        VkInstance instance, FG_Constants& fgConstants) override final;
     void Activate() override final;
     void Deactivate() override final;

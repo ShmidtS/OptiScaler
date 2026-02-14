@@ -15,6 +15,7 @@
 #include <hooks/Reflex_Hooks.h>
 
 #include <version_check.h>
+#include "../../external/streamline/sl_version.h"
 
 #include <imgui/imgui_internal.h>
 
@@ -1546,7 +1547,7 @@ bool MenuCommon::RenderMenu()
             inputFG = false;
 
             if (state.activeFgInput != FGInput::NoFG && state.activeFgOutput != FGOutput::NoFG &&
-                (state.currentFGSwapchain != nullptr || state.activeFgInput == FGInput::Nukems))
+                (state.currentFGSwapchain != nullptr || state.currentFGVk != nullptr || state.activeFgInput == FGInput::Nukems))
             {
                 config->FGEnabled = !config->FGEnabled.value_or_default();
                 LOG_DEBUG("FG toggle key pressed, setting FGEnabled to {}", config->FGEnabled.value_or_default());
@@ -3067,7 +3068,7 @@ bool MenuCommon::RenderMenu()
                 //    fgInputDesc[optiFgIndex] = "Old overlay menu is unsupported";
                 //}
                 // else if (state.swapchainApi != DX12)
-                if (state.api != DX12)
+                if (state.swapchainApi != DX12 && state.swapchainApi != Vulkan)
                 {
                     disabledMaskInput[optiFgIndex] = true;
                     fgInputDesc[optiFgIndex] = "Unsupported API";
@@ -3094,7 +3095,17 @@ bool MenuCommon::RenderMenu()
 
                 // DLSSG inputs requirements
                 auto constexpr dlssgInputIndex = (uint32_t) FGInput::DLSSG;
-                if (state.streamlineVersion.major < 2)
+                if (!state.streamlineLoaded)
+                {
+                    disabledMaskInput[dlssgInputIndex] = true;
+                    fgInputDesc[dlssgInputIndex] =
+                        StrFmt("Streamline not loaded (SDK %d.%d.%d available)", SL_VERSION_MAJOR,
+                               SL_VERSION_MINOR, SL_VERSION_PATCH);
+
+                    if (config->FGInput.value_or_default() == FGInput::DLSSG)
+                        config->FGInput.reset();
+                }
+                else if (state.streamlineVersion.major < 2)
                 {
                     disabledMaskInput[dlssgInputIndex] = true;
                     fgInputDesc[dlssgInputIndex] =
@@ -3109,20 +3120,47 @@ bool MenuCommon::RenderMenu()
                     disabledMaskInput[dlssgInputIndex] = true;
                     fgInputDesc[dlssgInputIndex] = "Unsupported API";
                 }
+                else if (State::Instance().swapchainApi == API::Vulkan)
+                {
+                    // DLSSG requires Streamline which only works with DX11/DX12
+                    disabledMaskInput[dlssgInputIndex] = true;
+                    fgInputDesc[dlssgInputIndex] = "Vulkan games require FSRFG or Upscaler FG";
+
+                    if (config->FGInput.value_or_default() == FGInput::DLSSG)
+                        config->FGInput.reset();
+                }
 
                 // FSRFG inputs requirements
                 auto constexpr fsrfgInputIndex = (uint32_t) FGInput::FSRFG;
-                if (State::Instance().swapchainApi != API::DX12)
+                if (State::Instance().swapchainApi != API::DX12 && State::Instance().swapchainApi != API::Vulkan)
                 {
                     disabledMaskInput[fsrfgInputIndex] = true;
                     fgInputDesc[fsrfgInputIndex] = "Unsupported API";
                 }
+                else if (State::Instance().swapchainApi == API::Vulkan && !FfxApiProxy::IsVkFGReady())
+                {
+                    // Vulkan FSRFG requires FFX VK 3.2+, fallback to Upscaler FG with DX12 interop
+                    disabledMaskInput[fsrfgInputIndex] = true;
+                    fgInputDesc[fsrfgInputIndex] = "FFX VK 3.2+ required (use Upscaler FG instead)";
+
+                    if (config->FGInput.value_or_default() == FGInput::FSRFG)
+                        config->FGInput.reset();
+                }
 
                 auto constexpr fsrfg30InputIndex = (uint32_t) FGInput::FSRFG30;
-                if (State::Instance().swapchainApi != API::DX12)
+                if (State::Instance().swapchainApi != API::DX12 && State::Instance().swapchainApi != API::Vulkan)
                 {
                     disabledMaskInput[fsrfg30InputIndex] = true;
                     fgInputDesc[fsrfg30InputIndex] = "Unsupported API";
+                }
+                else if (State::Instance().swapchainApi == API::Vulkan && !FfxApiProxy::IsVkFGReady())
+                {
+                    // Vulkan FSRFG30 requires FFX VK 3.2+
+                    disabledMaskInput[fsrfg30InputIndex] = true;
+                    fgInputDesc[fsrfg30InputIndex] = "FFX VK 3.2+ required";
+
+                    if (config->FGInput.value_or_default() == FGInput::FSRFG30)
+                        config->FGInput.reset();
                 }
 
                 constexpr auto fgInputOptionsCount = sizeof(fgInputOptions) / sizeof(char*);
@@ -3140,19 +3178,43 @@ bool MenuCommon::RenderMenu()
                 };
                 std::vector<std::string> fgOutputDesc = {
                     "",
-                    "Enable DLSS-FG in-game", 
-                    "FSR3/4 FG", 
-                    "Support not implemented", 
+                    "Enable DLSS-FG in-game",
+                    "FSR3/4 FG",
+                    "Native DLSS-FG (RTX 40xx/50xx) or FSR-FG fallback",
                     "XeFG",
                 };
-                std::vector<uint8_t> disabledMaskOutput = { 
-                    false, 
-                    false, 
-                    false, 
-                    true, 
+                std::vector<uint8_t> disabledMaskOutput = {
+                    false,
+                    false,
+                    false,
+                    true,
                     false,
                 };
                 // clang-format on
+
+                // DLSSG output requirements
+                // Enable DLSSG output option for NVIDIA cards - OptiScaler can use FSR-FG as fallback
+                // for cards that don't support native DLSS-FG (RTX 20xx/30xx)
+                // For Vulkan games, DLSSG output requires Upscaler FG input with DX12 interop
+                auto constexpr dlssgOutputIndex = (uint32_t) FGOutput::DLSSG;
+                if (state.isRunningOnNvidia && (state.swapchainApi == API::DX12 || state.swapchainApi == API::Vulkan))
+                {
+                    disabledMaskOutput[dlssgOutputIndex] = false;
+                    if (state.swapchainApi == API::Vulkan)
+                    {
+                        fgOutputDesc[dlssgOutputIndex] = "Requires Upscaler FG + DX12 interop";
+                    }
+                }
+                else if (!state.isRunningOnNvidia)
+                {
+                    disabledMaskOutput[dlssgOutputIndex] = true;
+                    fgOutputDesc[dlssgOutputIndex] = "NVIDIA GPU required";
+                }
+                else if (state.swapchainApi != API::DX12 && state.swapchainApi != API::Vulkan)
+                {
+                    disabledMaskOutput[dlssgOutputIndex] = true;
+                    fgOutputDesc[dlssgOutputIndex] = "DX12 or Vulkan required for DLSS-FG";
+                }
 
                 // Nukem's FG mod requirements
                 auto constexpr nukemsInputIndex = (uint32_t) FGInput::Nukems;
@@ -3183,12 +3245,20 @@ bool MenuCommon::RenderMenu()
                 // FSR FG / XeFG output requirements
                 auto constexpr fsrfgOutputIndex = (uint32_t) FGOutput::FSRFG;
                 auto constexpr xefgOutputIndex = (uint32_t) FGOutput::XeFG;
-                if (state.swapchainApi != API::DX12)
+                if (state.swapchainApi != API::DX12 && state.swapchainApi != API::Vulkan)
                 {
                     disabledMaskOutput[fsrfgOutputIndex] = true;
                     fgOutputDesc[fsrfgOutputIndex] = "Unsupported API";
                     disabledMaskOutput[xefgOutputIndex] = true;
                     fgOutputDesc[xefgOutputIndex] = "Unsupported API";
+                }
+                else if (state.swapchainApi == API::Vulkan)
+                {
+                    // For Vulkan games without FFX VK 3.2+, require DX12 interop
+                    if (!FfxApiProxy::IsVkFGReady())
+                    {
+                        fgOutputDesc[fsrfgOutputIndex] = "Requires Upscaler FG + DX12 interop";
+                    }
                 }
 
                 constexpr auto fgOutputOptionsCount = std::size(fgOutputOptions);
@@ -3384,9 +3454,9 @@ bool MenuCommon::RenderMenu()
                     ImGui::Spacing();
                 }
 
-                // FSR FG controls
+                // FSR FG controls (DX12 or Vulkan)
                 if (state.activeFgOutput == FGOutput::FSRFG && state.activeFgInput != FGInput::NoFG &&
-                    !state.isWorkingAsNvngx && state.currentFGSwapchain != nullptr)
+                    !state.isWorkingAsNvngx && (state.currentFGSwapchain != nullptr || state.currentFGVk != nullptr))
                 {
                     if (state.activeFgInput != FGInput::Upscaler ||
                         (currentFeature != nullptr && !currentFeature->IsFrozen()) && FfxApiProxy::IsFGReady())
@@ -3631,9 +3701,9 @@ bool MenuCommon::RenderMenu()
                     }
                 }
 
-                // XeFG controls
+                // XeFG controls (DX12 or Vulkan)
                 if (state.activeFgOutput == FGOutput::XeFG && state.activeFgInput != FGInput::NoFG &&
-                    !state.isWorkingAsNvngx && state.currentFGSwapchain != nullptr)
+                    !state.isWorkingAsNvngx && (state.currentFGSwapchain != nullptr || state.currentFGVk != nullptr))
                 {
                     if (XeFGProxy::InitXeFG() && currentFeature != nullptr && !currentFeature->IsFrozen())
                     {
@@ -4189,8 +4259,8 @@ bool MenuCommon::RenderMenu()
                     }
                 }
 
-                // FSR-FG Inputs
-                if (state.currentFGSwapchain != nullptr && !state.isWorkingAsNvngx &&
+                // FSR-FG Inputs (DX12 or Vulkan)
+                if ((state.currentFGSwapchain != nullptr || state.currentFGVk != nullptr) && !state.isWorkingAsNvngx &&
                     (state.activeFgInput == FGInput::FSRFG || state.activeFgInput == FGInput::FSRFG30))
                 {
                     SeparatorWithHelpMarker("Frame Generation (FSR-FG Inputs)", "Select FSR-FG in-game");
@@ -4230,8 +4300,8 @@ bool MenuCommon::RenderMenu()
                     ShowHelpMarker("Do not use Hudless set at ffxDispatch");
                 }
 
-                // Streamline FG Inputs
-                if (state.currentFGSwapchain != nullptr && !state.isWorkingAsNvngx &&
+                // Streamline FG Inputs (DX12 or Vulkan)
+                if ((state.currentFGSwapchain != nullptr || state.currentFGVk != nullptr) && !state.isWorkingAsNvngx &&
                     state.activeFgInput == FGInput::DLSSG)
                 {
                     SeparatorWithHelpMarker("Frame Generation (Streamline FG Inputs)", "Select DLSS-FG in-game");

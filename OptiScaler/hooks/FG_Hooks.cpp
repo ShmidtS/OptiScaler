@@ -73,6 +73,9 @@ HRESULT FGHooks::CreateSwapChain(IDXGIFactory* pFactory, IUnknown* pDevice, DXGI
 
     cq->Release();
 
+    // Track if we created a new FG instance in this call for cleanup on failure
+    bool createdNewFG = false;
+
     if (State::Instance().currentFG == nullptr)
     {
         // FG Init
@@ -85,14 +88,39 @@ HRESULT FGHooks::CreateSwapChain(IDXGIFactory* pFactory, IUnknown* pDevice, DXGI
             State::Instance().currentFG =
                 new XeFG_Dx12(Config::Instance()->FGXeFGInterpolationCount.value_or_default());
         }
+        createdNewFG = true;
     }
-    // else
-    //{
-    //     // Release swapchain if FG Feaeture is FSR-FG
-    //     // Because it can't recreate swapchain on exsiting one
-    //     if (State::Instance().activeFgOutput == FGOutput::FSRFG)
-    //         State::Instance().currentFG->ReleaseSwapchain(pDesc->OutputWindow);
-    // }
+    else
+    {
+        // Check if FG type changed - cleanup old instance to prevent memory leak
+        bool typeChanged = false;
+        if (State::Instance().activeFgOutput == FGOutput::FSRFG &&
+            dynamic_cast<FSRFG_Dx12*>(State::Instance().currentFG) == nullptr)
+            typeChanged = true;
+        else if (State::Instance().activeFgOutput == FGOutput::XeFG &&
+                 dynamic_cast<XeFG_Dx12*>(State::Instance().currentFG) == nullptr)
+            typeChanged = true;
+
+        if (typeChanged)
+        {
+            LOG_INFO("FG type changed, cleaning up old instance");
+            // Store old pointer and null-ify first to prevent concurrent access issues
+            IFGFeature_Dx12* oldFG = State::Instance().currentFG;
+            State::Instance().currentFG = nullptr;
+
+            oldFG->Shutdown();
+            delete oldFG;
+            oldFG = nullptr;
+
+            // Create new FG instance
+            if (State::Instance().activeFgOutput == FGOutput::FSRFG)
+                State::Instance().currentFG = new FSRFG_Dx12();
+            else if (State::Instance().activeFgOutput == FGOutput::XeFG)
+                State::Instance().currentFG =
+                    new XeFG_Dx12(Config::Instance()->FGXeFGInterpolationCount.value_or_default());
+            createdNewFG = true;
+        }
+    }
 
     // Create FG swapchain
     auto fg = State::Instance().currentFG;
@@ -137,6 +165,16 @@ HRESULT FGHooks::CreateSwapChain(IDXGIFactory* pFactory, IUnknown* pDevice, DXGI
         return S_OK;
     }
 
+    // Swapchain creation failed - cleanup newly created FG instance to prevent memory leak
+    if (createdNewFG && State::Instance().currentFG != nullptr)
+    {
+        LOG_ERROR("Swapchain creation failed, cleaning up FG instance");
+        IFGFeature_Dx12* failedFG = State::Instance().currentFG;
+        State::Instance().currentFG = nullptr;
+        failedFG->Shutdown();
+        delete failedFG;
+    }
+
     return E_FAIL;
 }
 
@@ -160,6 +198,9 @@ HRESULT FGHooks::CreateSwapChainForHwnd(IDXGIFactory* pFactory, IUnknown* pDevic
 
     cq->Release();
 
+    // Track if we created a new FG instance in this call for cleanup on failure
+    bool createdNewFG = false;
+
     if (State::Instance().currentFG == nullptr)
     {
         // FG Init
@@ -172,14 +213,39 @@ HRESULT FGHooks::CreateSwapChainForHwnd(IDXGIFactory* pFactory, IUnknown* pDevic
             State::Instance().currentFG =
                 new XeFG_Dx12(Config::Instance()->FGXeFGInterpolationCount.value_or_default());
         }
+        createdNewFG = true;
     }
-    // else
-    //{
-    //     // Release swapchain if FG Feaeture is FSR-FG
-    //     // Because it can't recreate swapchain on exsiting one
-    //     if (State::Instance().activeFgOutput == FGOutput::FSRFG)
-    //         State::Instance().currentFG->ReleaseSwapchain(hWnd);
-    // }
+    else
+    {
+        // Check if FG type changed - cleanup old instance to prevent memory leak
+        bool typeChanged = false;
+        if (State::Instance().activeFgOutput == FGOutput::FSRFG &&
+            dynamic_cast<FSRFG_Dx12*>(State::Instance().currentFG) == nullptr)
+            typeChanged = true;
+        else if (State::Instance().activeFgOutput == FGOutput::XeFG &&
+                 dynamic_cast<XeFG_Dx12*>(State::Instance().currentFG) == nullptr)
+            typeChanged = true;
+
+        if (typeChanged)
+        {
+            LOG_INFO("FG type changed, cleaning up old instance");
+            // Store old pointer and null-ify first to prevent concurrent access issues
+            IFGFeature_Dx12* oldFG = State::Instance().currentFG;
+            State::Instance().currentFG = nullptr;
+
+            oldFG->Shutdown();
+            delete oldFG;
+            oldFG = nullptr;
+
+            // Create new FG instance
+            if (State::Instance().activeFgOutput == FGOutput::FSRFG)
+                State::Instance().currentFG = new FSRFG_Dx12();
+            else if (State::Instance().activeFgOutput == FGOutput::XeFG)
+                State::Instance().currentFG =
+                    new XeFG_Dx12(Config::Instance()->FGXeFGInterpolationCount.value_or_default());
+            createdNewFG = true;
+        }
+    }
 
     // Create FG swapchain
     auto fg = State::Instance().currentFG;
@@ -223,6 +289,16 @@ HRESULT FGHooks::CreateSwapChainForHwnd(IDXGIFactory* pFactory, IUnknown* pDevic
         return S_OK;
     }
 
+    // Swapchain creation failed - cleanup newly created FG instance to prevent memory leak
+    if (createdNewFG && State::Instance().currentFG != nullptr)
+    {
+        LOG_ERROR("Swapchain creation failed, cleaning up FG instance");
+        IFGFeature_Dx12* failedFG = State::Instance().currentFG;
+        State::Instance().currentFG = nullptr;
+        failedFG->Shutdown();
+        delete failedFG;
+    }
+
     return E_FAIL;
 }
 
@@ -232,6 +308,11 @@ void FGHooks::HookFGSwapchain(IDXGISwapChain* pSwapChain)
         return;
 
     void** pFactoryVTable = *reinterpret_cast<void***>(pSwapChain);
+    if (pFactoryVTable == nullptr)
+    {
+        LOG_ERROR("VTable pointer is null in HookFGSwapchain");
+        return;
+    }
 
     o_FGRelease = (PFN_Release) pFactoryVTable[2];
     o_FGSCPresent = (PFN_Present) pFactoryVTable[8];

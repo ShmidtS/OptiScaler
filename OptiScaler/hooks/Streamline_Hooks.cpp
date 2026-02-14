@@ -13,6 +13,7 @@
 #include <magic_enum.hpp>
 #include <sl1_reflex.h>
 #include <nvapi/fakenvapi.h>
+#include "../../external/streamline/sl_version.h"
 
 #include <unordered_map>
 #include <mutex>
@@ -72,18 +73,29 @@ StreamlineHooks::PFN_setVoid StreamlineHooks::o_setVoid = nullptr;
 
 char* StreamlineHooks::trimStreamlineLog(const char* msg)
 {
-    int bracket_count = 0;
+    if (msg == nullptr)
+        return nullptr;
 
-    char* result = (char*) malloc(strlen(msg) + 1);
+    // Use bounded length check to prevent issues with non-null-terminated strings
+    constexpr size_t MAX_MSG_LEN = 4096;
+    size_t msgLen = strnlen(msg, MAX_MSG_LEN);
+    if (msgLen >= MAX_MSG_LEN)
+    {
+        LOG_WARN("trimStreamlineLog: message too long, truncating");
+        msgLen = MAX_MSG_LEN - 1;
+    }
+
+    char* result = (char*) malloc(msgLen + 1);
     if (!result)
         return nullptr;
 
-    strcpy(result, msg);
+    // Use explicit length control with null termination
+    memcpy(result, msg, msgLen);
+    result[msgLen] = '\0';
 
-    size_t length = strlen(result);
-    if (length > 0 && result[length - 1] == '\n')
+    if (msgLen > 0 && result[msgLen - 1] == '\n')
     {
-        result[length - 1] = '\0';
+        result[msgLen - 1] = '\0';
     }
 
     return result;
@@ -803,6 +815,13 @@ void* StreamlineHooks::hkdlssg_slGetPluginFunction(const char* functionName)
 
 bool StreamlineHooks::hkreflex_slSetConstants_sl1(const void* data, uint32_t frameIndex, uint32_t id)
 {
+    // Null check to prevent crash on invalid data
+    if (data == nullptr)
+    {
+        LOG_ERROR("hkreflex_slSetConstants_sl1: null data pointer");
+        return false;
+    }
+
     // Streamline v1's version of slReflexSetOptions + slPCLSetMarker
     static sl1::ReflexConstants constants {};
     constants = *(const sl1::ReflexConstants*) data;
@@ -1065,14 +1084,30 @@ void StreamlineHooks::hookInterposer(HMODULE slInterposer)
 
         LOG_TRACE("slInterposer path: {}", dllPath);
 
-        Util::version_t sl_version;
-        Util::GetDLLVersion(string_to_wstring(dllPath), &sl_version);
+        Util::version_t sl_version = {0, 0, 0, 0};
+        bool versionOk = Util::GetDLLVersion(string_to_wstring(dllPath), &sl_version);
 
-        State::Instance().streamlineVersion.major = sl_version.major;
-        State::Instance().streamlineVersion.minor = sl_version.minor;
-        State::Instance().streamlineVersion.patch = sl_version.patch;
-
-        LOG_INFO("Streamline version: {}.{}.{}", sl_version.major, sl_version.minor, sl_version.patch);
+        if (versionOk && (sl_version.major > 0 || sl_version.minor > 0 || sl_version.patch > 0))
+        {
+            State::Instance().streamlineVersion.major = sl_version.major;
+            State::Instance().streamlineVersion.minor = sl_version.minor;
+            State::Instance().streamlineVersion.patch = sl_version.patch;
+            State::Instance().streamlineLoaded = true;
+            LOG_INFO("Streamline version: {}.{}.{}", sl_version.major, sl_version.minor, sl_version.patch);
+        }
+        else
+        {
+            // Fallback to SDK version from header when DLL version resource is not available
+            LOG_WARN("Failed to get Streamline version from DLL resource, using SDK version as fallback");
+            sl_version.major = SL_VERSION_MAJOR;
+            sl_version.minor = SL_VERSION_MINOR;
+            sl_version.patch = SL_VERSION_PATCH;
+            State::Instance().streamlineVersion.major = sl_version.major;
+            State::Instance().streamlineVersion.minor = sl_version.minor;
+            State::Instance().streamlineVersion.patch = sl_version.patch;
+            State::Instance().streamlineLoaded = true;
+            LOG_INFO("Streamline version (SDK fallback): {}.{}.{}", sl_version.major, sl_version.minor, sl_version.patch);
+        }
 
         if (sl_version.major >= 2)
         {

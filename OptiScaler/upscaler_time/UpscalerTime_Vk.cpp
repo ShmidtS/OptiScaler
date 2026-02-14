@@ -49,10 +49,9 @@ void UpscalerTimeVk::ReadUpscalingTime(VkDevice device)
 
         if (elapsedTimeMs > 0.0 && elapsedTimeMs < 5000.0)
         {
-            State::Instance().frameTimeMutex.lock();
+            std::lock_guard<std::mutex> lock(State::Instance().frameTimeMutex);
             State::Instance().upscaleTimes.push_back(elapsedTimeMs);
             State::Instance().upscaleTimes.pop_front();
-            State::Instance().frameTimeMutex.unlock();
         }
     }
 

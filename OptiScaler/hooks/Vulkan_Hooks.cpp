@@ -56,7 +56,7 @@ static PFN_vkVoidFunction hkvkGetDeviceProcAddr(VkDevice device, const char* pNa
 
 static void HookDevice(VkDevice InDevice)
 {
-    if (o_CreateSwapchainKHR != nullptr || State::Instance().vulkanSkipHooks)
+    if (o_CreateSwapchainKHR != nullptr || State::Instance().vulkanSkipHooks.load())
         return;
 
     LOG_FUNC();
@@ -140,13 +140,19 @@ static VkResult hkvkCreateWin32SurfaceKHR(VkInstance instance, const VkWin32Surf
 {
     LOG_FUNC();
 
+    if (pCreateInfo == nullptr)
+    {
+        LOG_ERROR("pCreateInfo is nullptr");
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+
     auto result = o_vkCreateWin32SurfaceKHR(instance, pCreateInfo, pAllocator, pSurface);
 
     auto procHwnd = Util::GetProcessWindow();
     LOG_DEBUG("procHwnd: {0:X}, swapchain hwnd: {1:X}", (UINT64) procHwnd, (UINT64) pCreateInfo->hwnd);
 
     // && procHwnd == pCreateInfo->hwnd) // On linux sometimes procHwnd != pCreateInfo->hwnd
-    if (result == VK_SUCCESS && !State::Instance().vulkanSkipHooks)
+    if (result == VK_SUCCESS && !State::Instance().vulkanSkipHooks.load())
     {
         MenuOverlayVk::DestroyVulkanObjects(false);
 
@@ -189,7 +195,7 @@ static VkResult hkvkCreateInstance(VkInstanceCreateInfo* pCreateInfo, const VkAl
 #endif
     }
 
-    if (result == VK_SUCCESS && !State::Instance().vulkanSkipHooks)
+    if (result == VK_SUCCESS && !State::Instance().vulkanSkipHooks.load())
     {
         MenuOverlayVk::DestroyVulkanObjects(false);
     }
@@ -321,7 +327,7 @@ static VkResult hkvkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateI
     }
 
     if (result == VK_SUCCESS && device != VK_NULL_HANDLE && pCreateInfo != nullptr && *pSwapchain != VK_NULL_HANDLE &&
-        !State::Instance().vulkanSkipHooks)
+        !State::Instance().vulkanSkipHooks.load())
     {
         State::Instance().screenWidth = static_cast<float>(pCreateInfo->imageExtent.width);
         State::Instance().screenHeight = static_cast<float>(pCreateInfo->imageExtent.height);
@@ -334,65 +340,102 @@ static VkResult hkvkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateI
 
         MenuOverlayVk::CreateSwapchain(device, _PD, _instance, _hwnd, pCreateInfo, pAllocator, pSwapchain);
 
-        // Vulkan Frame Generation temporarily disabled - FFX API returns runtime error
-        // TODO: Investigate FFX Vulkan FG compatibility with non-RTX40xx GPUs
         // Initialize Vulkan Frame Generation if enabled
+        // Note: FFX Vulkan FG requires proper FfxApi initialization via FfxApiProxy::InitFfxVk()
         if (State::Instance().currentFGVk == nullptr && Config::Instance()->FGEnabled.value_or_default() &&
-            State::Instance().activeFgOutput == FGOutput::FSRFG)
+            (State::Instance().activeFgOutput == FGOutput::FSRFG || State::Instance().activeFgOutput == FGOutput::DLSSG))
         {
-            LOG_DEBUG("Creating FSRFG_Vk instance for Vulkan Frame Generation");
-
-            // Get queue family index for graphics
-            uint32_t queueFamilyIndex = 0;
-            uint32_t queueFamilyCount = 0;
-            vkGetPhysicalDeviceQueueFamilyProperties(_PD, &queueFamilyCount, nullptr);
-
-            if (queueFamilyCount > 0)
+            // Check that physical device is available
+            if (_PD == VK_NULL_HANDLE)
             {
-                std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
-                vkGetPhysicalDeviceQueueFamilyProperties(_PD, &queueFamilyCount, queueFamilies.data());
-
-                for (uint32_t i = 0; i < queueFamilyCount; i++)
-                {
-                    if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
-                    {
-                        queueFamilyIndex = i;
-                        break;
-                    }
-                }
+                LOG_ERROR("Cannot create FSRFG_Vk: physical device not captured");
             }
-
-            // Get graphics queue
-            VkQueue graphicsQueue = VK_NULL_HANDLE;
-            vkGetDeviceQueue(device, queueFamilyIndex, 0, &graphicsQueue);
-
-            // Create FSRFG_Vk instance
-            auto fg = new FSRFG_Vk();
-            fg->SetQueue(FG_ResourceType::Depth, graphicsQueue, queueFamilyIndex);
-
-            // Create FG swapchain
-            if (fg->CreateSwapchain(device, _PD, pCreateInfo, pSwapchain))
+            else if (!FfxApiProxy::IsVkFGReady())
             {
-                // Create FG context
-                FG_Constants fgConstants {};
-                fgConstants.displayWidth = pCreateInfo->imageExtent.width;
-                fgConstants.displayHeight = pCreateInfo->imageExtent.height;
-                fg->CreateContext(device, _PD, _instance, fgConstants);
-                fg->Activate();
-
-                State::Instance().currentFGVk = fg;
-                LOG_INFO("FSRFG_Vk initialized successfully");
+                // FFX VK doesn't support FG (< 3.2), recommend Upscaler FG with DX12 interop
+                auto version = FfxApiProxy::VersionVk();
+                LOG_ERROR("===========================================");
+                LOG_ERROR("Vulkan Frame Generation not available");
+                LOG_ERROR("FFX VK version: {}.{}.{} (requires 3.2+)", version.major, version.minor, version.patch);
+                LOG_ERROR("");
+                LOG_ERROR("For Vulkan games, use these settings:");
+                LOG_ERROR("  FG Source: Upscaler FG (OptiFG)");
+                LOG_ERROR("  FG Output: FSR FG or DLSSG");
+                LOG_ERROR("");
+                LOG_ERROR("This will use DX12 interop for Frame Generation");
+                LOG_ERROR("Required: amd_fidelityfx_dx12.dll or amd_fidelityfx_framegeneration_dx12.dll");
+                LOG_ERROR("===========================================");
             }
             else
             {
-                LOG_ERROR("Failed to create FSRFG_Vk swapchain");
-                delete fg;
-            }
+                LOG_DEBUG("Creating FSRFG_Vk instance for Vulkan Frame Generation");
 
-            // Store device info for FG
-            State::Instance().currentVkDevice = device;
-            State::Instance().currentVkPhysicalDevice = _PD;
-            State::Instance().currentVkSwapchain = *pSwapchain;
+                // Get queue family index for graphics
+                uint32_t queueFamilyIndex = 0;
+                uint32_t queueFamilyCount = 0;
+                vkGetPhysicalDeviceQueueFamilyProperties(_PD, &queueFamilyCount, nullptr);
+
+                if (queueFamilyCount > 0)
+                {
+                    std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+                    vkGetPhysicalDeviceQueueFamilyProperties(_PD, &queueFamilyCount, queueFamilies.data());
+
+                    for (uint32_t i = 0; i < queueFamilyCount; i++)
+                    {
+                        if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+                        {
+                            queueFamilyIndex = i;
+                            break;
+                        }
+                    }
+                }
+
+                // Get graphics queue
+                VkQueue graphicsQueue = VK_NULL_HANDLE;
+                vkGetDeviceQueue(device, queueFamilyIndex, 0, &graphicsQueue);
+
+                if (graphicsQueue == VK_NULL_HANDLE)
+                {
+                    LOG_ERROR("Cannot create FSRFG_Vk: graphics queue not available");
+                }
+                else
+                {
+                    // Create FSRFG_Vk instance
+                    auto fg = new FSRFG_Vk();
+                    fg->SetQueue(FG_ResourceType::Depth, graphicsQueue, queueFamilyIndex);
+
+                    // Create FG swapchain
+                    if (fg->CreateSwapchain(device, _PD, pCreateInfo, pSwapchain))
+                    {
+                        // Create FG context
+                        FG_Constants fgConstants {};
+                        fgConstants.displayWidth = pCreateInfo->imageExtent.width;
+                        fgConstants.displayHeight = pCreateInfo->imageExtent.height;
+
+                        if (fg->CreateContext(device, _PD, _instance, fgConstants))
+                        {
+                            fg->Activate();
+                            State::Instance().currentFGVk = fg;
+                            LOG_INFO("FSRFG_Vk initialized successfully");
+                        }
+                        else
+                        {
+                            LOG_ERROR("Failed to create FSRFG_Vk context");
+                            delete fg;
+                        }
+                    }
+                    else
+                    {
+                        LOG_ERROR("Failed to create FSRFG_Vk swapchain");
+                        delete fg;
+                    }
+
+                    // Store device info for FG
+                    State::Instance().currentVkDevice = device;
+                    State::Instance().currentVkPhysicalDevice = _PD;
+                    State::Instance().currentVkSwapchain = *pSwapchain;
+                }
+            }
         }
     }
 
@@ -402,6 +445,9 @@ static VkResult hkvkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateI
 
 PFN_vkVoidFunction hkvkGetInstanceProcAddr(VkInstance instance, const char* pName)
 {
+    if (pName == nullptr)
+        return VK_NULL_HANDLE;
+
     auto orgFunc = o_vkGetInstanceProcAddr(instance, pName);
 
     if (orgFunc == VK_NULL_HANDLE)
@@ -429,6 +475,9 @@ PFN_vkVoidFunction hkvkGetInstanceProcAddr(VkInstance instance, const char* pNam
 
 PFN_vkVoidFunction hkvkGetDeviceProcAddr(VkDevice device, const char* pName)
 {
+    if (pName == nullptr)
+        return VK_NULL_HANDLE;
+
     auto orgFunc = o_vkGetDeviceProcAddr(device, pName);
 
     if (orgFunc == VK_NULL_HANDLE)

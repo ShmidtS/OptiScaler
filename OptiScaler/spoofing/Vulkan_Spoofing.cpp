@@ -76,10 +76,11 @@ inline static void hkvkGetPhysicalDeviceMemoryProperties2(VkPhysicalDevice physi
 inline static void hkvkGetPhysicalDeviceMemoryProperties2KHR(VkPhysicalDevice physicalDevice,
                                                              VkPhysicalDeviceMemoryProperties2* pMemoryProperties)
 {
-    o_vkGetPhysicalDeviceMemoryProperties2(physicalDevice, pMemoryProperties);
+    o_vkGetPhysicalDeviceMemoryProperties2KHR(physicalDevice, pMemoryProperties);
 
+    // Note: VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2 is used for both core and KHR variants
     if (pMemoryProperties == nullptr ||
-        pMemoryProperties->sType != VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2_KHR)
+        pMemoryProperties->sType != VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2)
         return;
 
     for (size_t i = 0; i < pMemoryProperties->memoryProperties.memoryHeapCount; i++)
@@ -115,10 +116,12 @@ inline static void hkvkGetPhysicalDeviceProperties(VkPhysicalDevice physical_dev
                                  Config::Instance()->TargetDeviceId.value() == properties->deviceID;
 
     // Spoof
-    if (!State::Instance().skipSpoofing && targetVendorIdMatches && targetDeviceIdMatches)
+    if (!State::Instance().skipSpoofing.load() && targetVendorIdMatches && targetDeviceIdMatches)
     {
         auto deviceName = wstring_to_string(Config::Instance()->SpoofedGPUName.value_or_default());
-        std::strcpy(properties->deviceName, deviceName.c_str());
+        // Safe copy with length check to prevent buffer overflow
+        strncpy_s(properties->deviceName, VK_MAX_PHYSICAL_DEVICE_NAME_SIZE,
+                  deviceName.c_str(), _TRUNCATE);
 
         properties->vendorID = Config::Instance()->SpoofedVendorId.value_or_default();
         properties->deviceID = Config::Instance()->SpoofedDeviceId.value_or_default();
@@ -154,10 +157,12 @@ inline static void hkvkGetPhysicalDeviceProperties2(VkPhysicalDevice phys_dev, V
                                  Config::Instance()->TargetDeviceId.value() == properties2->properties.deviceID;
 
     // Spoof
-    if (!State::Instance().skipSpoofing && targetVendorIdMatches && targetDeviceIdMatches)
+    if (!State::Instance().skipSpoofing.load() && targetVendorIdMatches && targetDeviceIdMatches)
     {
         auto deviceName = wstring_to_string(Config::Instance()->SpoofedGPUName.value_or_default());
-        std::strcpy(properties2->properties.deviceName, deviceName.c_str());
+        // Safe copy with length check to prevent buffer overflow
+        strncpy_s(properties2->properties.deviceName, VK_MAX_PHYSICAL_DEVICE_NAME_SIZE,
+                  deviceName.c_str(), _TRUNCATE);
         properties2->properties.vendorID = Config::Instance()->SpoofedVendorId.value_or_default();
         properties2->properties.deviceID = Config::Instance()->SpoofedDeviceId.value_or_default();
         properties2->properties.driverVersion = VK_MAKE_API_VERSION(999, 99, 0, 0);
@@ -173,8 +178,8 @@ inline static void hkvkGetPhysicalDeviceProperties2(VkPhysicalDevice phys_dev, V
                 {
                     auto ddp = (VkPhysicalDeviceDriverProperties*) (void*) next;
                     ddp->driverID = VK_DRIVER_ID_NVIDIA_PROPRIETARY;
-                    std::strcpy(ddp->driverName, "NVIDIA");
-                    std::strcpy(ddp->driverInfo, "999.99");
+                    strncpy_s(ddp->driverName, VK_MAX_DRIVER_NAME_SIZE, "NVIDIA", _TRUNCATE);
+                    strncpy_s(ddp->driverInfo, VK_MAX_DRIVER_INFO_SIZE, "999.99", _TRUNCATE);
                 }
 
                 next = (VkDummyProps*) next->pNext;
@@ -212,10 +217,12 @@ inline static void hkvkGetPhysicalDeviceProperties2KHR(VkPhysicalDevice phys_dev
                                  Config::Instance()->TargetDeviceId.value() == properties2->properties.deviceID;
 
     // Spoof
-    if (!State::Instance().skipSpoofing && targetVendorIdMatches && targetDeviceIdMatches)
+    if (!State::Instance().skipSpoofing.load() && targetVendorIdMatches && targetDeviceIdMatches)
     {
         auto deviceName = wstring_to_string(Config::Instance()->SpoofedGPUName.value_or_default());
-        std::strcpy(properties2->properties.deviceName, deviceName.c_str());
+        // Safe copy with length check to prevent buffer overflow
+        strncpy_s(properties2->properties.deviceName, VK_MAX_PHYSICAL_DEVICE_NAME_SIZE,
+                  deviceName.c_str(), _TRUNCATE);
         properties2->properties.vendorID = Config::Instance()->SpoofedVendorId.value_or_default();
         properties2->properties.deviceID = Config::Instance()->SpoofedDeviceId.value_or_default();
         properties2->properties.driverVersion = VK_MAKE_API_VERSION(999, 99, 0, 0);
@@ -231,8 +238,8 @@ inline static void hkvkGetPhysicalDeviceProperties2KHR(VkPhysicalDevice phys_dev
                 {
                     auto ddp = (VkPhysicalDeviceDriverProperties*) (void*) next;
                     ddp->driverID = VK_DRIVER_ID_NVIDIA_PROPRIETARY;
-                    std::strcpy(ddp->driverName, "NVIDIA");
-                    std::strcpy(ddp->driverInfo, "999.99");
+                    strncpy_s(ddp->driverName, VK_MAX_DRIVER_NAME_SIZE, "NVIDIA", _TRUNCATE);
+                    strncpy_s(ddp->driverInfo, VK_MAX_DRIVER_INFO_SIZE, "999.99", _TRUNCATE);
                 }
 
                 next = (VkDummyProps*) next->pNext;
@@ -568,7 +575,7 @@ inline static VkResult hkvkEnumerateDeviceExtensionProperties(VkPhysicalDevice p
         return result;
     }
 
-    if (!State::Instance().skipSpoofing)
+    if (!State::Instance().skipSpoofing.load())
     {
         // Count query, modify and add 5 to final count
         if (pProperties == nullptr && pPropertyCount != nullptr && count == 0)
@@ -648,6 +655,12 @@ inline static VkResult hkvkEnumerateInstanceExtensionProperties(const char* pLay
 {
     LOG_FUNC();
 
+    if (pPropertyCount == nullptr)
+    {
+        LOG_ERROR("pPropertyCount is nullptr");
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+
     auto count = *pPropertyCount;
 
     if (pProperties == nullptr)
@@ -661,7 +674,7 @@ inline static VkResult hkvkEnumerateInstanceExtensionProperties(const char* pLay
         return result;
     }
 
-    if (!State::Instance().skipSpoofing)
+    if (!State::Instance().skipSpoofing.load())
     {
         if (pLayerName == nullptr && pProperties == nullptr && count == 0)
         {
@@ -692,6 +705,12 @@ inline static VkResult hkvkEnumerateInstanceExtensionProperties(const char* pLay
 
 PFN_vkVoidFunction VulkanSpoofing::hkvkGetInstanceProcAddr(const PFN_vkVoidFunction orgFunc, const char* pName)
 {
+    if (pName == nullptr)
+    {
+        LOG_ERROR("hkvkGetInstanceProcAddr: pName is nullptr");
+        return orgFunc;
+    }
+
     auto procName = std::string(pName);
 
     auto result = Vulkan_wDx12::GetInstanceProcAddr(orgFunc, pName);
@@ -755,6 +774,12 @@ PFN_vkVoidFunction VulkanSpoofing::hkvkGetInstanceProcAddr(const PFN_vkVoidFunct
 
 PFN_vkVoidFunction VulkanSpoofing::hkvkGetDeviceProcAddr(const PFN_vkVoidFunction orgFunc, const char* pName)
 {
+    if (pName == nullptr)
+    {
+        LOG_ERROR("hkvkGetDeviceProcAddr: pName is nullptr");
+        return orgFunc;
+    }
+
     auto procName = std::string(pName);
 
     auto result = Vulkan_wDx12::GetDeviceProcAddr(orgFunc, pName);

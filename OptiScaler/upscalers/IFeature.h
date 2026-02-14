@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include "SysUtils.h"
 
 #include <nvsdk_ngx.h>
@@ -9,7 +10,7 @@
 
 #define DLSS_MOD_ID_OFFSET 1000000
 
-inline static unsigned int handleCounter = DLSS_MOD_ID_OFFSET;
+inline static std::atomic<unsigned int> handleCounter{DLSS_MOD_ID_OFFSET};
 
 struct InitFlags
 {
@@ -49,7 +50,8 @@ class IFeature
     std::unordered_set<std::pair<float, float>, hashFunction> _jitterInfo;
 
   protected:
-    // D3D11with12
+    // D3D11with12 - Initialized once at startup, then read-only
+    // Thread safety: Written during init, read-only after - safe for concurrent access
     inline static ID3D12Device* _dx11on12Device = nullptr;
     inline static ID3D12Device* _localDx11on12Device = nullptr;
 
@@ -127,5 +129,12 @@ class IFeature
 
     IFeature(unsigned int InHandleId, NVSDK_NGX_Parameter* InParameters) { SetHandle(InHandleId); }
 
-    virtual ~IFeature() {}
+    virtual ~IFeature()
+    {
+        if (_handle != nullptr)
+        {
+            delete _handle;
+            _handle = nullptr;
+        }
+    }
 };

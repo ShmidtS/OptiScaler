@@ -1,3 +1,26 @@
+// ===========================================================================
+// OptiScaler DLL Entry Point
+// ===========================================================================
+// This file contains the main DLL initialization and proxy mode detection.
+// It handles 11 different DLL proxy modes for hooking into games.
+//
+// Sections:
+//   1. Includes and Imports
+//   2. Static Variables and Type Definitions
+//   3. Utility Functions (ManualGetProcAddress, Wine detection)
+//   4. D3D12 Agility SDK Support
+//   5. ASI Plugin Loading
+//   6. DLL Mode Detection and Proxy Setup (CheckWorkingMode)
+//   7. Game Quirk Management (printQuirks, CheckQuirks)
+//   8. GPU Detection (isNvidia)
+//   9. Process Filtering (CheckForExcludedProcess)
+//  10. DLL Entry Point (DllMain)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Section 1: Includes and Imports
+// ---------------------------------------------------------------------------
+
 #include "pch.h"
 #include "dllmain.h"
 
@@ -43,6 +66,10 @@
 #include <cwctype>
 #include <version_check.h>
 
+// ---------------------------------------------------------------------------
+// Section 2: Static Variables and Type Definitions
+// ---------------------------------------------------------------------------
+
 static std::vector<HMODULE> _asiHandles;
 static bool _passThruMode = false;
 
@@ -50,14 +77,22 @@ typedef const char*(CDECL* PFN_wine_get_version)(void);
 typedef void (*PFN_InitializeASI)(void);
 typedef bool (*PFN_PatchResult)(void);
 
+// ---------------------------------------------------------------------------
+// Section 3: Utility Functions
+// ---------------------------------------------------------------------------
+
 static inline void* ManualGetProcAddress(HMODULE hModule, const char* functionName)
 {
-    if (!hModule)
+    if (!hModule || !functionName)
         return nullptr;
 
     // Verify the alignment
     auto dosHeader = (IMAGE_DOS_HEADER*) hModule;
     if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE)
+        return nullptr;
+
+    // Validate e_lfanew is within reasonable bounds
+    if (dosHeader->e_lfanew < 0 || dosHeader->e_lfanew > 0x1000000)
         return nullptr;
 
     auto ntHeaders = (IMAGE_NT_HEADERS*) ((BYTE*) hModule + dosHeader->e_lfanew);
@@ -82,7 +117,21 @@ static inline void* ManualGetProcAddress(HMODULE hModule, const char* functionNa
         if (_stricmp(name, functionName) == 0)
         {
             WORD ordinal = ordinalTable[i];
+            // Validate ordinal is within bounds
+            if (ordinal >= exportDir->NumberOfFunctions)
+                return nullptr;
             DWORD funcRva = functionTable[ordinal];
+            if (funcRva == 0)
+                return nullptr;  // Forwarded export or null
+
+            // Validate RVA is within image bounds to prevent integer overflow
+            SIZE_T imageSize = ntHeaders->OptionalHeader.SizeOfImage;
+            if (funcRva >= imageSize)
+            {
+                LOG_ERROR("ManualGetProcAddress: RVA {:X} exceeds image size {:X}", funcRva, imageSize);
+                return nullptr;
+            }
+
             return (BYTE*) hModule + funcRva;
         }
     }
@@ -117,6 +166,10 @@ static bool IsRunningOnWine()
     LOG_WARN("Wine not detected");
     return false;
 }
+
+// ---------------------------------------------------------------------------
+// Section 4: D3D12 Agility SDK Support
+// ---------------------------------------------------------------------------
 
 // D3D12 Agility SDK version for OptiScaler's custom D3D12 implementation
 constexpr UINT D3D12_AGILITY_SDK_VERSION = 615;
@@ -175,6 +228,10 @@ static void RunAgilityUpgrade(HMODULE dx12Module)
     DetourDetach(&(PVOID&) o_IsDeveloperModeEnabled, static_cast<HRESULT (*)(BOOL*)>(hk_IsDeveloperModeEnabled));
     DetourTransactionCommit();
 }
+
+// ---------------------------------------------------------------------------
+// Section 5: ASI Plugin Loading
+// ---------------------------------------------------------------------------
 
 void LoadAsiPlugins()
 {
@@ -239,6 +296,12 @@ void LoadAsiPlugins()
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Section 6: DLL Mode Detection and Proxy Setup
+// Handles 11 different DLL proxy modes: nvngx, version, winmm, wininet,
+// dbghelp, optiscaler, winhttp, dxgi, d3d12
+// ---------------------------------------------------------------------------
 
 static void CheckWorkingMode()
 {
@@ -503,7 +566,7 @@ static void CheckWorkingMode()
             if (!_passThruMode)
                 LOG_INFO("OptiScaler working as OptiScaler.dll");
 
-            // quick hack for testing
+            // For testing: use self as original module when loaded as optiscaler.dll
             originalModule = dllModule;
 
             dllNames.push_back("optiscaler.dll");
@@ -521,7 +584,7 @@ static void CheckWorkingMode()
             if (!_passThruMode)
                 LOG_INFO("OptiScaler working as OptiScaler.asi");
 
-            // quick hack for testing
+            // For testing: use self as original module when loaded as optiscaler.asi
             originalModule = dllModule;
 
             dllNames.push_back("optiscaler.asi");
@@ -1057,6 +1120,11 @@ static void CheckWorkingMode()
     LOG_ERROR("Unsupported dll name: {0}", filename);
 }
 
+// ---------------------------------------------------------------------------
+// Section 7: Game Quirk Management
+// Handles game-specific workarounds and behavioral adjustments
+// ---------------------------------------------------------------------------
+
 static void printQuirks(flag_set<GameQuirk>& quirks)
 {
     auto state = &State::Instance();
@@ -1570,6 +1638,11 @@ static void CheckQuirks()
     printQuirks(quirks);
 }
 
+// ---------------------------------------------------------------------------
+// Section 8: GPU Detection
+// Detects NVIDIA GPU presence via NVAPI
+// ---------------------------------------------------------------------------
+
 bool isNvidia()
 {
     bool nvidiaDetected = false;
@@ -1642,6 +1715,11 @@ bool isNvidia()
     return nvidiaDetected;
 }
 
+// ---------------------------------------------------------------------------
+// Section 9: Process Filtering
+// Handles process exclusion and targeting for OptiScaler injection
+// ---------------------------------------------------------------------------
+
 void CheckForExcludedProcess()
 {
     std::wstring exeLower = Util::ExePath().filename().wstring();
@@ -1687,6 +1765,11 @@ void CheckForExcludedProcess()
 
     _passThruMode = false;
 }
+
+// ---------------------------------------------------------------------------
+// Section 10: DLL Entry Point
+// Main DLL initialization and cleanup
+// ---------------------------------------------------------------------------
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
 {
@@ -1823,8 +1906,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         CheckWorkingMode();
 
         // OptiFG & Overlay Checks
-        // TODO: Either FGInput == FGInput::Upscaler or FGOutput == FGOutput::FSRFG
-        if ((Config::Instance()->FGInput.value_or_default() == FGInput::Upscaler) &&
+        // Disable overlays when using OptiFG (Upscaler FG input or FSRFG/XeFG output)
+        if ((Config::Instance()->FGInput.value_or_default() == FGInput::Upscaler ||
+             Config::Instance()->FGOutput.value_or_default() == FGOutput::FSRFG ||
+             Config::Instance()->FGOutput.value_or_default() == FGOutput::XeFG) &&
             !Config::Instance()->DisableOverlays.has_value())
             Config::Instance()->DisableOverlays.set_volatile_value(true);
 
@@ -1960,13 +2045,31 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
     case DLL_PROCESS_DETACH:
         State::Instance().isShuttingDown = true;
 
-        // Clean up FG object to prevent memory leak
+        // Clean up D3D12 FG object to prevent memory leak
         if (State::Instance().currentFG != nullptr)
         {
             State::Instance().currentFG->Shutdown();
             delete State::Instance().currentFG;
             State::Instance().currentFG = nullptr;
         }
+
+        // Clean up Vulkan FG object to prevent memory leak
+        if (State::Instance().currentFGVk != nullptr)
+        {
+            State::Instance().currentFGVk->Shutdown();
+            delete State::Instance().currentFGVk;
+            State::Instance().currentFGVk = nullptr;
+        }
+
+        // Clean up currentFeature to prevent memory leak
+        if (State::Instance().currentFeature != nullptr)
+        {
+            delete State::Instance().currentFeature;
+            State::Instance().currentFeature = nullptr;
+        }
+
+        // Clean up FSR4 update resources (module handles and detours)
+        CleanupFSR4Update();
 
         // Unhooking and cleaning stuff causing issues during shutdown.
         // Disabled for now to check if it cause any issues
@@ -1994,6 +2097,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         {
             NtdllProxy::FreeLibrary_Ldr(v);
         }
+
+        // Clean up Config singleton to prevent memory leak
+        Config::Cleanup();
 
         spdlog::info("");
         spdlog::info("DLL_PROCESS_DETACH");

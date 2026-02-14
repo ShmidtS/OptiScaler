@@ -42,7 +42,7 @@ HRESULT DxgiFactoryWrappedCalls::CreateSwapChain(IDXGIFactory* realFactory, Wrap
 {
     *ppSwapChain = nullptr;
 
-    if (State::Instance().vulkanCreatingSC)
+    if (State::Instance().vulkanCreatingSC.load())
     {
         LOG_WARN("Vulkan is creating swapchain!");
 
@@ -228,7 +228,7 @@ HRESULT DxgiFactoryWrappedCalls::CreateSwapChainForHwnd(IDXGIFactory2* realFacto
         _skipFGSwapChainCreation = true;
     }
 
-    if (State::Instance().vulkanCreatingSC)
+    if (State::Instance().vulkanCreatingSC.load())
     {
         LOG_WARN("Vulkan is creating swapchain!");
         ScopedSkipDxgiLoadChecks skipDxgiLoadChecks {};
@@ -432,7 +432,7 @@ HRESULT DxgiFactoryWrappedCalls::CreateSwapChainForCoreWindow(IDXGIFactory2* rea
                                                               IDXGIOutput* pRestrictToOutput,
                                                               IDXGISwapChain1** ppSwapChain)
 {
-    if (State::Instance().vulkanCreatingSC)
+    if (State::Instance().vulkanCreatingSC.load())
     {
         LOG_WARN("Vulkan is creating swapchain!");
 

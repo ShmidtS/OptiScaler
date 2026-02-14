@@ -48,8 +48,6 @@ bool Menu_Dx12::Render(ID3D12GraphicsCommandList* pCmdList, ID3D12Resource* outT
     if (pCmdList == nullptr || outTexture == nullptr)
         return false;
 
-    frameCounter++;
-
     // if (!IsVisible())
     //	return true;
 

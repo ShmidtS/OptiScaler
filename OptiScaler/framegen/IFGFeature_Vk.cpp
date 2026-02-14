@@ -145,8 +145,95 @@ void IFGFeature_Vk::NewFrame()
 
 void IFGFeature_Vk::FlipResource(VkResource* resource)
 {
-    // TODO: Implement resource flip for Vulkan if needed
-    // This would require Vulkan-specific shader implementations
+    if (resource == nullptr || resource->image == VK_NULL_HANDLE)
+        return;
+
+    // Resource flip implementation for Vulkan FG
+    // Creates a copy of the resource for frame generation to use
+    if (resource->copyImage == VK_NULL_HANDLE && _device != VK_NULL_HANDLE)
+    {
+        // Create copy resources if they don't exist
+        VkImageCreateInfo imageInfo {};
+        imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageInfo.imageType = VK_IMAGE_TYPE_2D;
+        imageInfo.format = resource->format;
+        imageInfo.extent.width = resource->width;
+        imageInfo.extent.height = resource->height;
+        imageInfo.extent.depth = 1;
+        imageInfo.mipLevels = 1;
+        imageInfo.arrayLayers = 1;
+        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+        imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+        if (vkCreateImage(_device, &imageInfo, nullptr, &resource->copyImage) != VK_SUCCESS)
+        {
+            LOG_ERROR("Failed to create flip copy image");
+            return;
+        }
+
+        // Allocate memory for copy image
+        VkMemoryRequirements memRequirements;
+        vkGetImageMemoryRequirements(_device, resource->copyImage, &memRequirements);
+
+        // Find proper memory type
+        VkPhysicalDeviceMemoryProperties memProperties;
+        vkGetPhysicalDeviceMemoryProperties(_physicalDevice, &memProperties);
+
+        uint32_t memoryTypeIndex = UINT32_MAX;
+        for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++)
+        {
+            if ((memRequirements.memoryTypeBits & (1 << i)) &&
+                (memProperties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
+            {
+                memoryTypeIndex = i;
+                break;
+            }
+        }
+
+        if (memoryTypeIndex == UINT32_MAX)
+        {
+            LOG_ERROR("Failed to find suitable memory type for flip image");
+            vkDestroyImage(_device, resource->copyImage, nullptr);
+            resource->copyImage = VK_NULL_HANDLE;
+            return;
+        }
+
+        VkMemoryAllocateInfo allocInfo {};
+        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.allocationSize = memRequirements.size;
+        allocInfo.memoryTypeIndex = memoryTypeIndex;
+
+        if (vkAllocateMemory(_device, &allocInfo, nullptr, &resource->copyMemory) != VK_SUCCESS)
+        {
+            LOG_ERROR("Failed to allocate memory for flip image");
+            vkDestroyImage(_device, resource->copyImage, nullptr);
+            resource->copyImage = VK_NULL_HANDLE;
+            return;
+        }
+
+        vkBindImageMemory(_device, resource->copyImage, resource->copyMemory, 0);
+
+        // Create image view
+        VkImageViewCreateInfo viewInfo {};
+        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image = resource->copyImage;
+        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format = resource->format;
+        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        viewInfo.subresourceRange.levelCount = 1;
+        viewInfo.subresourceRange.layerCount = 1;
+
+        if (vkCreateImageView(_device, &viewInfo, nullptr, &resource->copyImageView) != VK_SUCCESS)
+        {
+            LOG_ERROR("Failed to create flip copy image view");
+            return;
+        }
+
+        LOG_DEBUG("Flip copy resources created for type {}", magic_enum::enum_name(resource->type));
+    }
 }
 
 bool IFGFeature_Vk::InitCopyCmdBuffer()
@@ -262,10 +349,33 @@ bool IFGFeature_Vk::CreateBufferResource(VkDevice device, VkImage source, VkImag
     VkMemoryRequirements memRequirements;
     vkGetImageMemoryRequirements(device, *outImage, &memRequirements);
 
+    // Find proper memory type with device local bit
+    VkPhysicalDeviceMemoryProperties memProperties;
+    vkGetPhysicalDeviceMemoryProperties(_physicalDevice, &memProperties);
+
+    uint32_t memoryTypeIndex = UINT32_MAX;
+    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++)
+    {
+        if ((memRequirements.memoryTypeBits & (1 << i)) &&
+            (memProperties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
+        {
+            memoryTypeIndex = i;
+            break;
+        }
+    }
+
+    if (memoryTypeIndex == UINT32_MAX)
+    {
+        LOG_ERROR("Failed to find suitable memory type");
+        vkDestroyImage(device, *outImage, nullptr);
+        *outImage = VK_NULL_HANDLE;
+        return false;
+    }
+
     VkMemoryAllocateInfo allocInfo {};
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = 0; // TODO: Find proper memory type
+    allocInfo.memoryTypeIndex = memoryTypeIndex;
 
     if (vkAllocateMemory(device, &allocInfo, nullptr, outMemory) != VK_SUCCESS)
     {
@@ -318,6 +428,107 @@ void IFGFeature_Vk::ImageMemoryBarrier(VkCommandBuffer cmdBuffer, VkImage image,
 bool IFGFeature_Vk::CopyVkImage(VkCommandBuffer cmdBuffer, VkImage source, VkImageLayout sourceLayout,
                                  VkImage* target, VkDeviceMemory* targetMemory, uint32_t width, uint32_t height, VkFormat format)
 {
-    // TODO: Implement image copy
-    return false;
+    if (cmdBuffer == VK_NULL_HANDLE || source == VK_NULL_HANDLE)
+        return false;
+
+    // Create target image if needed
+    if (*target == VK_NULL_HANDLE)
+    {
+        VkImageCreateInfo imageInfo {};
+        imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageInfo.imageType = VK_IMAGE_TYPE_2D;
+        imageInfo.format = format;
+        imageInfo.extent.width = width;
+        imageInfo.extent.height = height;
+        imageInfo.extent.depth = 1;
+        imageInfo.mipLevels = 1;
+        imageInfo.arrayLayers = 1;
+        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+        imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+        if (vkCreateImage(_device, &imageInfo, nullptr, target) != VK_SUCCESS)
+        {
+            LOG_ERROR("Failed to create target image for copy");
+            return false;
+        }
+
+        // Allocate memory
+        VkMemoryRequirements memRequirements;
+        vkGetImageMemoryRequirements(_device, *target, &memRequirements);
+
+        VkPhysicalDeviceMemoryProperties memProperties;
+        vkGetPhysicalDeviceMemoryProperties(_physicalDevice, &memProperties);
+
+        uint32_t memoryTypeIndex = UINT32_MAX;
+        for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++)
+        {
+            if ((memRequirements.memoryTypeBits & (1 << i)) &&
+                (memProperties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
+            {
+                memoryTypeIndex = i;
+                break;
+            }
+        }
+
+        if (memoryTypeIndex == UINT32_MAX)
+        {
+            LOG_ERROR("Failed to find suitable memory type for copy target");
+            vkDestroyImage(_device, *target, nullptr);
+            *target = VK_NULL_HANDLE;
+            return false;
+        }
+
+        VkMemoryAllocateInfo allocInfo {};
+        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.allocationSize = memRequirements.size;
+        allocInfo.memoryTypeIndex = memoryTypeIndex;
+
+        if (vkAllocateMemory(_device, &allocInfo, nullptr, targetMemory) != VK_SUCCESS)
+        {
+            LOG_ERROR("Failed to allocate memory for copy target");
+            vkDestroyImage(_device, *target, nullptr);
+            *target = VK_NULL_HANDLE;
+            return false;
+        }
+
+        vkBindImageMemory(_device, *target, *targetMemory, 0);
+    }
+
+    // Transition target to transfer destination
+    VkImageSubresourceRange subresourceRange {};
+    subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    subresourceRange.levelCount = 1;
+    subresourceRange.layerCount = 1;
+
+    ImageMemoryBarrier(cmdBuffer, *target, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                       0, VK_ACCESS_TRANSFER_WRITE_BIT,
+                       VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                       subresourceRange);
+
+    // Copy image
+    VkImageCopy copyRegion {};
+    copyRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    copyRegion.srcSubresource.mipLevel = 0;
+    copyRegion.srcSubresource.baseArrayLayer = 0;
+    copyRegion.srcSubresource.layerCount = 1;
+    copyRegion.srcOffset = { 0, 0, 0 };
+    copyRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    copyRegion.dstSubresource.mipLevel = 0;
+    copyRegion.dstSubresource.baseArrayLayer = 0;
+    copyRegion.dstSubresource.layerCount = 1;
+    copyRegion.dstOffset = { 0, 0, 0 };
+    copyRegion.extent = { width, height, 1 };
+
+    vkCmdCopyImage(cmdBuffer, source, sourceLayout, *target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+
+    // Transition target to general layout for shader access
+    ImageMemoryBarrier(cmdBuffer, *target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
+                       VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                       VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                       subresourceRange);
+
+    return true;
 }

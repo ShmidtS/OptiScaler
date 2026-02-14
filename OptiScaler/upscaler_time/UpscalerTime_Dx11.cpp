@@ -55,10 +55,9 @@ void UpscalerTimeDx11::ReadUpscalingTime(ID3D11DeviceContext* devieContext)
                 // filter out posibly wrong measured high values
                 if (elapsedTimeMs < 100.0)
                 {
-                    State::Instance().frameTimeMutex.lock();
+                    std::lock_guard<std::mutex> lock(State::Instance().frameTimeMutex);
                     State::Instance().upscaleTimes.push_back(elapsedTimeMs);
                     State::Instance().upscaleTimes.pop_front();
-                    State::Instance().frameTimeMutex.unlock();
                 }
             }
         }

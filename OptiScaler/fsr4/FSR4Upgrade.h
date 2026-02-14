@@ -21,6 +21,7 @@ typedef HRESULT(STDMETHODCALLTYPE* PFN_UpdateFfxApiProviderEx)(void* pData, uint
                                                                magicData* magicData);
 
 void InitFSR4Update();
+void CleanupFSR4Update();
 HRESULT STDMETHODCALLTYPE hkAmdExtD3DCreateInterface(IUnknown* pOuter, REFIID riid, void** ppvObject);
 
 void CheckForGPU();

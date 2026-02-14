@@ -93,7 +93,7 @@ class IFGFeature_Vk : public virtual IFGFeature
                                  const VkSwapchainCreateInfoKHR* createInfo,
                                  VkSwapchainKHR* swapchain) = 0;
 
-    virtual void CreateContext(VkDevice device, VkPhysicalDevice physicalDevice,
+    virtual bool CreateContext(VkDevice device, VkPhysicalDevice physicalDevice,
                                VkInstance instance, FG_Constants& fgConstants) = 0;
     virtual void EvaluateState(VkDevice device, FG_Constants& fgConstants) = 0;
 

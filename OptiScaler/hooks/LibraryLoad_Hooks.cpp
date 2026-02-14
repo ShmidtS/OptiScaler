@@ -71,7 +71,7 @@ HMODULE LibraryLoadHooks::LoadLibraryCheckW(std::wstring libName, LPCWSTR lpLibF
     }
 
     if (!State::Instance().isWorkingAsNvngx &&
-        (!State::Instance().isDxgiMode || !State::Instance().skipDxgiLoadChecks) && CheckDllNameW(&libName, &dllNamesW))
+        (!State::Instance().isDxgiMode || !State::Instance().skipDxgiLoadChecks.load()) && CheckDllNameW(&libName, &dllNamesW))
     {
         if (!State::Instance().ServeOriginal())
         {

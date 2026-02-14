@@ -8,8 +8,9 @@ int IFGFeature::GetIndexWillBeDispatched()
 {
     UINT64 df;
 
-    auto diff = _frameCount - _lastDispatchedFrame;
-    if (diff > Config::Instance()->FGAllowedFrameAhead.value_or_default() || diff < 0 || _lastDispatchedFrame == 0)
+    // Use signed arithmetic for proper wraparound detection
+    INT64 diff = static_cast<INT64>(_frameCount) - static_cast<INT64>(_lastDispatchedFrame);
+    if (diff > static_cast<INT64>(Config::Instance()->FGAllowedFrameAhead.value_or_default()) || diff < 0 || _lastDispatchedFrame == 0)
     {
         // If current index has resources, skip to it
         if (HasResource(FG_ResourceType::Depth))
@@ -139,8 +140,9 @@ int IFGFeature::GetDispatchIndex(UINT64& willDispatchFrame)
     if (_frameCount == _lastDispatchedFrame)
         return -1;
 
-    auto diff = _frameCount - _lastDispatchedFrame;
-    if (diff > Config::Instance()->FGAllowedFrameAhead.value_or_default() || diff < 0 || _lastDispatchedFrame == 0)
+    // Use signed arithmetic for proper wraparound detection
+    INT64 diff = static_cast<INT64>(_frameCount) - static_cast<INT64>(_lastDispatchedFrame);
+    if (diff > static_cast<INT64>(Config::Instance()->FGAllowedFrameAhead.value_or_default()) || diff < 0 || _lastDispatchedFrame == 0)
     {
         if (HasResource(FG_ResourceType::Depth))
             willDispatchFrame = _frameCount; // Set dispatch frame as new one

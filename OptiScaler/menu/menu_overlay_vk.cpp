@@ -480,7 +480,7 @@ void MenuOverlayVk::DestroyVulkanObjects(bool shutdown)
             fd->BackbufferView = VK_NULL_HANDLE;
         }
 
-        if (fd->BackbufferView != VK_NULL_HANDLE)
+        if (fd->Framebuffer != VK_NULL_HANDLE)
         {
             vkDestroyFramebuffer(_ImVulkan_Info.Device, fd->Framebuffer, VK_NULL_HANDLE);
             fd->Framebuffer = VK_NULL_HANDLE;
@@ -491,6 +491,19 @@ void MenuOverlayVk::DestroyVulkanObjects(bool shutdown)
             vkDestroySemaphore(_ImVulkan_Info.Device, _ImVulkan_Semaphores[i], VK_NULL_HANDLE);
             _ImVulkan_Semaphores[i] = VK_NULL_HANDLE;
         }
+    }
+
+    // Free allocated memory for frames and semaphores arrays
+    if (_ImVulkan_Frames != nullptr)
+    {
+        IM_FREE(_ImVulkan_Frames);
+        _ImVulkan_Frames = nullptr;
+    }
+
+    if (_ImVulkan_Semaphores != nullptr)
+    {
+        IM_FREE(_ImVulkan_Semaphores);
+        _ImVulkan_Semaphores = nullptr;
     }
 
     _ImVulkan_Info = {};
@@ -511,7 +524,7 @@ bool MenuOverlayVk::QueuePresent(VkQueue queue, VkPresentInfoKHR* pPresentInfo)
     if (pPresentInfo->swapchainCount == 0)
         return false;
 
-    // std::lock_guard<std::mutex> lock(_vkPresentMutex);
+    std::lock_guard<std::mutex> lock(_vkPresentMutex);
     LOG_DEBUG("rendering menu, swapchain count: {0}", pPresentInfo->swapchainCount);
 
     ImGuiIO& io = ImGui::GetIO();

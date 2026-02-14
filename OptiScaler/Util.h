@@ -34,6 +34,10 @@ std::optional<std::filesystem::path> NvngxPath();
 double MillisecondsNow();
 
 HWND GetProcessWindow();
+
+// GetDLLVersion: Extracts file version from a DLL.
+// Returns true on success, false on failure.
+// WARNING: Caller must check return value before using versionOut.
 bool GetDLLVersion(std::wstring dllPath, version_t* versionOut);
 bool GetDLLVersion(std::wstring dllPath, xess_version_t* versionOut);
 bool GetRealWindowsVersion(OSVERSIONINFOW& osInfo);

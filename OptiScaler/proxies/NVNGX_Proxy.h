@@ -14,6 +14,8 @@
 
 #include <filesystem>
 #include <vulkan/vulkan.hpp>
+#include <mutex>
+#include <unordered_map>
 
 inline const char* project_id_override = "24480451-f00d-face-1304-0308dabad187";
 constexpr unsigned long long app_id_override = 0x24480451;
@@ -37,6 +39,20 @@ inline static NVSDK_NGX_Result __stdcall Hooked_Dx12_GetFeatureRequirements(
 {
     LOG_FUNC();
 
+    // Optimize: Cache feature requirements to avoid repeated calls
+    static std::mutex cacheMutex;
+    static std::unordered_map<NVSDK_NGX_Feature, NVSDK_NGX_FeatureRequirement> featureCache;
+
+    std::lock_guard<std::mutex> lock(cacheMutex);
+
+    auto it = featureCache.find(FeatureDiscoveryInfo->FeatureID);
+    if (it != featureCache.end())
+    {
+        // Return cached result
+        *OutSupported = it->second;
+        return NVSDK_NGX_Result_Success;
+    }
+
     auto result = Original_D3D12_GetFeatureRequirements(Adapter, FeatureDiscoveryInfo, OutSupported);
 
     if (result == NVSDK_NGX_Result_Success && FeatureDiscoveryInfo->FeatureID == NVSDK_NGX_Feature_SuperSampling)
@@ -45,6 +61,14 @@ inline static NVSDK_NGX_Result __stdcall Hooked_Dx12_GetFeatureRequirements(
         OutSupported->FeatureSupported = NVSDK_NGX_FeatureSupportResult_Supported;
         OutSupported->MinHWArchitecture = 0;
         strcpy_s(OutSupported->MinOSVersion, "10.0.10240.16384");
+
+        // Cache the result for future calls
+        featureCache[FeatureDiscoveryInfo->FeatureID] = *OutSupported;
+    }
+    else if (result == NVSDK_NGX_Result_Success)
+    {
+        // Cache non-spoofed results too
+        featureCache[FeatureDiscoveryInfo->FeatureID] = *OutSupported;
     }
 
     return result;
@@ -56,6 +80,20 @@ inline static NVSDK_NGX_Result __stdcall Hooked_Dx11_GetFeatureRequirements(
 {
     LOG_FUNC();
 
+    // Optimize: Cache feature requirements to avoid repeated calls
+    static std::mutex cacheMutex;
+    static std::unordered_map<NVSDK_NGX_Feature, NVSDK_NGX_FeatureRequirement> featureCache;
+
+    std::lock_guard<std::mutex> lock(cacheMutex);
+
+    auto it = featureCache.find(FeatureDiscoveryInfo->FeatureID);
+    if (it != featureCache.end())
+    {
+        // Return cached result
+        *OutSupported = it->second;
+        return NVSDK_NGX_Result_Success;
+    }
+
     auto result = Original_D3D11_GetFeatureRequirements(Adapter, FeatureDiscoveryInfo, OutSupported);
 
     if (result == NVSDK_NGX_Result_Success && FeatureDiscoveryInfo->FeatureID == NVSDK_NGX_Feature_SuperSampling)
@@ -64,6 +102,14 @@ inline static NVSDK_NGX_Result __stdcall Hooked_Dx11_GetFeatureRequirements(
         OutSupported->FeatureSupported = NVSDK_NGX_FeatureSupportResult_Supported;
         OutSupported->MinHWArchitecture = 0;
         strcpy_s(OutSupported->MinOSVersion, "10.0.10240.16384");
+
+        // Cache the result for future calls
+        featureCache[FeatureDiscoveryInfo->FeatureID] = *OutSupported;
+    }
+    else if (result == NVSDK_NGX_Result_Success)
+    {
+        // Cache non-spoofed results too
+        featureCache[FeatureDiscoveryInfo->FeatureID] = *OutSupported;
     }
 
     return result;
@@ -75,6 +121,20 @@ inline static NVSDK_NGX_Result __stdcall Hooked_Vulkan_GetFeatureRequirements(
 {
     LOG_FUNC();
 
+    // Optimize: Cache feature requirements to avoid repeated calls
+    static std::mutex cacheMutex;
+    static std::unordered_map<NVSDK_NGX_Feature, NVSDK_NGX_FeatureRequirement> featureCache;
+
+    std::lock_guard<std::mutex> lock(cacheMutex);
+
+    auto it = featureCache.find(FeatureDiscoveryInfo->FeatureID);
+    if (it != featureCache.end())
+    {
+        // Return cached result
+        *OutSupported = it->second;
+        return NVSDK_NGX_Result_Success;
+    }
+
     auto result = Original_Vulkan_GetFeatureRequirements(Instance, PhysicalDevice, FeatureDiscoveryInfo, OutSupported);
 
     if (result == NVSDK_NGX_Result_Success && FeatureDiscoveryInfo->FeatureID == NVSDK_NGX_Feature_SuperSampling)
@@ -83,6 +143,14 @@ inline static NVSDK_NGX_Result __stdcall Hooked_Vulkan_GetFeatureRequirements(
         OutSupported->FeatureSupported = NVSDK_NGX_FeatureSupportResult_Supported;
         OutSupported->MinHWArchitecture = 0;
         strcpy_s(OutSupported->MinOSVersion, "10.0.10240.16384");
+
+        // Cache the result for future calls
+        featureCache[FeatureDiscoveryInfo->FeatureID] = *OutSupported;
+    }
+    else if (result == NVSDK_NGX_Result_Success)
+    {
+        // Cache non-spoofed results too
+        featureCache[FeatureDiscoveryInfo->FeatureID] = *OutSupported;
     }
 
     return result;
@@ -649,17 +717,19 @@ class NVNGXProxy
 
     static void GetFeatureCommonInfo(NVSDK_NGX_FeatureCommonInfo* fcInfo)
     {
-        // Allocate memory for the array of const wchar_t*
-        wchar_t const** paths = new const wchar_t*[State::Instance().NVNGX_FeatureInfo_Paths.size()];
+        // Use static vector to manage memory automatically and prevent leaks
+        static std::vector<const wchar_t*> pathsStorage;
+        pathsStorage.clear();
+        pathsStorage.reserve(State::Instance().NVNGX_FeatureInfo_Paths.size());
 
-        // Copy the strings from the vector to the array
+        // Copy the string pointers from the vector
         for (size_t i = 0; i < State::Instance().NVNGX_FeatureInfo_Paths.size(); ++i)
         {
-            paths[i] = State::Instance().NVNGX_FeatureInfo_Paths[i].c_str();
+            pathsStorage.push_back(State::Instance().NVNGX_FeatureInfo_Paths[i].c_str());
             LOG_DEBUG("paths[{0}]: {1}", i, wstring_to_string(State::Instance().NVNGX_FeatureInfo_Paths[i]));
         }
 
-        fcInfo->PathListInfo.Path = paths;
+        fcInfo->PathListInfo.Path = pathsStorage.data();
         fcInfo->PathListInfo.Length = static_cast<unsigned int>(State::Instance().NVNGX_FeatureInfo_Paths.size());
 
         // Config logging

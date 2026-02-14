@@ -74,7 +74,8 @@ class FSRFG_Dx12 : public virtual IFGFeature_Dx12
         {
             if (isdigit((unsigned char) p[0]))
             {
-                if (sscanf(p, "%u.%u.%u", &_version->major, &_version->minor, &_version->patch) == 3)
+                // Use %5u to limit field width and prevent integer overflow
+                if (sscanf(p, "%5u.%5u.%5u", &_version->major, &_version->minor, &_version->patch) == 3)
                     return;
             }
 

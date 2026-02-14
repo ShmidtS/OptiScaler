@@ -301,9 +301,9 @@ void IFeature_Dx11wDx12::GetHardwareAdapter(IDXGIFactory1* InFactory, IDXGIAdapt
 
     *InAdapter = nullptr;
 
-    IDXGIAdapter1* adapter;
+    IDXGIAdapter1* adapter = nullptr;
 
-    IDXGIFactory6* factory6;
+    IDXGIFactory6* factory6 = nullptr;
     if (SUCCEEDED(InFactory->QueryInterface(IID_PPV_ARGS(&factory6))))
     {
         LOG_DEBUG("Using IDXGIFactory6 & EnumAdapterByGpuPreference");
@@ -518,6 +518,7 @@ HRESULT IFeature_Dx11wDx12::CreateDx12Device(D3D_FEATURE_LEVEL InFeatureLevel)
         if (Dx12FenceEvent == nullptr)
         {
             LOG_ERROR("CreateEvent error!");
+            SAFE_RELEASE(Dx12Fence);
             return E_NOINTERFACE;
         }
     }
