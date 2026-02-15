@@ -60,6 +60,6 @@ inline void ThrowIfFailed(HRESULT hr)
     if (FAILED(hr))
     {
         // Set a breakpoint on this line to catch DirectX API errors
-        throw std::exception();
+        throw std::exception(std::to_string(hr).c_str());
     }
 }

@@ -123,6 +123,8 @@ xess_result_t hk_xessDestroyContext(xess_context_handle_t hContext)
 {
     LOG_DEBUG("hContext: {}", (size_t) hContext);
 
+    std::lock_guard<std::mutex> lock(_xessContextMutex);
+
     if (!_contexts.contains(hContext))
         return XESS_RESULT_ERROR_INVALID_CONTEXT;
 
@@ -146,6 +148,8 @@ xess_result_t hk_xessDestroyContext(xess_context_handle_t hContext)
 
     _contexts.erase(hContext);
     _nvParams.erase(hContext);
+    _motionScales.erase(hContext);
+    _jitterScales.erase(hContext);
 
     return XESS_RESULT_SUCCESS;
 }
@@ -169,6 +173,8 @@ xess_result_t hk_xessForceLegacyScaleFactors(xess_context_handle_t hContext, boo
 xess_result_t hk_xessGetExposureMultiplier(xess_context_handle_t hContext, float* pScale)
 {
     LOG_DEBUG("");
+
+    std::lock_guard<std::mutex> lock(_xessContextMutex);
 
     if (!_nvParams.contains(hContext))
         return XESS_RESULT_ERROR_INVALID_CONTEXT;
@@ -277,6 +283,8 @@ xess_result_t hk_xessGetJitterScale(xess_context_handle_t hContext, float* pX, f
 {
     LOG_DEBUG("");
 
+    std::lock_guard<std::mutex> lock(_xessContextMutex);
+
     if (!_jitterScales.contains(hContext))
         return XESS_RESULT_ERROR_INVALID_CONTEXT;
 
@@ -381,6 +389,8 @@ xess_result_t hk_xessGetVelocityScale(xess_context_handle_t hContext, float* pX,
 {
     LOG_DEBUG("");
 
+    std::lock_guard<std::mutex> lock(_xessContextMutex);
+
     if (!_motionScales.contains(hContext))
         return XESS_RESULT_ERROR_INVALID_CONTEXT;
 
@@ -389,7 +399,7 @@ xess_result_t hk_xessGetVelocityScale(xess_context_handle_t hContext, float* pX,
     *pX = scales->x;
     *pY = scales->y;
 
-    return XESS_RESULT_ERROR_UNKNOWN;
+    return XESS_RESULT_SUCCESS;
 }
 
 xess_result_t hk_xessSetJitterScale(xess_context_handle_t hContext, float x, float y)

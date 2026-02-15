@@ -8,9 +8,12 @@
 #include <hooks/Streamline_Hooks.h>
 
 #include <SimpleIni.h>
+#include <mutex>
 
 static CSimpleIniA ini;
 static CSimpleIniA fakenvapiIni;
+static std::mutex iniMutex;
+static std::mutex fakenvapiIniMutex;
 
 static inline int64_t GetTicks()
 {
@@ -1567,8 +1570,7 @@ std::optional<bool> Config::readBool(std::string section, std::string key)
 
 Config* Config::Instance()
 {
-    if (!_config)
-        _config = new Config();
-
+    static std::once_flag initFlag;
+    std::call_once(initFlag, []() { _config = new Config(); });
     return _config;
 }

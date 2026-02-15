@@ -16,7 +16,7 @@
 
 #pragma intrinsic(_ReturnAddress)
 
-bool _skipDx11Create = false;
+static std::atomic<bool> _skipDx11Create{false};
 
 // DirectX
 typedef HRESULT (*PFN_CreateSamplerState)(ID3D11Device* This, const D3D11_SAMPLER_DESC* pSamplerDesc,
@@ -134,7 +134,7 @@ static HRESULT hkD3D11CreateDevice(IDXGIAdapter* pAdapter, D3D_DRIVER_TYPE Drive
                                    ID3D11Device** ppDevice, D3D_FEATURE_LEVEL* pFeatureLevel,
                                    ID3D11DeviceContext** ppImmediateContext)
 {
-    if (_skipDx11Create)
+    if (_skipDx11Create.load())
     {
         LOG_DEBUG("Skip");
         return o_D3D11CreateDevice(pAdapter, DriverType, Software, Flags, pFeatureLevels, FeatureLevels, SDKVersion,
@@ -161,7 +161,7 @@ static HRESULT hkD3D11CreateDevice(IDXGIAdapter* pAdapter, D3D_DRIVER_TYPE Drive
 
                 if (desc.VendorId == VendorId::Microsoft)
                 {
-                    _skipDx11Create = true;
+                    _skipDx11Create.store(true);
 
                     HRESULT result;
                     {
@@ -171,7 +171,7 @@ static HRESULT hkD3D11CreateDevice(IDXGIAdapter* pAdapter, D3D_DRIVER_TYPE Drive
                                                 SDKVersion, ppDevice, pFeatureLevel, ppImmediateContext);
                     }
 
-                    _skipDx11Create = false;
+                    _skipDx11Create.store(false);
 
                     return result;
                 }
@@ -203,7 +203,7 @@ static HRESULT hkD3D11CreateDevice(IDXGIAdapter* pAdapter, D3D_DRIVER_TYPE Drive
         }
     }
 
-    _skipDx11Create = true;
+    _skipDx11Create.store(true);
 
     HRESULT result;
     {
@@ -212,7 +212,7 @@ static HRESULT hkD3D11CreateDevice(IDXGIAdapter* pAdapter, D3D_DRIVER_TYPE Drive
                                      ppDevice, pFeatureLevel, ppImmediateContext);
     }
 
-    _skipDx11Create = false;
+    _skipDx11Create.store(false);
 
     if (result == S_OK && *ppDevice != nullptr && State::Instance().currentD3D12Device == nullptr)
     {
@@ -239,7 +239,7 @@ static HRESULT hkD3D11CreateDeviceAndSwapChain(IDXGIAdapter* pAdapter, D3D_DRIVE
                                                D3D_FEATURE_LEVEL* pFeatureLevel,
                                                ID3D11DeviceContext** ppImmediateContext)
 {
-    if (_skipDx11Create)
+    if (_skipDx11Create.load())
     {
 
         LOG_DEBUG("Skip");
@@ -268,7 +268,7 @@ static HRESULT hkD3D11CreateDeviceAndSwapChain(IDXGIAdapter* pAdapter, D3D_DRIVE
 
                 if (desc.VendorId == VendorId::Microsoft)
                 {
-                    _skipDx11Create = true;
+                    _skipDx11Create.store(true);
 
                     HRESULT result;
                     {
@@ -278,7 +278,7 @@ static HRESULT hkD3D11CreateDeviceAndSwapChain(IDXGIAdapter* pAdapter, D3D_DRIVE
                                                                  ppDevice, pFeatureLevel, ppImmediateContext);
                     }
 
-                    _skipDx11Create = false;
+                    _skipDx11Create.store(false);
 
                     return result;
                 }
@@ -314,7 +314,7 @@ static HRESULT hkD3D11CreateDeviceAndSwapChain(IDXGIAdapter* pAdapter, D3D_DRIVE
     {
         LOG_WARN("Overlay call!");
 
-        _skipDx11Create = true;
+        _skipDx11Create.store(true);
         State::Instance().skipParentWrapping = true;
 
         auto result = o_D3D11CreateDeviceAndSwapChain(pAdapter, DriverType, Software, Flags, pFeatureLevels,
@@ -322,7 +322,7 @@ static HRESULT hkD3D11CreateDeviceAndSwapChain(IDXGIAdapter* pAdapter, D3D_DRIVE
                                                       pFeatureLevel, ppImmediateContext);
 
         State::Instance().skipParentWrapping = false;
-        _skipDx11Create = false;
+        _skipDx11Create.store(false);
 
         return result;
     }
@@ -346,12 +346,12 @@ static HRESULT hkD3D11CreateDeviceAndSwapChain(IDXGIAdapter* pAdapter, D3D_DRIVE
         }
     }
 
-    _skipDx11Create = true;
+    _skipDx11Create.store(true);
 
     auto result = o_D3D11CreateDeviceAndSwapChain(pAdapter, DriverType, Software, Flags, pFeatureLevels, FeatureLevels,
                                                   SDKVersion, pSwapChainDesc, ppSwapChain, ppDevice, pFeatureLevel,
                                                   ppImmediateContext);
-    _skipDx11Create = false;
+    _skipDx11Create.store(false);
 
     if (result == S_OK && *ppDevice != nullptr && State::Instance().currentD3D12Device == nullptr)
     {

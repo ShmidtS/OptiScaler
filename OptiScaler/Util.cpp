@@ -124,6 +124,12 @@ std::wstring Util::GetExeProductName()
     if (dll == nullptr)
         return L"";
 
+    // Use RAII helper to ensure DLL is freed
+    struct DllGuard {
+        HMODULE hMod;
+        ~DllGuard() { if (hMod) FreeLibrary(hMod); }
+    } guard{dll};
+
     auto o_GetFileVersionInfoSizeW = (PFN_GetFileVersionInfoSizeW) GetProcAddress(dll, "GetFileVersionInfoSizeW");
     auto o_GetFileVersionInfoW = (PFN_GetFileVersionInfoW) GetProcAddress(dll, "GetFileVersionInfoW");
     auto o_VerQueryValueW = (PFN_VerQueryValueW) GetProcAddress(dll, "VerQueryValueW");

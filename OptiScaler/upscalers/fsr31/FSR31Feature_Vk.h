@@ -30,6 +30,9 @@ class FSR31FeatureVk : public FSR31Feature, public IFeature_Vk
             return;
 
         if (_context != nullptr)
+        {
             FfxApiProxy::VULKAN_DestroyContext()(&_context, NULL);
+            _context = nullptr;
+        }
     }
 };

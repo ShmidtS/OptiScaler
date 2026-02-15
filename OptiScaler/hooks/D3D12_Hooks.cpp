@@ -62,7 +62,7 @@ static D3d12Proxy::PFN_D3D12SerializeRootSignature o_D3D12SerializeRootSignature
 static D3d12Proxy::PFN_D3D12SerializeVersionedRootSignature o_D3D12SerializeVersionedRootSignature = nullptr;
 static PFN_Release o_D3D12DeviceRelease = nullptr;
 
-static bool _creatingD3D12Device = false;
+static std::atomic<bool> _creatingD3D12Device{false};
 static bool _d3d12Captured = false;
 static LUID _lastAdapterLuid = {};
 
@@ -277,14 +277,14 @@ static HRESULT hkD3D12CreateDevice(IDXGIAdapter* pAdapter, D3D_FEATURE_LEVEL Min
     if (ppDevice == nullptr)
     {
         LOG_ERROR("ppDevice is nullptr");
-        _creatingD3D12Device = true;
+        _creatingD3D12Device.store(true);
         auto result = o_D3D12CreateDevice(pAdapter, minLevel, riid, ppDevice);
-        _creatingD3D12Device = false;
+        _creatingD3D12Device.store(false);
         return result;
     }
 
     HRESULT result;
-    _creatingD3D12Device = true;
+    _creatingD3D12Device.store(true);
     if (desc.VendorId == VendorId::Intel)
     {
         ScopedSkipSpoofing skipSpoofing {};
@@ -294,7 +294,7 @@ static HRESULT hkD3D12CreateDevice(IDXGIAdapter* pAdapter, D3D_FEATURE_LEVEL Min
     {
         result = o_D3D12CreateDevice(pAdapter, minLevel, riid, ppDevice);
     }
-    _creatingD3D12Device = false;
+    _creatingD3D12Device.store(false);
 
     LOG_DEBUG("o_D3D12CreateDevice result: {:X}", (UINT) result);
 
@@ -365,7 +365,7 @@ static HRESULT hkCreateDevice(ID3D12DeviceFactory* pFactory, IDXGIAdapter* pAdap
     LOG_DEBUG("Adapter: {:X}, Level: {:X}, Caller: {}", (size_t) pAdapter, (UINT) MinimumFeatureLevel,
               Util::WhoIsTheCaller(_ReturnAddress()));
 
-    if (_creatingD3D12Device)
+    if (_creatingD3D12Device.load())
     {
         LOG_DEBUG("Calling from hkD3D12CreateDevice, calling original CreateDevice");
         return o_CreateDevice(pFactory, pAdapter, MinimumFeatureLevel, riid, ppDevice);

@@ -31,6 +31,9 @@ class FSR31FeatureDx12 : public FSR31Feature, public IFeature_Dx12
             return;
 
         if (_context != nullptr)
+        {
             FfxApiProxy::D3D12_DestroyContext(&_context, NULL);
+            _context = nullptr;
+        }
     }
 };

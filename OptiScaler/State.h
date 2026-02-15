@@ -311,11 +311,13 @@ class State
         {
             _skipOwner = owner;
             _skipChecks = true;
-            _skipDllName = dllName;
+            auto* ptr = new std::string(std::move(dllName));
+            delete _skipDllName.exchange(ptr);
         }
         else
         {
-            _skipDllName = ""; // Hack for multiple skip calls
+            auto* ptr = new std::string(""); // Hack for multiple skip calls
+            delete _skipDllName.exchange(ptr);
         }
     };
 
@@ -324,7 +326,8 @@ class State
         if (_skipOwner == 0 || _skipOwner == owner)
         {
             _skipChecks = false;
-            _skipDllName = "";
+            auto* ptr = _skipDllName.exchange(nullptr);
+            delete ptr;
             _skipOwner = 0;
         }
     };
@@ -334,7 +337,7 @@ class State
         if (_serveOwner == 0 || _serveOwner == owner)
         {
             _serveOriginal = false;
-            _skipOwner = 0;
+            _serveOwner = 0;
         }
     };
 
@@ -343,17 +346,21 @@ class State
         if (_serveOwner == 0 || _serveOwner == owner)
         {
             _serveOriginal = true;
-            _skipOwner = owner;
+            _serveOwner = owner;
         }
     };
 
     static bool SkipDllChecks() { return _skipChecks; }
-    static std::string SkipDllName() { return _skipDllName; }
+    static std::string SkipDllName()
+    {
+        auto* ptr = _skipDllName.load();
+        return ptr ? *ptr : "";
+    }
     static bool ServeOriginal() { return _serveOriginal; }
 
   private:
     inline static std::atomic<bool> _skipChecks{false};
-    inline static std::string _skipDllName = "";
+    inline static std::atomic<std::string*> _skipDllName{nullptr};
     inline static std::atomic<UINT> _skipOwner{0};
 
     inline static std::atomic<bool> _serveOriginal{false};

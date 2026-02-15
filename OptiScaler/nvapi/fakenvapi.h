@@ -4,6 +4,8 @@
 #include <d3d12.h>
 #include <fakenvapi_inc.h>
 #include "NvApiTypes.h"
+#include <mutex>
+#include <atomic>
 
 class fakenvapi
 {
@@ -19,11 +21,13 @@ class fakenvapi
     inline static decltype(&Fake_GetLowLatencyCtx) Fake_GetLowLatencyCtx = nullptr;
     inline static decltype(&Fake_SetLowLatencyCtx) Fake_SetLowLatencyCtx = nullptr;
 
-    inline static bool _inited = false;
-    inline static bool _initedForNvidia = false;
+    inline static std::atomic<bool> _inited{false};
+    inline static std::atomic<bool> _initedForNvidia{false};
     inline static void* _lowLatencyContext = nullptr;
     inline static Mode _lowLatencyMode = Mode::LatencyFlex;
+    inline static std::mutex _lowLatencyMutex;
     inline static HMODULE _dllForNvidia = nullptr;
+    inline static std::mutex _dllMutex;
 
   public:
     inline static const GUID IID_IFfxAntiLag2Data = {
@@ -44,4 +48,8 @@ class fakenvapi
     static Mode getCurrentMode();
     static bool isUsingFakenvapi();
     static bool isUsingFakenvapiOnNvidia();
+
+private:
+    static void setInited(bool value) { _inited.store(value); }
+    static void setInitedForNvidia(bool value) { _initedForNvidia.store(value); }
 };

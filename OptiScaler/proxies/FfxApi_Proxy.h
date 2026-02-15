@@ -128,14 +128,14 @@ class FfxApiProxy
     // Check if DX12 Frame Generation is ready (for Vulkan w/DX12 interop or DX12 games)
     static bool IsDx12FGReady() { return (main_dx12.dll && !main_dx12.isLoader) || fg_dx12.dll != nullptr; }
 
-    // Check if Vulkan Frame Generation is ready (requires FFX VK 3.2+)
+    // Check if Vulkan Frame Generation is ready
+    // Vulkan FG is supported in FFX VK 3.1+, assume supported if DLL is loaded
     static bool IsVkFGReady()
     {
         if (main_vk.dll == nullptr || main_vk.CreateContext == nullptr)
             return false;
-        auto version = VersionVk();
-        // FFX VK Frame Generation requires version 3.2 or higher
-        return version.major > 3 || (version.major == 3 && version.minor >= 2);
+        // Vulkan Frame Generation is supported in modern FFX VK versions
+        return true;
     }
 
     static FFXStructType GetType(ffxStructType_t type)

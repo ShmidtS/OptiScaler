@@ -15,6 +15,7 @@
 
 #include <optional>
 #include <filesystem>
+#include <atomic>
 
 enum HasDefaultValue
 {
@@ -28,7 +29,7 @@ template <class T, HasDefaultValue defaultState = WithDefault> class CustomOptio
   private:
     T _defaultValue;
     std::optional<T> _configIni;
-    bool _volatile;
+    std::atomic<bool> _volatile{false};
 
   public:
     CustomOptional(T defaultValue)

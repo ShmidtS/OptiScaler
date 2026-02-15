@@ -4,7 +4,8 @@
 
 void fakenvapi::Init(PFN_NvApi_QueryInterface& queryInterface)
 {
-    if (_inited)
+    // Use atomic load to check if already initialized
+    if (_inited.load())
         return;
 
     LOG_DEBUG("Trying to get fakenvapi-specific functions");
@@ -30,9 +31,9 @@ void fakenvapi::Init(PFN_NvApi_QueryInterface& queryInterface)
     if (Fake_SetLowLatencyCtx != nullptr)
         LOG_DEBUG("Got SetLowLatencyCtx");
 
-    _inited = Fake_InformFGState || Fake_InformPresentFG;
+    setInited(Fake_InformFGState || Fake_InformPresentFG);
 
-    if (_inited)
+    if (_inited.load())
         LOG_INFO("fakenvapi initialized successfully");
     else
         LOG_INFO("Failed to initialize fakenvapi");
@@ -90,13 +91,21 @@ void fakenvapi::reportFGPresent(IDXGISwapChain* pSwapChain, bool fg_state, bool 
 
 bool fakenvapi::updateModeAndContext()
 {
-    if (!isUsingFakenvapi() && State::Instance().activeFgOutput == FGOutput::XeFG)
-        auto loaded = fakenvapi::loadForNvidia();
+    // Cache the active FG output to avoid race condition
+    auto activeFgOutput = State::Instance().activeFgOutput;
+
+    if (!isUsingFakenvapi() && activeFgOutput == FGOutput::XeFG)
+    {
+        if (!loadForNvidia())
+            return false;
+    }
 
     if (!isUsingFakenvapi() && !isUsingFakenvapiOnNvidia())
         return false;
 
     LOG_FUNC();
+
+    std::lock_guard<std::mutex> lock(_lowLatencyMutex);
 
     if (Fake_GetLowLatencyCtx)
     {
@@ -129,8 +138,14 @@ bool fakenvapi::updateModeAndContext()
 
 bool fakenvapi::setModeAndContext(void* context, Mode mode)
 {
-    if (!isUsingFakenvapi() && State::Instance().activeFgOutput == FGOutput::XeFG)
-        auto loaded = fakenvapi::loadForNvidia();
+    // Cache the active FG output to avoid race condition
+    auto activeFgOutput = State::Instance().activeFgOutput;
+
+    if (!isUsingFakenvapi() && activeFgOutput == FGOutput::XeFG)
+    {
+        if (!loadForNvidia())
+            return false;
+    }
 
     if (!isUsingFakenvapi() && !isUsingFakenvapiOnNvidia())
         return false;
@@ -155,6 +170,13 @@ bool fakenvapi::loadForNvidia()
     if (!State::Instance().isRunningOnNvidia)
         return false;
 
+    // Double-checked locking pattern for thread safety
+    if (_dllForNvidia != nullptr)
+        return true;
+
+    std::lock_guard<std::mutex> lock(_dllMutex);
+
+    // Check again after acquiring lock
     if (_dllForNvidia != nullptr)
         return true;
 
@@ -186,7 +208,7 @@ bool fakenvapi::loadForNvidia()
 
     if (Fake_SetLowLatencyCtx)
     {
-        _initedForNvidia = true;
+        setInitedForNvidia(true);
         LOG_INFO("fakenvapi initialized for Nvidia");
         return true;
     }
@@ -196,8 +218,12 @@ bool fakenvapi::loadForNvidia()
 }
 
 // updateModeAndContext needs to be called before that
-Mode fakenvapi::getCurrentMode() { return _lowLatencyMode; }
+Mode fakenvapi::getCurrentMode()
+{
+    std::lock_guard<std::mutex> lock(_lowLatencyMutex);
+    return _lowLatencyMode;
+}
 
-bool fakenvapi::isUsingFakenvapi() { return _inited; }
+bool fakenvapi::isUsingFakenvapi() { return _inited.load(); }
 
-bool fakenvapi::isUsingFakenvapiOnNvidia() { return _initedForNvidia; }
+bool fakenvapi::isUsingFakenvapiOnNvidia() { return _initedForNvidia.load(); }

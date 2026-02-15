@@ -3,6 +3,7 @@
 #include "SysUtils.h"
 #include <proxies/NVNGX_Proxy.h>
 #include <upscalers/IFeature.h>
+#include <atomic>
 
 class DLSSFeature : public virtual IFeature
 {
@@ -12,7 +13,7 @@ class DLSSFeature : public virtual IFeature
   protected:
     NVSDK_NGX_Handle _dlssHandle = {};
     NVSDK_NGX_Handle* _p_dlssHandle = nullptr;
-    inline static bool _dlssInited = false;
+    inline static std::atomic<bool> _dlssInited{false};
 
     void ProcessEvaluateParams(NVSDK_NGX_Parameter* InParameters);
     void ProcessInitParams(NVSDK_NGX_Parameter* InParameters);

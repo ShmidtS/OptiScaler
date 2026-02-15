@@ -16,8 +16,13 @@
 #include <spoofing/Vulkan_Spoofing.h>
 
 #include <framegen/ffx/FSRFG_Vk.h>
+#include <framegen/ffx/FSRFG_Dx12.h>
 #include <proxies/FfxApi_Proxy.h>
 #include <inputs/FfxApi_Vk.h>
+#include <hooks/FG_Hooks.h>
+
+#include <d3d12.h>
+#include <dxgi1_6.h>
 
 #include <vulkan/vulkan.hpp>
 
@@ -30,6 +35,7 @@ static VkPhysicalDevice _PD = VK_NULL_HANDLE;
 static HWND _hwnd = nullptr;
 
 static std::mutex _vkPresentMutex;
+static std::mutex _vkDeviceMutex;
 
 // hooking
 typedef VkResult (*PFN_QueuePresentKHR)(VkQueue, const VkPresentInfoKHR*);
@@ -56,6 +62,8 @@ static PFN_vkVoidFunction hkvkGetDeviceProcAddr(VkDevice device, const char* pNa
 
 static void HookDevice(VkDevice InDevice)
 {
+    std::lock_guard<std::mutex> lock(_vkDeviceMutex);
+
     if (o_CreateSwapchainKHR != nullptr || State::Instance().vulkanSkipHooks.load())
         return;
 
@@ -64,18 +72,41 @@ static void HookDevice(VkDevice InDevice)
     o_QueuePresentKHR = (PFN_QueuePresentKHR) (vkGetDeviceProcAddr(InDevice, "vkQueuePresentKHR"));
     o_CreateSwapchainKHR = (PFN_CreateSwapchainKHR) (vkGetDeviceProcAddr(InDevice, "vkCreateSwapchainKHR"));
 
-    if (o_CreateSwapchainKHR)
+    if (o_CreateSwapchainKHR != nullptr && o_QueuePresentKHR != nullptr)
     {
         LOG_DEBUG("Hooking VkDevice");
 
         // Hook
-        DetourTransactionBegin();
+        LONG detourResult = DetourTransactionBegin();
+        if (detourResult != NO_ERROR)
+        {
+            LOG_ERROR("DetourTransactionBegin failed: {}", detourResult);
+            return;
+        }
+
         DetourUpdateThread(GetCurrentThread());
 
-        DetourAttach(&(PVOID&) o_QueuePresentKHR, hkvkQueuePresentKHR);
-        DetourAttach(&(PVOID&) o_CreateSwapchainKHR, hkvkCreateSwapchainKHR);
+        detourResult = DetourAttach(&(PVOID&) o_QueuePresentKHR, hkvkQueuePresentKHR);
+        if (detourResult != NO_ERROR)
+        {
+            LOG_ERROR("DetourAttach QueuePresentKHR failed: {}", detourResult);
+        }
 
-        DetourTransactionCommit();
+        detourResult = DetourAttach(&(PVOID&) o_CreateSwapchainKHR, hkvkCreateSwapchainKHR);
+        if (detourResult != NO_ERROR)
+        {
+            LOG_ERROR("DetourAttach CreateSwapchainKHR failed: {}", detourResult);
+        }
+
+        detourResult = DetourTransactionCommit();
+        if (detourResult != NO_ERROR)
+        {
+            LOG_ERROR("DetourTransactionCommit failed: {}", detourResult);
+        }
+    }
+    else
+    {
+        LOG_ERROR("Failed to get Vulkan device proc addresses");
     }
 }
 
@@ -214,7 +245,7 @@ static VkResult hkvkCreateDevice(VkPhysicalDevice physicalDevice, VkDeviceCreate
 
     auto result = o_vkCreateDevice(physicalDevice, pCreateInfo, pAllocator, pDevice);
 
-    if (result == VK_SUCCESS && !State::Instance().vulkanSkipHooks && Config::Instance()->OverlayMenu.value())
+    if (result == VK_SUCCESS && !State::Instance().vulkanSkipHooks.load() && Config::Instance()->OverlayMenu.value())
     {
         MenuOverlayVk::DestroyVulkanObjects(false);
 
@@ -231,7 +262,7 @@ static VkResult hkvkCreateDevice(VkPhysicalDevice physicalDevice, VkDeviceCreate
 
         auto szName = std::string(prop.deviceName);
 
-        if (szName.size() > 0)
+        if (!szName.empty())
             State::Instance().DeviceAdapterNames[*pDevice] = szName;
     }
 
@@ -340,31 +371,20 @@ static VkResult hkvkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateI
 
         MenuOverlayVk::CreateSwapchain(device, _PD, _instance, _hwnd, pCreateInfo, pAllocator, pSwapchain);
 
-        // Initialize Vulkan Frame Generation if enabled
-        // Note: FFX Vulkan FG requires proper FfxApi initialization via FfxApiProxy::InitFfxVk()
+        // Initialize Frame Generation for Vulkan games
+        // Two paths: (1) Native Vulkan FG or (2) DX12 interop FG
+        bool useVulkanNativeFG = FfxApiProxy::IsVkFGReady() &&
+                                 State::Instance().activeFgInput != FGInput::Upscaler;
+
+        // Initialize native Vulkan FG if FFX VK is available and not using Upscaler FG input
         if (State::Instance().currentFGVk == nullptr && Config::Instance()->FGEnabled.value_or_default() &&
-            (State::Instance().activeFgOutput == FGOutput::FSRFG || State::Instance().activeFgOutput == FGOutput::DLSSG))
+            (State::Instance().activeFgOutput == FGOutput::FSRFG || State::Instance().activeFgOutput == FGOutput::DLSSG) &&
+            useVulkanNativeFG)
         {
             // Check that physical device is available
             if (_PD == VK_NULL_HANDLE)
             {
                 LOG_ERROR("Cannot create FSRFG_Vk: physical device not captured");
-            }
-            else if (!FfxApiProxy::IsVkFGReady())
-            {
-                // FFX VK doesn't support FG (< 3.2), recommend Upscaler FG with DX12 interop
-                auto version = FfxApiProxy::VersionVk();
-                LOG_ERROR("===========================================");
-                LOG_ERROR("Vulkan Frame Generation not available");
-                LOG_ERROR("FFX VK version: {}.{}.{} (requires 3.2+)", version.major, version.minor, version.patch);
-                LOG_ERROR("");
-                LOG_ERROR("For Vulkan games, use these settings:");
-                LOG_ERROR("  FG Source: Upscaler FG (OptiFG)");
-                LOG_ERROR("  FG Output: FSR FG or DLSSG");
-                LOG_ERROR("");
-                LOG_ERROR("This will use DX12 interop for Frame Generation");
-                LOG_ERROR("Required: amd_fidelityfx_dx12.dll or amd_fidelityfx_framegeneration_dx12.dll");
-                LOG_ERROR("===========================================");
             }
             else
             {
@@ -436,6 +456,46 @@ static VkResult hkvkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateI
                     State::Instance().currentVkSwapchain = *pSwapchain;
                 }
             }
+        }
+
+        // DX12 interop FG for Vulkan games when FFX VK < 3.2 or when using Upscaler FG input
+        // This creates a D3D12 device and FSRFG_Dx12 for frame generation
+        if (!useVulkanNativeFG && State::Instance().currentFG == nullptr &&
+            Config::Instance()->FGEnabled.value_or_default() &&
+            State::Instance().activeFgInput == FGInput::Upscaler &&
+            (State::Instance().activeFgOutput == FGOutput::FSRFG || State::Instance().activeFgOutput == FGOutput::DLSSG))
+        {
+            auto version = FfxApiProxy::VersionVk();
+            LOG_INFO("===========================================");
+            LOG_INFO("Vulkan Frame Generation via DX12 interop");
+            LOG_INFO("FFX VK version: {}.{}.{}", version.major, version.minor, version.patch);
+            LOG_INFO("Using DX12 interop for Frame Generation");
+            LOG_INFO("");
+
+            // Check if DX12 FG DLL is available
+            if (!FfxApiProxy::IsDx12FGReady())
+            {
+                // Try to initialize FFX DX12 for FG
+                if (!FfxApiProxy::InitFfxDx12())
+                {
+                    LOG_ERROR("Failed to initialize amd_fidelityfx_dx12.dll for DX12 interop FG");
+                    LOG_ERROR("Required: amd_fidelityfx_dx12.dll or amd_fidelityfx_framegeneration_dx12.dll");
+                }
+                else
+                {
+                    LOG_INFO("amd_fidelityfx_dx12.dll initialized for DX12 interop FG");
+
+                    LOG_WARN("");
+                    LOG_WARN("Note: Using Upscaler FG input with Vulkan games.");
+                    LOG_WARN("  - For native Vulkan FG, use FGInput=FSRFG or FGInput=FSRFG30");
+                }
+            }
+            else
+            {
+                LOG_INFO("DX12 FG API already ready");
+            }
+
+            LOG_INFO("===========================================");
         }
     }
 
@@ -566,19 +626,46 @@ void VulkanHooks::Unhook()
     DetourUpdateThread(GetCurrentThread());
 
     if (o_QueuePresentKHR != nullptr)
+    {
         DetourDetach(&(PVOID&) o_QueuePresentKHR, hkvkQueuePresentKHR);
+        o_QueuePresentKHR = nullptr;
+    }
 
     if (o_CreateSwapchainKHR != nullptr)
+    {
         DetourDetach(&(PVOID&) o_CreateSwapchainKHR, hkvkCreateSwapchainKHR);
+        o_CreateSwapchainKHR = nullptr;
+    }
 
     if (o_vkCreateDevice != nullptr)
+    {
         DetourDetach(&(PVOID&) o_vkCreateDevice, hkvkCreateDevice);
+        o_vkCreateDevice = nullptr;
+    }
 
     if (o_vkCreateInstance != nullptr)
+    {
         DetourDetach(&(PVOID&) o_vkCreateInstance, hkvkCreateInstance);
+        o_vkCreateInstance = nullptr;
+    }
 
     if (o_vkCreateWin32SurfaceKHR != nullptr)
+    {
         DetourDetach(&(PVOID&) o_vkCreateWin32SurfaceKHR, hkvkCreateWin32SurfaceKHR);
+        o_vkCreateWin32SurfaceKHR = nullptr;
+    }
+
+    if (o_vkGetInstanceProcAddr != nullptr)
+    {
+        DetourDetach(&(PVOID&) o_vkGetInstanceProcAddr, hkvkGetInstanceProcAddr);
+        o_vkGetInstanceProcAddr = nullptr;
+    }
+
+    if (o_vkGetDeviceProcAddr != nullptr)
+    {
+        DetourDetach(&(PVOID&) o_vkGetDeviceProcAddr, hkvkGetDeviceProcAddr);
+        o_vkGetDeviceProcAddr = nullptr;
+    }
 
     // if (o_vkCmdPipelineBarrier != nullptr)
     //     DetourDetach(&(PVOID&) o_vkCmdPipelineBarrier, hkvkCmdPipelineBarrier);

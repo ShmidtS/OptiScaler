@@ -1,5 +1,8 @@
 #include "pch.h"
 #include "XeSS_Base.h"
+#include <mutex>
+
+std::mutex _xessContextMutex;
 
 std::unordered_map<xess_context_handle_t, NVSDK_NGX_Parameter*> _nvParams;
 std::unordered_map<xess_context_handle_t, NVSDK_NGX_Handle*> _contexts;

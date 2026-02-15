@@ -14,6 +14,9 @@
 #include "fsr2_212/ffx_fsr2.h"
 #include "fsr2_212/dx12/ffx_fsr2_dx12.h"
 
+#include <mutex>
+#include <atomic>
+
 // Tiny Tina's Wonderland
 typedef struct FfxResourceTiny
 {
@@ -113,11 +116,12 @@ static PFN_ffxFsr2GetInterfaceDX12 o_ffxFsr2GetInterfaceDX12 = nullptr;
 static std::unordered_map<Fsr212::FfxFsr2Context*, Fsr212::FfxFsr2ContextDescription> _initParams;
 static std::unordered_map<Fsr212::FfxFsr2Context*, NVSDK_NGX_Parameter*> _nvParams;
 static std::unordered_map<Fsr212::FfxFsr2Context*, NVSDK_NGX_Handle*> _contexts;
+static std::mutex _fsr2ContextMutex;
 static ID3D12Device* _d3d12Device = nullptr;
-static bool _nvnxgInited = false;
-static bool _skipCreate = false;
-static bool _skipDispatch = false;
-static bool _skipDestroy = false;
+static std::atomic<bool> _nvnxgInited{false};
+static std::atomic<bool> _skipCreate{false};
+static std::atomic<bool> _skipDispatch{false};
+static std::atomic<bool> _skipDestroy{false};
 static float qualityRatios[] = { 1.0f, 1.5f, 1.7f, 2.0f, 3.0f };
 
 static bool CreateDLSSContext(Fsr212::FfxFsr2Context* handle, const Fsr212::FfxFsr2DispatchDescription* pExecParams)
@@ -365,14 +369,14 @@ static Fsr212::FfxErrorCode ffxFsr2ContextCreate_Dx12(Fsr212::FfxFsr2Context* co
 
     auto& state = State::Instance();
 
-    _skipCreate = true;
+    _skipCreate.store(true);
 
     Fsr212::FfxErrorCode ccResult = Fsr212::FFX_OK;
     {
         ScopedSkipHeapCapture skipHeapCapture {};
 
         ccResult = o_ffxFsr2ContextCreate_Dx12(context, contextDescription);
-        _skipCreate = false;
+        _skipCreate.store(false);
 
         if (ccResult != Fsr212::FFX_OK)
         {
@@ -449,7 +453,7 @@ static Fsr212::FfxErrorCode ffxFsr2ContextCreate_Dx12(Fsr212::FfxFsr2Context* co
         if (nvResult != NVSDK_NGX_Result_Success)
             return Fsr212::FFX_ERROR_BACKEND_API_ERROR;
 
-        _nvnxgInited = true;
+        _nvnxgInited.store(true);
     }
 
     NVSDK_NGX_Parameter* params = nullptr;
@@ -457,13 +461,16 @@ static Fsr212::FfxErrorCode ffxFsr2ContextCreate_Dx12(Fsr212::FfxFsr2Context* co
     if (NVSDK_NGX_D3D12_GetCapabilityParameters(&params) != NVSDK_NGX_Result_Success)
         return Fsr212::FFX_ERROR_BACKEND_API_ERROR;
 
-    _nvParams[context] = params;
+    {
+        std::lock_guard<std::mutex> lock(_fsr2ContextMutex);
+        _nvParams[context] = params;
 
-    Fsr212::FfxFsr2ContextDescription ccd {};
-    ccd.flags = contextDescription->flags;
-    ccd.maxRenderSize = contextDescription->maxRenderSize;
-    ccd.displaySize = contextDescription->displaySize;
-    _initParams[context] = ccd;
+        Fsr212::FfxFsr2ContextDescription ccd {};
+        ccd.flags = contextDescription->flags;
+        ccd.maxRenderSize = contextDescription->maxRenderSize;
+        ccd.displaySize = contextDescription->displaySize;
+        _initParams[context] = ccd;
+    }
 
     LOG_INFO("context created: {:X}", (size_t) context);
 
@@ -486,7 +493,7 @@ static Fsr212::FfxErrorCode ffxFsr2ContextCreate_Pattern_Dx12(Fsr212::FfxFsr2Con
 
         ccResult = o_ffxFsr2ContextCreate_Pattern_Dx12(context, contextDescription);
 
-        if (_skipCreate)
+        if (_skipCreate.load())
             return ccResult;
 
         if (ccResult != Fsr212::FFX_OK)
@@ -564,7 +571,7 @@ static Fsr212::FfxErrorCode ffxFsr2ContextCreate_Pattern_Dx12(Fsr212::FfxFsr2Con
         if (nvResult != NVSDK_NGX_Result_Success)
             return Fsr212::FFX_ERROR_BACKEND_API_ERROR;
 
-        _nvnxgInited = true;
+        _nvnxgInited.store(true);
     }
 
     NVSDK_NGX_Parameter* params = nullptr;
@@ -572,13 +579,16 @@ static Fsr212::FfxErrorCode ffxFsr2ContextCreate_Pattern_Dx12(Fsr212::FfxFsr2Con
     if (NVSDK_NGX_D3D12_GetCapabilityParameters(&params) != NVSDK_NGX_Result_Success)
         return Fsr212::FFX_ERROR_BACKEND_API_ERROR;
 
-    _nvParams[context] = params;
+    {
+        std::lock_guard<std::mutex> lock(_fsr2ContextMutex);
+        _nvParams[context] = params;
 
-    Fsr212::FfxFsr2ContextDescription ccd {};
-    ccd.flags = contextDescription->flags;
-    ccd.maxRenderSize = contextDescription->maxRenderSize;
-    ccd.displaySize = contextDescription->displaySize;
-    _initParams[context] = ccd;
+        Fsr212::FfxFsr2ContextDescription ccd {};
+        ccd.flags = contextDescription->flags;
+        ccd.maxRenderSize = contextDescription->maxRenderSize;
+        ccd.displaySize = contextDescription->displaySize;
+        _initParams[context] = ccd;
+    }
 
     LOG_INFO("context created: {:X}", (size_t) context);
 
@@ -604,10 +614,10 @@ static Fsr212::FfxErrorCode ffxFsr2ContextDispatch_Dx12(Fsr212::FfxFsr2Context* 
     // Skip OptiScaler stuff
     if (!Config::Instance()->UseFsr2Inputs.value_or_default())
     {
-        _skipDispatch = true;
+        _skipDispatch.store(true);
         LOG_DEBUG("UseFsr2Inputs not enabled, skipping");
         auto result = o_ffxFsr2ContextDispatch_Dx12(context, dispatchDescription);
-        _skipDispatch = false;
+        _skipDispatch.store(false);
         return result;
     }
 
@@ -615,12 +625,20 @@ static Fsr212::FfxErrorCode ffxFsr2ContextDispatch_Dx12(Fsr212::FfxFsr2Context* 
         return Fsr212::FFX_ERROR_INVALID_ARGUMENT;
 
     // If not in contexts list create and add context
-    if (!_contexts.contains(context) && _initParams.contains(context) &&
-        !CreateDLSSContext(context, dispatchDescription))
-        return Fsr212::FFX_ERROR_INVALID_ARGUMENT;
+    {
+        std::lock_guard<std::mutex> lock(_fsr2ContextMutex);
+        if (!_contexts.contains(context) && _initParams.contains(context) &&
+            !CreateDLSSContext(context, dispatchDescription))
+            return Fsr212::FFX_ERROR_INVALID_ARGUMENT;
+    }
 
-    NVSDK_NGX_Parameter* params = _nvParams[context];
-    NVSDK_NGX_Handle* handle = _contexts[context];
+    NVSDK_NGX_Parameter* params = nullptr;
+    NVSDK_NGX_Handle* handle = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(_fsr2ContextMutex);
+        params = _nvParams[context];
+        handle = _contexts[context];
+    }
 
     params->Set(NVSDK_NGX_Parameter_Jitter_Offset_X, dispatchDescription->jitterOffset.x);
     params->Set(NVSDK_NGX_Parameter_Jitter_Offset_Y, dispatchDescription->jitterOffset.y);
@@ -932,16 +950,20 @@ static Fsr212::FfxErrorCode ffxFsr2ContextDestroy_Dx12(Fsr212::FfxFsr2Context* c
     if (context == nullptr)
         return Fsr212::FFX_ERROR_INVALID_ARGUMENT;
 
-    if (_contexts.contains(context))
-        NVSDK_NGX_D3D12_ReleaseFeature(_contexts[context]);
+    {
+        std::lock_guard<std::mutex> lock(_fsr2ContextMutex);
 
-    _contexts.erase(context);
-    _nvParams.erase(context);
-    _initParams.erase(context);
+        if (_contexts.contains(context))
+            NVSDK_NGX_D3D12_ReleaseFeature(_contexts[context]);
 
-    _skipDestroy = true;
+        _contexts.erase(context);
+        _nvParams.erase(context);
+        _initParams.erase(context);
+    }
+
+    _skipDestroy.store(true);
     auto cdResult = o_ffxFsr2ContextDestroy_Dx12(context);
-    _skipDestroy = false;
+    _skipDestroy.store(false);
 
     LOG_INFO("result: {:X}", (UINT) cdResult);
 
@@ -953,12 +975,16 @@ static Fsr212::FfxErrorCode ffxFsr2ContextDestroy_Pattern_Dx12(Fsr212::FfxFsr2Co
     if (context == nullptr)
         return Fsr212::FFX_ERROR_INVALID_ARGUMENT;
 
-    if (_contexts.contains(context))
-        NVSDK_NGX_D3D12_ReleaseFeature(_contexts[context]);
+    {
+        std::lock_guard<std::mutex> lock(_fsr2ContextMutex);
 
-    _contexts.erase(context);
-    _nvParams.erase(context);
-    _initParams.erase(context);
+        if (_contexts.contains(context))
+            NVSDK_NGX_D3D12_ReleaseFeature(_contexts[context]);
+
+        _contexts.erase(context);
+        _nvParams.erase(context);
+        _initParams.erase(context);
+    }
 
     auto cdResult = o_ffxFsr2ContextDestroy_Pattern_Dx12(context);
     LOG_INFO("result: {:X}", (UINT) cdResult);

@@ -1547,7 +1547,8 @@ bool MenuCommon::RenderMenu()
             inputFG = false;
 
             if (state.activeFgInput != FGInput::NoFG && state.activeFgOutput != FGOutput::NoFG &&
-                (state.currentFGSwapchain != nullptr || state.currentFGVk != nullptr || state.activeFgInput == FGInput::Nukems))
+                (state.currentFGSwapchain != nullptr || state.currentFGVk != nullptr ||
+                 state.activeFgInput == FGInput::Nukems || state.activeFgInput == FGInput::Upscaler))
             {
                 config->FGEnabled = !config->FGEnabled.value_or_default();
                 LOG_DEBUG("FG toggle key pressed, setting FGEnabled to {}", config->FGEnabled.value_or_default());
@@ -3455,8 +3456,13 @@ bool MenuCommon::RenderMenu()
                 }
 
                 // FSR FG controls (DX12 or Vulkan)
+                // For DX12 interop with Upscaler input, also check if FFX DX12 is ready
+                bool fgAvailable = state.currentFGSwapchain != nullptr || state.currentFGVk != nullptr;
+                if (!fgAvailable && state.activeFgInput == FGInput::Upscaler && FfxApiProxy::IsDx12FGReady())
+                    fgAvailable = true;
+
                 if (state.activeFgOutput == FGOutput::FSRFG && state.activeFgInput != FGInput::NoFG &&
-                    !state.isWorkingAsNvngx && (state.currentFGSwapchain != nullptr || state.currentFGVk != nullptr))
+                    !state.isWorkingAsNvngx && fgAvailable)
                 {
                     if (state.activeFgInput != FGInput::Upscaler ||
                         (currentFeature != nullptr && !currentFeature->IsFrozen()) && FfxApiProxy::IsFGReady())
@@ -3702,8 +3708,13 @@ bool MenuCommon::RenderMenu()
                 }
 
                 // XeFG controls (DX12 or Vulkan)
+                // For DX12 interop with Upscaler input, also check if XeFG is ready
+                bool xeFgAvailable = state.currentFGSwapchain != nullptr || state.currentFGVk != nullptr;
+                if (!xeFgAvailable && state.activeFgInput == FGInput::Upscaler && XeFGProxy::InitXeFG())
+                    xeFgAvailable = true;
+
                 if (state.activeFgOutput == FGOutput::XeFG && state.activeFgInput != FGInput::NoFG &&
-                    !state.isWorkingAsNvngx && (state.currentFGSwapchain != nullptr || state.currentFGVk != nullptr))
+                    !state.isWorkingAsNvngx && xeFgAvailable)
                 {
                     if (XeFGProxy::InitXeFG() && currentFeature != nullptr && !currentFeature->IsFrozen())
                     {

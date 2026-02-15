@@ -69,8 +69,17 @@ void PrepareLogger()
 {
     try
     {
-        if (spdlog::default_logger() != nullptr)
-            spdlog::default_logger().reset();
+        // Safe logger reset - check if exists before resetting
+        try
+        {
+            auto existing = spdlog::default_logger();
+            if (existing && existing->name() != "")
+                spdlog::default_logger().reset();
+        }
+        catch (...)
+        {
+            // Logger doesn't exist yet, ignore
+        }
 
         if (Config::Instance()->LogToConsole.value_or_default() || Config::Instance()->LogToFile.value_or_default() ||
             Config::Instance()->LogToNGX.value_or_default() || Config::Instance()->LogToDebug.value_or_default())
@@ -136,8 +145,9 @@ void PrepareLogger()
                         (State::Instance().NVNGX_Logger.MinimumLoggingLevel == NVSDK_NGX_LOGGING_LEVEL_VERBOSE ||
                          msg.level >= spdlog::level::info))
                     {
-                        auto message = (char*) msg.payload.data();
-                        State::Instance().NVNGX_Logger.LoggingCallback(message, NVSDK_NGX_LOGGING_LEVEL_ON,
+                        // Create a null-terminated string from the payload
+                        std::string message(msg.payload.data(), msg.payload.size());
+                        State::Instance().NVNGX_Logger.LoggingCallback(message.c_str(), NVSDK_NGX_LOGGING_LEVEL_ON,
                                                                        NVSDK_NGX_Feature_SuperSampling);
                     }
                 });
@@ -178,6 +188,15 @@ void PrepareLogger()
 
 void CloseLogger()
 {
-    spdlog::default_logger()->flush();
-    spdlog::shutdown();
+    try
+    {
+        auto logger = spdlog::default_logger();
+        if (logger)
+            logger->flush();
+        spdlog::shutdown();
+    }
+    catch (...)
+    {
+        // Ignore errors during shutdown
+    }
 }
