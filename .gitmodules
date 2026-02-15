@@ -1,21 +1,34 @@
 [submodule "external/simpleini"]
 	path = external/simpleini
 	url = https://github.com/brofield/simpleini
+	shallow = true
+
 [submodule "external/unordered_dense"]
 	path = external/unordered_dense
 	url = https://github.com/martinus/unordered_dense.git
+	shallow = true
+
 [submodule "external/xess"]
 	path = external/xess
 	url = https://github.com/intel/xess.git
+	shallow = true
+
 [submodule "external/vulkan"]
 	path = external/vulkan
 	url = https://github.com/KhronosGroup/Vulkan-Headers.git
+	shallow = true
+
 [submodule "external/spdlog"]
 	path = external/spdlog
 	url = https://github.com/gabime/spdlog.git
+	shallow = true
+
 [submodule "external/FidelityFX-SDK"]
 	path = external/FidelityFX-SDK
 	url = https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK
+	shallow = true
+
 [submodule "external/magic_enum"]
 	path = external/magic_enum
 	url = https://github.com/Neargye/magic_enum
+	shallow = true
