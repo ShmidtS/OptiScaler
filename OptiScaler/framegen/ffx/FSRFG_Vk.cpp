@@ -2,19 +2,21 @@
 #include "FSRFG_Vk.h"
 
 #include <vector>
+#include <atomic>
 
 #include <State.h>
 #include <Config.h>
 
 #include <magic_enum.hpp>
 
-// Static callback for FG dispatch
-static FSRFG_Vk* g_currentFgInstance = nullptr;
+// Static callback for FG dispatch (atomic for thread safety)
+static std::atomic<FSRFG_Vk*> g_currentFgInstance{nullptr};
 
 static ffxReturnCode_t FgDispatchCallback(ffxDispatchDescFrameGeneration* params)
 {
-    if (g_currentFgInstance != nullptr)
-        return g_currentFgInstance->DispatchCallback(params);
+    auto instance = g_currentFgInstance.load(std::memory_order_acquire);
+    if (instance != nullptr)
+        return instance->DispatchCallback(params);
     return FFX_API_RETURN_ERROR_RUNTIME_ERROR;
 }
 
@@ -297,7 +299,7 @@ bool FSRFG_Vk::CreateContext(VkDevice device, VkPhysicalDevice physicalDevice,
     if (fgConstants.flags[FG_Flags::Hdr])
         fgDesc.flags |= FFX_FRAMEGENERATION_ENABLE_HIGH_DYNAMIC_RANGE;
 
-    g_currentFgInstance = this;
+    g_currentFgInstance.store(this, std::memory_order_release);
 
     auto result = FfxApiProxy::VULKAN_CreateContext()(&_fgContext,
                                                        (ffxCreateContextDescHeader*) &fgDesc,
@@ -337,7 +339,7 @@ void FSRFG_Vk::DestroyFGContext()
     }
 
     ReleaseObjects();
-    g_currentFgInstance = nullptr;
+    g_currentFgInstance.store(nullptr, std::memory_order_release);
 }
 
 bool FSRFG_Vk::Shutdown()

@@ -98,6 +98,9 @@ bool IFGFeature::IsUsingHudless(int index)
     if (index < 0)
         index = GetIndex();
 
+    if (index < 0 || index >= BUFFER_COUNT)
+        return false;
+
     return !_noHudless[index];
 }
 

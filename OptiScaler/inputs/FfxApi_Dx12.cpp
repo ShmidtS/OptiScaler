@@ -14,7 +14,10 @@
 #include "dx12/ffx_api_dx12.h"
 
 #include <magic_enum.hpp>
+#include <mutex>
 
+// Mutex for thread-safe access to static containers
+static std::mutex _containersMutex;
 static std::unordered_map<ffxContext, ffxCreateContextDescUpscale> _initParams;
 static std::unordered_map<ffxContext, NVSDK_NGX_Parameter*> _nvParams;
 static std::unordered_map<ffxContext, NVSDK_NGX_Handle*> _contexts;
@@ -433,13 +436,16 @@ ffxReturnCode_t ffxCreateContext_Dx12(ffxContext* context, ffxCreateContextDescH
     if (NVSDK_NGX_D3D12_GetCapabilityParameters(&params) != NVSDK_NGX_Result_Success)
         return FFX_API_RETURN_ERROR_RUNTIME_ERROR;
 
-    _nvParams[*context] = params;
+    {
+        std::lock_guard<std::mutex> lock(_containersMutex);
+        _nvParams[*context] = params;
 
-    ffxCreateContextDescUpscale ccd {};
-    ccd.flags = createDesc->flags;
-    ccd.maxRenderSize = createDesc->maxRenderSize;
-    ccd.maxUpscaleSize = createDesc->maxUpscaleSize;
-    _initParams[*context] = ccd;
+        ffxCreateContextDescUpscale ccd {};
+        ccd.flags = createDesc->flags;
+        ccd.maxRenderSize = createDesc->maxRenderSize;
+        ccd.maxUpscaleSize = createDesc->maxUpscaleSize;
+        _initParams[*context] = ccd;
+    }
 
     LOG_INFO("context created: {:X}", (size_t) *context);
 
@@ -465,6 +471,7 @@ ffxReturnCode_t ffxDestroyContext_Dx12(ffxContext* context, const ffxAllocationC
         return result;
     }
 
+    std::lock_guard<std::mutex> lock(_containersMutex);
     bool upscalerContext =
         _contexts.contains(*context) || _initParams.contains(*context) || _nvParams.contains(*context);
 
@@ -745,11 +752,20 @@ ffxReturnCode_t ffxDispatch_Dx12(ffxContext* context, ffxDispatchDescHeader* des
 
     // If not in contexts list create and add context
     auto contextId = (size_t) *context;
-    if (!_contexts.contains(*context) && _initParams.contains(*context) && !CreateDLSSContext(*context, dispatchDesc))
-        return FFX_API_RETURN_ERROR_RUNTIME_ERROR;
+    {
+        std::lock_guard<std::mutex> lock(_containersMutex);
+        if (!_contexts.contains(*context) && _initParams.contains(*context) &&
+            !CreateDLSSContext(*context, dispatchDesc))
+            return FFX_API_RETURN_ERROR_RUNTIME_ERROR;
+    }
 
-    NVSDK_NGX_Parameter* params = _nvParams[*context];
-    NVSDK_NGX_Handle* handle = _contexts[*context];
+    NVSDK_NGX_Parameter* params = nullptr;
+    NVSDK_NGX_Handle* handle = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(_containersMutex);
+        params = _nvParams[*context];
+        handle = _contexts[*context];
+    }
 
     params->Set(NVSDK_NGX_Parameter_Jitter_Offset_X, dispatchDesc->jitterOffset.x);
     params->Set(NVSDK_NGX_Parameter_Jitter_Offset_Y, dispatchDesc->jitterOffset.y);
