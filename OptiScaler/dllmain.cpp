@@ -78,6 +78,57 @@ typedef void (*PFN_InitializeASI)(void);
 typedef bool (*PFN_PatchResult)(void);
 
 // ---------------------------------------------------------------------------
+// Section 2.1: DLL Proxy Loading Helper
+// ---------------------------------------------------------------------------
+
+// Helper function to load original DLL from multiple locations
+// Tries: plugin folder -> *-original.dll -> system folder
+static HMODULE TryLoadOriginalDll(const std::filesystem::path& pluginPath,
+                                   const std::filesystem::path& sysPath,
+                                   const wchar_t* dllName)
+{
+    HMODULE module = nullptr;
+
+    // Try plugin folder first
+    auto pluginFilePath = pluginPath / dllName;
+    module = NtdllProxy::LoadLibraryExW_Ldr(pluginFilePath.wstring().c_str(), NULL, 0);
+    if (module != nullptr)
+        return module;
+
+    // Try *-original.dll pattern
+    std::wstring originalName = std::wstring(dllName);
+    size_t dotPos = originalName.rfind(L".dll");
+    if (dotPos != std::wstring::npos)
+        originalName = originalName.substr(0, dotPos) + L"-original.dll";
+    module = NtdllProxy::LoadLibraryExW_Ldr(originalName.c_str(), NULL, 0);
+    if (module != nullptr)
+        return module;
+
+    // Try system folder
+    auto sysFilePath = sysPath / dllName;
+    module = NtdllProxy::LoadLibraryExW_Ldr(sysFilePath.wstring().c_str(), NULL, 0);
+
+    return module;
+}
+
+// Helper to register DLL names
+static void RegisterDllNames(const char* dllName)
+{
+    std::string nameWithoutExt(dllName);
+    size_t dotPos = nameWithoutExt.rfind(".dll");
+    if (dotPos != std::string::npos)
+        nameWithoutExt = nameWithoutExt.substr(0, dotPos);
+
+    dllNames.push_back(dllName);
+    dllNames.push_back(nameWithoutExt);
+
+    std::wstring wDllName = string_to_wstring(dllName);
+    std::wstring wNameWithoutExt = string_to_wstring(nameWithoutExt);
+    dllNamesW.push_back(wDllName);
+    dllNamesW.push_back(wNameWithoutExt);
+}
+
+// ---------------------------------------------------------------------------
 // Section 3: Utility Functions
 // ---------------------------------------------------------------------------
 
@@ -92,7 +143,7 @@ static inline void* ManualGetProcAddress(HMODULE hModule, const char* functionNa
         return nullptr;
 
     // Validate e_lfanew is within reasonable bounds
-    if (dosHeader->e_lfanew < 0 || dosHeader->e_lfanew > 0x1000000)
+    if (dosHeader->e_lfanew < 0 || dosHeader->e_lfanew > MAX_IMAGE_OFFSET)
         return nullptr;
 
     auto ntHeaders = (IMAGE_NT_HEADERS*) ((BYTE*) hModule + dosHeader->e_lfanew);
@@ -352,53 +403,21 @@ static void CheckWorkingMode()
         // version.dll
         if (lCaseFilename == "version.dll")
         {
-            do
-            {
-                auto pluginFilePath = pluginPath / L"version.dll";
-                originalModule = NtdllProxy::LoadLibraryExW_Ldr(pluginFilePath.wstring().c_str(), NULL, 0);
-
-                if (originalModule != nullptr)
-                {
-                    if (!_passThruMode)
-                        LOG_INFO("OptiScaler working as version.dll, original dll loaded from plugin folder");
-
-                    break;
-                }
-
-                originalModule = NtdllProxy::LoadLibraryExW_Ldr(L"version-original.dll", NULL, 0);
-
-                if (originalModule != nullptr)
-                {
-                    if (!_passThruMode)
-                        LOG_INFO("OptiScaler working as version.dll, version-original.dll loaded");
-
-                    break;
-                }
-
-                auto sysFilePath = sysPath / L"version.dll";
-                originalModule = NtdllProxy::LoadLibraryExW_Ldr(sysFilePath.wstring().c_str(), NULL, 0);
-
-                if (originalModule != nullptr && !_passThruMode)
-                    LOG_INFO("OptiScaler working as version.dll, system dll loaded");
-
-            } while (false);
+            originalModule = TryLoadOriginalDll(pluginPath, sysPath, L"version.dll");
 
             if (originalModule != nullptr)
             {
-                dllNames.push_back("version.dll");
-                dllNames.push_back("version");
-                dllNamesW.push_back(L"version.dll");
-                dllNamesW.push_back(L"version");
+                if (!_passThruMode)
+                    LOG_INFO("OptiScaler working as version.dll");
 
+                RegisterDllNames("version.dll");
                 shared.LoadOriginalLibrary(originalModule);
                 version.LoadOriginalLibrary(originalModule);
-
                 modeFound = true;
             }
-            else
+            else if (!_passThruMode)
             {
-                if (!_passThruMode)
-                    LOG_ERROR("OptiScaler can't find original version.dll!");
+                LOG_ERROR("OptiScaler can't find original version.dll!");
             }
 
             break;
@@ -407,52 +426,21 @@ static void CheckWorkingMode()
         // winmm.dll
         if (lCaseFilename == "winmm.dll")
         {
-            do
-            {
-                auto pluginFilePath = pluginPath / L"winmm.dll";
-                originalModule = NtdllProxy::LoadLibraryExW_Ldr(pluginFilePath.wstring().c_str(), NULL, 0);
-
-                if (originalModule != nullptr)
-                {
-                    if (!_passThruMode)
-                        LOG_INFO("OptiScaler working as winmm.dll, original dll loaded from plugin folder");
-
-                    break;
-                }
-
-                originalModule = NtdllProxy::LoadLibraryExW_Ldr(L"winmm-original.dll", NULL, 0);
-
-                if (originalModule != nullptr)
-                {
-                    if (!_passThruMode)
-                        LOG_INFO("OptiScaler working as winmm.dll, winmm-original.dll loaded");
-
-                    break;
-                }
-
-                auto sysFilePath = sysPath / L"winmm.dll";
-                originalModule = NtdllProxy::LoadLibraryExW_Ldr(sysFilePath.wstring().c_str(), NULL, 0);
-
-                if (originalModule != nullptr && !_passThruMode)
-                    LOG_INFO("OptiScaler working as winmm.dll, system dll loaded");
-
-            } while (false);
+            originalModule = TryLoadOriginalDll(pluginPath, sysPath, L"winmm.dll");
 
             if (originalModule != nullptr)
             {
-                dllNames.push_back("winmm.dll");
-                dllNames.push_back("winmm");
-                dllNamesW.push_back(L"winmm.dll");
-                dllNamesW.push_back(L"winmm");
+                if (!_passThruMode)
+                    LOG_INFO("OptiScaler working as winmm.dll");
 
+                RegisterDllNames("winmm.dll");
                 shared.LoadOriginalLibrary(originalModule);
                 winmm.LoadOriginalLibrary(originalModule);
                 modeFound = true;
             }
-            else
+            else if (!_passThruMode)
             {
-                if (!_passThruMode)
-                    LOG_ERROR("OptiScaler can't find original winmm.dll!");
+                LOG_ERROR("OptiScaler can't find original winmm.dll!");
             }
 
             break;
@@ -461,52 +449,21 @@ static void CheckWorkingMode()
         // wininet.dll
         if (lCaseFilename == "wininet.dll")
         {
-            do
-            {
-                auto pluginFilePath = pluginPath / L"wininet.dll";
-                originalModule = NtdllProxy::LoadLibraryExW_Ldr(pluginFilePath.wstring().c_str(), NULL, 0);
-
-                if (originalModule != nullptr)
-                {
-                    if (!_passThruMode)
-                        LOG_INFO("OptiScaler working as wininet.dll, original dll loaded from plugin folder");
-
-                    break;
-                }
-
-                originalModule = NtdllProxy::LoadLibraryExW_Ldr(L"wininet-original.dll", NULL, 0);
-
-                if (originalModule != nullptr)
-                {
-                    if (!_passThruMode)
-                        LOG_INFO("OptiScaler working as wininet.dll, wininet-original.dll loaded");
-
-                    break;
-                }
-
-                auto sysFilePath = sysPath / L"wininet.dll";
-                originalModule = NtdllProxy::LoadLibraryExW_Ldr(sysFilePath.wstring().c_str(), NULL, 0);
-
-                if (originalModule != nullptr && !_passThruMode)
-                    LOG_INFO("OptiScaler working as wininet.dll, system dll loaded");
-
-            } while (false);
+            originalModule = TryLoadOriginalDll(pluginPath, sysPath, L"wininet.dll");
 
             if (originalModule != nullptr)
             {
-                dllNames.push_back("wininet.dll");
-                dllNames.push_back("wininet");
-                dllNamesW.push_back(L"wininet.dll");
-                dllNamesW.push_back(L"wininet");
+                if (!_passThruMode)
+                    LOG_INFO("OptiScaler working as wininet.dll");
 
+                RegisterDllNames("wininet.dll");
                 shared.LoadOriginalLibrary(originalModule);
                 wininet.LoadOriginalLibrary(originalModule);
                 modeFound = true;
             }
-            else
+            else if (!_passThruMode)
             {
-                if (!_passThruMode)
-                    LOG_ERROR("OptiScaler can't find original wininet.dll!");
+                LOG_ERROR("OptiScaler can't find original wininet.dll!");
             }
 
             break;
@@ -515,52 +472,21 @@ static void CheckWorkingMode()
         // dbghelp.dll
         if (lCaseFilename == "dbghelp.dll")
         {
-            do
-            {
-                auto pluginFilePath = pluginPath / L"dbghelp.dll";
-                originalModule = NtdllProxy::LoadLibraryExW_Ldr(pluginFilePath.wstring().c_str(), NULL, 0);
-
-                if (originalModule != nullptr)
-                {
-                    if (!_passThruMode)
-                        LOG_INFO("OptiScaler working as dbghelp.dll, original dll loaded from plugin folder");
-
-                    break;
-                }
-
-                originalModule = NtdllProxy::LoadLibraryExW_Ldr(L"dbghelp-original.dll", NULL, 0);
-
-                if (originalModule != nullptr)
-                {
-                    if (!_passThruMode)
-                        LOG_INFO("OptiScaler working as dbghelp.dll, dbghelp-original.dll loaded");
-
-                    break;
-                }
-
-                auto sysFilePath = sysPath / L"dbghelp.dll";
-                originalModule = NtdllProxy::LoadLibraryExW_Ldr(sysFilePath.wstring().c_str(), NULL, 0);
-
-                if (originalModule != nullptr && !_passThruMode)
-                    LOG_INFO("OptiScaler working as dbghelp.dll, system dll loaded");
-
-            } while (false);
+            originalModule = TryLoadOriginalDll(pluginPath, sysPath, L"dbghelp.dll");
 
             if (originalModule != nullptr)
             {
-                dllNames.push_back("dbghelp.dll");
-                dllNames.push_back("dbghelp");
-                dllNamesW.push_back(L"dbghelp.dll");
-                dllNamesW.push_back(L"dbghelp");
+                if (!_passThruMode)
+                    LOG_INFO("OptiScaler working as dbghelp.dll");
 
+                RegisterDllNames("dbghelp.dll");
                 shared.LoadOriginalLibrary(originalModule);
                 dbghelp.LoadOriginalLibrary(originalModule);
                 modeFound = true;
             }
-            else
+            else if (!_passThruMode)
             {
-                if (!_passThruMode)
-                    LOG_ERROR("OptiScaler can't find original dbghelp.dll!");
+                LOG_ERROR("OptiScaler can't find original dbghelp.dll!");
             }
 
             break;
@@ -605,52 +531,21 @@ static void CheckWorkingMode()
         // winhttp.dll
         if (lCaseFilename == "winhttp.dll")
         {
-            do
-            {
-                auto pluginFilePath = pluginPath / L"winhttp.dll";
-                originalModule = NtdllProxy::LoadLibraryExW_Ldr(pluginFilePath.wstring().c_str(), NULL, 0);
-
-                if (originalModule != nullptr)
-                {
-                    if (!_passThruMode)
-                        LOG_INFO("OptiScaler working as winhttp.dll, original dll loaded from plugin folder");
-
-                    break;
-                }
-
-                originalModule = NtdllProxy::LoadLibraryExW_Ldr(L"winhttp-original.dll", NULL, 0);
-
-                if (originalModule != nullptr)
-                {
-                    if (!_passThruMode)
-                        LOG_INFO("OptiScaler working as winhttp.dll, winhttp-original.dll loaded");
-
-                    break;
-                }
-
-                auto sysFilePath = sysPath / L"winhttp.dll";
-                originalModule = NtdllProxy::LoadLibraryExW_Ldr(sysFilePath.wstring().c_str(), NULL, 0);
-
-                if (originalModule != nullptr && !_passThruMode)
-                    LOG_INFO("OptiScaler working as winhttp.dll, system dll loaded");
-
-            } while (false);
+            originalModule = TryLoadOriginalDll(pluginPath, sysPath, L"winhttp.dll");
 
             if (originalModule != nullptr)
             {
-                dllNames.push_back("winhttp.dll");
-                dllNames.push_back("winhttp");
-                dllNamesW.push_back(L"winhttp.dll");
-                dllNamesW.push_back(L"winhttp");
+                if (!_passThruMode)
+                    LOG_INFO("OptiScaler working as winhttp.dll");
 
+                RegisterDllNames("winhttp.dll");
                 shared.LoadOriginalLibrary(originalModule);
                 winhttp.LoadOriginalLibrary(originalModule);
                 modeFound = true;
             }
-            else
+            else if (!_passThruMode)
             {
-                if (!_passThruMode)
-                    LOG_ERROR("OptiScaler can't find original winhttp.dll!");
+                LOG_ERROR("OptiScaler can't find original winhttp.dll!");
             }
 
             break;
@@ -659,54 +554,22 @@ static void CheckWorkingMode()
         // dxgi.dll
         if (lCaseFilename == "dxgi.dll")
         {
-            do
-            {
-                auto pluginFilePath = pluginPath / L"dxgi.dll";
-                originalModule = NtdllProxy::LoadLibraryExW_Ldr(pluginFilePath.wstring().c_str(), NULL, 0);
-
-                if (originalModule != nullptr)
-                {
-                    if (!_passThruMode)
-                        LOG_INFO("OptiScaler working as dxgi.dll, original dll loaded from plugin folder");
-
-                    break;
-                }
-
-                originalModule = NtdllProxy::LoadLibraryExW_Ldr(L"dxgi-original.dll", NULL, 0);
-
-                if (originalModule != nullptr)
-                {
-                    if (!_passThruMode)
-                        LOG_INFO("OptiScaler working as dxgi.dll, dxgi-original.dll loaded");
-
-                    break;
-                }
-
-                auto sysFilePath = sysPath / L"dxgi.dll";
-                originalModule = NtdllProxy::LoadLibraryExW_Ldr(sysFilePath.wstring().c_str(), NULL, 0);
-
-                if (originalModule != nullptr && !_passThruMode)
-                    LOG_INFO("OptiScaler working as dxgi.dll, system dll loaded");
-
-            } while (false);
+            originalModule = TryLoadOriginalDll(pluginPath, sysPath, L"dxgi.dll");
 
             if (originalModule != nullptr)
             {
-                dllNames.push_back("dxgi.dll");
-                dllNames.push_back("dxgi");
-                dllNamesW.push_back(L"dxgi.dll");
-                dllNamesW.push_back(L"dxgi");
+                if (!_passThruMode)
+                    LOG_INFO("OptiScaler working as dxgi.dll");
 
+                RegisterDllNames("dxgi.dll");
                 DxgiProxy::Init(originalModule);
                 dxgi.LoadOriginalLibrary(originalModule);
-
                 State::Instance().isDxgiMode = true;
                 modeFound = true;
             }
-            else
+            else if (!_passThruMode)
             {
-                if (!_passThruMode)
-                    LOG_ERROR("OptiScaler can't find original dxgi.dll!");
+                LOG_ERROR("OptiScaler can't find original dxgi.dll!");
             }
 
             break;
@@ -715,60 +578,29 @@ static void CheckWorkingMode()
         // d3d12.dll
         if (lCaseFilename == "d3d12.dll")
         {
-            do
+            // Hooks must run before loading for agility SDK support
+            if (!_passThruMode)
             {
-                // Moved here to cover agility sdk
-                if (!_passThruMode)
-                {
-                    NtdllHooks::Hook();
-                    KernelHooks::HookBase();
-                }
+                NtdllHooks::Hook();
+                KernelHooks::HookBase();
+            }
 
-                auto pluginFilePath = pluginPath / L"d3d12.dll";
-                originalModule = NtdllProxy::LoadLibraryExW_Ldr(pluginFilePath.wstring().c_str(), NULL, 0);
-                if (originalModule != nullptr)
-                {
-                    if (!_passThruMode)
-                        LOG_INFO("OptiScaler working as d3d12.dll, original dll loaded from plugin folder");
-
-                    break;
-                }
-
-                originalModule = NtdllProxy::LoadLibraryExW_Ldr(L"d3d12-original.dll", NULL, 0);
-                if (originalModule != nullptr)
-                {
-                    if (!_passThruMode)
-                        LOG_INFO("OptiScaler working as d3d12.dll, d3d12-original.dll loaded");
-
-                    break;
-                }
-
-                auto sysFilePath = sysPath / L"d3d12.dll";
-                originalModule = NtdllProxy::LoadLibraryExW_Ldr(sysFilePath.wstring().c_str(), NULL, 0);
-
-                if (originalModule != nullptr && !_passThruMode)
-                    LOG_INFO("OptiScaler working as d3d12.dll, system dll loaded");
-
-            } while (false);
+            originalModule = TryLoadOriginalDll(pluginPath, sysPath, L"d3d12.dll");
 
             if (originalModule != nullptr)
             {
-                dllNames.push_back("d3d12.dll");
-                dllNames.push_back("d3d12");
-                dllNamesW.push_back(L"d3d12.dll");
-                dllNamesW.push_back(L"d3d12");
+                if (!_passThruMode)
+                    LOG_INFO("OptiScaler working as d3d12.dll");
 
+                RegisterDllNames("d3d12.dll");
                 D3d12Proxy::Init(originalModule);
                 d3d12.LoadOriginalLibrary(originalModule);
-
                 State::Instance().isD3D12Mode = true;
-
                 modeFound = true;
             }
-            else
+            else if (!_passThruMode)
             {
-                if (!_passThruMode)
-                    LOG_ERROR("OptiScaler can't find original d3d12.dll!");
+                LOG_ERROR("OptiScaler can't find original d3d12.dll!");
             }
 
             break;
@@ -1135,265 +967,65 @@ static void printQuirks(flag_set<GameQuirk>& quirks)
 {
     auto state = &State::Instance();
 
-    if (quirks & GameQuirk::CyberpunkHudlessFixes)
-    {
-        spdlog::info("Quirk: Fixing DLSSG's hudless in Cyberpunk");
-        state->detectedQuirks.push_back("Fixing DLSSG's hudless in Cyberpunk");
-    }
+    struct QuirkInfo {
+        GameQuirk flag;
+        const char* message;
+    };
 
-    if (quirks & GameQuirk::SkipFsr3Method)
-    {
-        spdlog::info("Quirk: Skipping first FSR 3 method");
-        state->detectedQuirks.push_back("Skipping first FSR 3 method");
-    }
+    static const QuirkInfo quirksTable[] = {
+        {GameQuirk::CyberpunkHudlessFixes, "Fixing DLSSG's hudless in Cyberpunk"},
+        {GameQuirk::SkipFsr3Method, "Skipping first FSR 3 method"},
+        {GameQuirk::FastFeatureReset, "Quick upscaler reinit"},
+        {GameQuirk::LoadD3D12Manually, "Load d3d12.dll"},
+        {GameQuirk::KernelBaseHooks, "Enable KernelBase hooks"},
+        {GameQuirk::VulkanDLSSBarrierFixup, "Fix DLSS/DLSSG barriers on Vulkan"},
+        {GameQuirk::ForceUnrealEngine, "Force detected engine as Unreal Engine"},
+        {GameQuirk::DisableHudfix, "Disabling Hudfix due to known issues"},
+        {GameQuirk::ForceAutoExposure, "Enabling AutoExposure"},
+        {GameQuirk::DisableFFXInputs, "Disable FSR 3.1 Inputs"},
+        {GameQuirk::DisableFSR3Inputs, "Disable FSR 3.0 Inputs"},
+        {GameQuirk::DisableFSR2Inputs, "Disable FSR 2.X Inputs"},
+        {GameQuirk::DisableReactiveMasks, "Disable Reactive Masks"},
+        {GameQuirk::RestoreComputeSigOnNonNvidia, "Enabling restore compute signature on AMD/Intel"},
+        {GameQuirk::RestoreComputeSigOnNvidia, "Enabling restore compute signature on Nvidia"},
+        {GameQuirk::DisableDxgiSpoofing, "Dxgi spoofing disabled by default"},
+        {GameQuirk::DisableUseFsrInputValues, "Disable Use FSR Input Values"},
+        {GameQuirk::DisableOptiXessPipelineCreation, "Disable custom pipeline creation for XeSS"},
+        {GameQuirk::DontUseNTShared, "Don't use NTShared enabled"},
+        {GameQuirk::DontUseUnrealBarriers, "Don't use resource barrier fix for Unreal Engine games"},
+        {GameQuirk::SkipFirst10Frames, "Skipping upscaling for first 10 frames"},
+        {GameQuirk::NoFSRFGFirstSwapchain, "Skip turning the first swapchain created into an FSR swapchain"},
+        {GameQuirk::FixSlSimulationMarkers, "Correct simulation start marker's frame id"},
+        {GameQuirk::DisableVsyncOverride, "Don't use V-Sync overrides"},
+        {GameQuirk::HitmanReflexHacks, "Hack for broken Hitman reflex"},
+        {GameQuirk::SkipD3D11FeatureLevelElevation, "Skipping D3D11 feature level elevation, native FSR3.1 will be disabled!"},
+        {GameQuirk::DontUseNtDllHooks, "Using kernel hooks instead of NTdll ones"},
+        {GameQuirk::UseFSR2PatternMatching, "Use FSR2 pattern matching"},
+        {GameQuirk::AlwaysCaptureFSRFGSwapchain, "Always capture FSR-FG swapchain"},
+        {GameQuirk::AllowedFrameAhead2, "Allowed Frame Ahead: 2"},
+        {GameQuirk::DisableXeFGChecks, "Skip pre init checks for XeFG"},
+        {GameQuirk::CreateD3D12DeviceForLuma, "Create D3D12 device for Luma before loading Reshade"},
+        {GameQuirk::LoadVulkanManually, "Load vulkan-1.dll"},
+        {GameQuirk::UseFsr2Dx11Inputs, "Use FSR2 DX11 inputs"},
+        {GameQuirk::UseFsr2VulkanInputs, "Use FSR2 Vulkan inputs"},
+        {GameQuirk::ForceBorderlessWhenUsingXeFG, "Force Borderless when using XeFG"},
+        {GameQuirk::OverrideVsyncWhenUsingXeFG, "Override Vsync when using XeFG"},
+        {GameQuirk::ForceCreateD3D12Device, "Force create D3D12 device for w/Dx12"},
+        {GameQuirk::SetDepthValidNow, "Set Depth as ValidNow"},
+        {GameQuirk::SetVelocityValidNow, "Set Velocity as ValidNow"},
+        {GameQuirk::SetHudlessValidNow, "Set Hudless as ValidNow"},
+        {GameQuirk::DisableResizeSkip, "Disable Resize Skip"},
+        {GameQuirk::SpoofRegistry, "Spoof Registry"},
+    };
 
-    if (quirks & GameQuirk::FastFeatureReset)
+    for (const auto& info : quirksTable)
     {
-        spdlog::info("Quirk: Quick upscaler reinit");
-        state->detectedQuirks.push_back("Quick upscaler reinit");
+        if (quirks & info.flag)
+        {
+            spdlog::info("Quirk: {}", info.message);
+            state->detectedQuirks.push_back(info.message);
+        }
     }
-
-    if (quirks & GameQuirk::LoadD3D12Manually)
-    {
-        spdlog::info("Quirk: Load d3d12.dll");
-        state->detectedQuirks.push_back("Load d3d12.dll");
-    }
-
-    if (quirks & GameQuirk::KernelBaseHooks)
-    {
-        spdlog::info("Quirk: Enable KernelBase hooks");
-        state->detectedQuirks.push_back("Enable KernelBase hooks");
-    }
-
-    if (quirks & GameQuirk::VulkanDLSSBarrierFixup)
-    {
-        spdlog::info("Quirk: Fix DLSS/DLSSG barriers on Vulkan");
-        state->detectedQuirks.push_back("Fix DLSS/DLSSG barriers on Vulkan");
-    }
-
-    if (quirks & GameQuirk::ForceUnrealEngine)
-    {
-        spdlog::info("Quirk: Force detected engine as Unreal Engine");
-        state->detectedQuirks.push_back("Force detected engine as Unreal Engine");
-    }
-
-    if (quirks & GameQuirk::DisableHudfix)
-    {
-        spdlog::info("Quirk: Disabling Hudfix due to known issues");
-        state->detectedQuirks.push_back("Disabling Hudfix due to known issues");
-    }
-
-    if (quirks & GameQuirk::ForceAutoExposure)
-    {
-        spdlog::info("Quirk: Enabling AutoExposure");
-        state->detectedQuirks.push_back("Enabling AutoExposure");
-    }
-
-    if (quirks & GameQuirk::DisableFFXInputs)
-    {
-        spdlog::info("Quirk: Disable FSR 3.1 Inputs");
-        state->detectedQuirks.push_back("Enabling AutoExposure");
-    }
-
-    if (quirks & GameQuirk::DisableFSR3Inputs)
-    {
-        spdlog::info("Quirk: Disable FSR 3.0 Inputs");
-        state->detectedQuirks.push_back("Disable FSR 3.0 Inputs");
-    }
-
-    if (quirks & GameQuirk::DisableFSR2Inputs)
-    {
-        spdlog::info("Quirk: Disable FSR 2.X Inputs");
-        state->detectedQuirks.push_back("Disable FSR 2.X Inputs");
-    }
-
-    if (quirks & GameQuirk::DisableReactiveMasks)
-    {
-        spdlog::info("Quirk: Disable Reactive Masks");
-        state->detectedQuirks.push_back("Disable Reactive Masks");
-    }
-
-    if (quirks & GameQuirk::RestoreComputeSigOnNonNvidia)
-    {
-        spdlog::info("Quirk: Enabling restore compute signature on AMD/Intel");
-        state->detectedQuirks.push_back("Enabling restore compute signature on AMD/Intel");
-    }
-
-    if (quirks & GameQuirk::RestoreComputeSigOnNvidia)
-    {
-        spdlog::info("Quirk: Enabling restore compute signature on Nvidia");
-        state->detectedQuirks.push_back("Enabling restore compute signature on Nvidia");
-    }
-
-    if (quirks & GameQuirk::DisableDxgiSpoofing)
-    {
-        spdlog::info("Quirk: Dxgi spoofing disabled by default");
-        state->detectedQuirks.push_back("Dxgi spoofing disabled by default");
-    }
-
-    if (quirks & GameQuirk::DisableUseFsrInputValues)
-    {
-        spdlog::info("Quirk: Disable Use FSR Input Values");
-        state->detectedQuirks.push_back("Disable Use FSR Input Values");
-    }
-
-    if (quirks & GameQuirk::DisableOptiXessPipelineCreation)
-    {
-        spdlog::info("Quirk: Disable custom pipeline creation for XeSS");
-        state->detectedQuirks.push_back("Disable custom pipeline creation for XeSS");
-    }
-
-    if (quirks & GameQuirk::DontUseNTShared)
-    {
-        spdlog::info("Quirk: Don't use NTShared enabled");
-        state->detectedQuirks.push_back("Don't use NTShared enabled");
-    }
-
-    if (quirks & GameQuirk::DontUseUnrealBarriers)
-    {
-        spdlog::info("Quirk: Don't use resource barrier fix for Unreal Engine games");
-        state->detectedQuirks.push_back("Don't use resource barrier fix for Unreal Engine games");
-    }
-
-    if (quirks & GameQuirk::SkipFirst10Frames)
-    {
-        spdlog::info("Quirk: Skipping upscaling for first 10 frames");
-        state->detectedQuirks.push_back("Skipping upscaling for first 10 frames");
-    }
-
-    if (quirks & GameQuirk::NoFSRFGFirstSwapchain)
-    {
-        spdlog::info("Quirk: Skip turning the first swapchain created into an FSR swapchain");
-        state->detectedQuirks.push_back("Skip turning the first swapchain created into an FSR swapchain");
-    }
-
-    if (quirks & GameQuirk::FixSlSimulationMarkers)
-    {
-        spdlog::info("Quirk: Correct simulation start marker's frame id");
-        state->detectedQuirks.push_back("Correct simulation start marker's frame id");
-    }
-
-    if (quirks & GameQuirk::DisableVsyncOverride)
-    {
-        spdlog::info("Quirk: Don't use V-Sync overrides");
-        state->detectedQuirks.push_back("Don't use V-Sync overrides");
-    }
-
-    if (quirks & GameQuirk::HitmanReflexHacks)
-    {
-        spdlog::info("Quirk: Hack for broken Hitman reflex");
-        state->detectedQuirks.push_back("Hack for broken Hitman reflex");
-    }
-
-    if (quirks & GameQuirk::SkipD3D11FeatureLevelElevation)
-    {
-        spdlog::info("Quirk: Skipping D3D11 feature level elevation, native FSR3.1 will be disabled!");
-        state->detectedQuirks.push_back("Skipping D3D11 feature level elevation, native FSR3.1 will be disabled!");
-    }
-
-    if (quirks & GameQuirk::DontUseNtDllHooks)
-    {
-        spdlog::info("Quirk: Using kernel hooks instead of NTdll ones");
-        state->detectedQuirks.push_back("Using kernel hooks instead of NTdll ones");
-    }
-
-    if (quirks & GameQuirk::UseFSR2PatternMatching)
-    {
-        spdlog::info("Quirk: Use FSR2 pattern matching");
-        state->detectedQuirks.push_back("Use FSR2 pattern matching");
-    }
-
-    if (quirks & GameQuirk::AlwaysCaptureFSRFGSwapchain)
-    {
-        spdlog::info("Quirk: Always capture FSR-FG swapchain");
-        state->detectedQuirks.push_back("Always capture FSR-FG swapchain");
-    }
-
-    if (quirks & GameQuirk::AllowedFrameAhead2)
-    {
-        spdlog::info("Quirk: Allowed Frame Ahead: 2");
-        state->detectedQuirks.push_back("Allowed Frame Ahead: 2");
-    }
-
-    if (quirks & GameQuirk::DisableXeFGChecks)
-    {
-        spdlog::info("Quirk: Skip pre init checks for XeFG");
-        state->detectedQuirks.push_back("Skip pre init checks for XeFG");
-    }
-
-    if (quirks & GameQuirk::CreateD3D12DeviceForLuma)
-    {
-        spdlog::info("Quirk: Create D3D12 device for Luma before loading Reshade");
-        state->detectedQuirks.push_back("Create D3D12 device for Luma before loading Reshade");
-    }
-
-    if (quirks & GameQuirk::LoadVulkanManually)
-    {
-        spdlog::info("Quirk: Load vulkan-1.dll");
-        state->detectedQuirks.push_back("Load vulkan-1.dll");
-    }
-
-    if (quirks & GameQuirk::UseFsr2Dx11Inputs)
-    {
-        spdlog::info("Quirk: Use FSR2 DX11 inputs");
-        state->detectedQuirks.push_back("Use FSR2 DX11 inputs");
-    }
-
-    if (quirks & GameQuirk::UseFsr2VulkanInputs)
-    {
-        spdlog::info("Quirk: Use FSR2 Vulkan inputs");
-        state->detectedQuirks.push_back("Use FSR2 Vulkan inputs");
-    }
-
-    if (quirks & GameQuirk::ForceBorderlessWhenUsingXeFG)
-    {
-        spdlog::info("Quirk: Force Borderless when using XeFG");
-        state->detectedQuirks.push_back("Force Borderless when using XeFG");
-    }
-
-    if (quirks & GameQuirk::OverrideVsyncWhenUsingXeFG)
-    {
-        spdlog::info("Quirk: Override Vsync when using XeFG");
-        state->detectedQuirks.push_back("Override Vsync when using XeFG");
-    }
-
-    if (quirks & GameQuirk::ForceCreateD3D12Device)
-    {
-        spdlog::info("Quirk: Force create D3D12 device for w/Dx12");
-        state->detectedQuirks.push_back("Force create D3D12 device for w/Dx12");
-    }
-
-    if (quirks & GameQuirk::SetDepthValidNow)
-    {
-        spdlog::info("Quirk: Set Depth as ValidNow");
-        state->detectedQuirks.push_back("Set Depth as ValidNow");
-    }
-
-    if (quirks & GameQuirk::SetVelocityValidNow)
-    {
-        spdlog::info("Quirk: Set Velocity as ValidNow");
-        state->detectedQuirks.push_back("Set Velocity as ValidNow");
-    }
-
-    if (quirks & GameQuirk::SetHudlessValidNow)
-    {
-        spdlog::info("Quirk: Set Hudless as ValidNow");
-        state->detectedQuirks.push_back("Set Hudless as ValidNow");
-    }
-
-    if (quirks & GameQuirk::DisableResizeSkip)
-    {
-        spdlog::info("Quirk: Disable Resize Skip");
-        state->detectedQuirks.push_back("Disable Resize Skip");
-    }
-
-    if (quirks & GameQuirk::SpoofRegistry)
-    {
-        spdlog::info("Quirk: Spoof Registry");
-        state->detectedQuirks.push_back("Spoof Registry");
-    }
-
-    return;
 }
 
 static void CheckQuirks()
@@ -2035,7 +1667,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             FSR3FG::HookFSR3FGExeInputs();
         }
 
-        for (size_t i = 0; i < 300; i++)
+        for (size_t i = 0; i < FRAME_TIMES_SIZE; i++)
         {
             State::Instance().frameTimes.push_back(0.0f);
             State::Instance().upscaleTimes.push_back(0.0f);

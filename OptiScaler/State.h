@@ -307,15 +307,17 @@ class State
     /// <param name="dllName">Lower case dll name without `.dll` at the end. Leave blank for skipping all dll's</param>
     static void DisableChecks(UINT owner, std::string dllName = "")
     {
-        if (_skipOwner == 0)
+        UINT expected = 0;
+        if (_skipOwner.compare_exchange_strong(expected, owner))
         {
-            _skipOwner = owner;
+            // Successfully acquired the lock
             _skipChecks = true;
             auto* ptr = new std::string(std::move(dllName));
             delete _skipDllName.exchange(ptr);
         }
         else
         {
+            // Another thread already owns the lock
             auto* ptr = new std::string(""); // Hack for multiple skip calls
             delete _skipDllName.exchange(ptr);
         }
@@ -323,18 +325,25 @@ class State
 
     static void EnableChecks(UINT owner)
     {
-        if (_skipOwner == 0 || _skipOwner == owner)
+        UINT expected = owner;
+        if (_skipOwner.compare_exchange_strong(expected, 0))
         {
+            // Successfully released the lock
             _skipChecks = false;
             auto* ptr = _skipDllName.exchange(nullptr);
             delete ptr;
-            _skipOwner = 0;
         }
+        // If compare_exchange failed, either another owner or already 0
     };
 
     static void DisableServeOriginal(UINT owner)
     {
-        if (_serveOwner == 0 || _serveOwner == owner)
+        UINT expected = 0;
+        if (_serveOwner.compare_exchange_strong(expected, owner))
+        {
+            _serveOriginal = false;
+        }
+        else if (_serveOwner == owner)
         {
             _serveOriginal = false;
             _serveOwner = 0;
@@ -343,11 +352,12 @@ class State
 
     static void EnableServeOriginal(UINT owner)
     {
-        if (_serveOwner == 0 || _serveOwner == owner)
+        UINT expected = 0;
+        if (_serveOwner.compare_exchange_strong(expected, owner))
         {
             _serveOriginal = true;
-            _serveOwner = owner;
         }
+        // If already owned by someone else, do nothing
     };
 
     static bool SkipDllChecks() { return _skipChecks; }

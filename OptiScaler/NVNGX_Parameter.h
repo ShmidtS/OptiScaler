@@ -2,21 +2,11 @@
 #include "SysUtils.h"
 
 #include "Config.h"
+#include "Util.h"
 
 #include <ankerl/unordered_dense.h>
 
-// Use real NVNGX params encapsulated in custom one
-// Which is not working correctly
-// #define ENABLE_ENCAPSULATED_PARAMS
-
-// Log NVParam Set/Get operations
-// #define LOG_PARAMS_VALUES
-
-#ifdef LOG_PARAMS_VALUES
-#define LOG_PARAM(msg, ...) spdlog::trace(__FUNCTION__ " " msg, ##__VA_ARGS__)
-#else
 #define LOG_PARAM(msg, ...)
-#endif
 
 /// @brief Calculates the resolution scaling ratio override based on the provided quality level and current
 /// configuration.
@@ -230,13 +220,13 @@ inline static NVSDK_NGX_Result NVSDK_CONV NVSDK_NGX_DLSS_GetOptimalSettingsCallb
         }
     }
 
-    InParams->Set(NVSDK_NGX_Parameter_SizeInBytes, Width * Height * 31);
+    InParams->Set(NVSDK_NGX_Parameter_SizeInBytes, Width * Height * SIZE_IN_BYTES_MULTIPLIER);
     InParams->Set(NVSDK_NGX_Parameter_DLSSMode, NVSDK_NGX_DLSS_Mode_DLSS_DLISP);
 
     InParams->Set(NVSDK_NGX_EParameter_Scale, scalingRatio);
     InParams->Set(NVSDK_NGX_EParameter_OutWidth, OutWidth);
     InParams->Set(NVSDK_NGX_EParameter_OutHeight, OutHeight);
-    InParams->Set(NVSDK_NGX_EParameter_SizeInBytes, Width * Height * 31);
+    InParams->Set(NVSDK_NGX_EParameter_SizeInBytes, Width * Height * SIZE_IN_BYTES_MULTIPLIER);
     InParams->Set(NVSDK_NGX_EParameter_DLSSMode, NVSDK_NGX_DLSS_Mode_DLSS_DLISP);
 
     LOG_DEBUG("NVSDK_NGX_DLSS_GetOptimalSettingsCallback: Display Resolution: {0}x{1} Render Resolution: {2}x{3}",
@@ -376,13 +366,13 @@ inline static NVSDK_NGX_Result NVSDK_CONV NVSDK_NGX_DLSSD_GetOptimalSettingsCall
         InParams->Set(NVSDK_NGX_Parameter_DLSS_Get_Dynamic_Max_Render_Height, Height);
     }
 
-    InParams->Set(NVSDK_NGX_Parameter_SizeInBytes, Width * Height * 31);
+    InParams->Set(NVSDK_NGX_Parameter_SizeInBytes, Width * Height * SIZE_IN_BYTES_MULTIPLIER);
     InParams->Set(NVSDK_NGX_Parameter_DLSSMode, NVSDK_NGX_DLSS_Mode_DLSS_DLISP);
 
     InParams->Set(NVSDK_NGX_EParameter_Scale, scalingRatio);
     InParams->Set(NVSDK_NGX_EParameter_OutWidth, OutWidth);
     InParams->Set(NVSDK_NGX_EParameter_OutHeight, OutHeight);
-    InParams->Set(NVSDK_NGX_EParameter_SizeInBytes, Width * Height * 31);
+    InParams->Set(NVSDK_NGX_EParameter_SizeInBytes, Width * Height * SIZE_IN_BYTES_MULTIPLIER);
     InParams->Set(NVSDK_NGX_EParameter_DLSSMode, NVSDK_NGX_DLSS_Mode_DLSS_DLISP);
 
     LOG_DEBUG("Display Resolution: {0}x{1} Render Resolution: {2}x{3}", Width, Height, OutWidth, OutHeight);
@@ -397,12 +387,12 @@ inline static NVSDK_NGX_Result NVSDK_CONV NVSDK_NGX_DLSS_GetStatsCallback(NVSDK_
     if (!InParams)
         return NVSDK_NGX_Result_Success;
 
-    unsigned int Width = 1920;
-    unsigned int Height = 1080;
+    unsigned int Width = DEFAULT_WIDTH;
+    unsigned int Height = DEFAULT_HEIGHT;
 
     InParams->Get(NVSDK_NGX_Parameter_Width, &Width);
     InParams->Get(NVSDK_NGX_Parameter_Height, &Height);
-    InParams->Set(NVSDK_NGX_Parameter_SizeInBytes, Width * Height * 31);
+    InParams->Set(NVSDK_NGX_Parameter_SizeInBytes, Width * Height * SIZE_IN_BYTES_MULTIPLIER);
 
     return NVSDK_NGX_Result_Success;
 }
@@ -439,7 +429,7 @@ inline static void InitNGXParameters(NVSDK_NGX_Parameter* InParams)
     InParams->Set(NVSDK_NGX_Parameter_MV_Offset_Y, 0.0f);
     InParams->Set(NVSDK_NGX_Parameter_DLSS_Exposure_Scale, 1.0f);
     InParams->Set(NVSDK_NGX_Parameter_PerfQualityValue, 0);
-    InParams->Set(NVSDK_NGX_Parameter_SizeInBytes, 1920 * 1080 * 31);
+    InParams->Set(NVSDK_NGX_Parameter_SizeInBytes, DEFAULT_WIDTH * DEFAULT_HEIGHT * SIZE_IN_BYTES_MULTIPLIER);
 
     InParams->Set(NVSDK_NGX_EParameter_SuperSampling_Available, 1);
     InParams->Set(NVSDK_NGX_EParameter_OptLevel, 0);
@@ -670,10 +660,6 @@ struct NVNGX_Parameters : public NVSDK_NGX_Parameter
 {
     std::string Name;
 
-#ifdef ENABLE_ENCAPSULATED_PARAMS
-    NVSDK_NGX_Parameter* OriginalParam = nullptr;
-#endif // ENABLE_ENCAPSULATED_PARAMS
-
     void Set(const char* key, unsigned long long value) override
     {
         LOG_PARAM("ulong('{0}', {1})", key, value);
@@ -724,21 +710,6 @@ struct NVNGX_Parameters : public NVSDK_NGX_Parameter
             return NVSDK_NGX_Result_Success;
         }
 
-#ifdef ENABLE_ENCAPSULATED_PARAMS
-        if (OriginalParam != nullptr)
-        {
-            LOG_PARAM("calling original ulong('{0}')", key);
-            result = OriginalParam->Get(key, value);
-            LOG_PARAM("calling original ulong('{0}') result: {1:X}", key, (UINT) result);
-
-            if (result == NVSDK_NGX_Result_Success)
-            {
-                LOG_PARAM("from original ulong('{0}', {1})", key, *value);
-                return result;
-            }
-        }
-#endif // ENABLE_ENCAPSULATED_PARAMS
-
         return NVSDK_NGX_Result_Fail;
     }
 
@@ -750,21 +721,6 @@ struct NVNGX_Parameters : public NVSDK_NGX_Parameter
             LOG_PARAM("float('{0}', {1})", key, *value);
             return NVSDK_NGX_Result_Success;
         }
-
-#ifdef ENABLE_ENCAPSULATED_PARAMS
-        if (OriginalParam != nullptr)
-        {
-            LOG_PARAM("calling original float('{0}')", key);
-            result = OriginalParam->Get(key, value);
-            LOG_PARAM("calling original float('{0}') result: {1:X}", key, (UINT) result);
-
-            if (result == NVSDK_NGX_Result_Success)
-            {
-                LOG_PARAM("from original float('{0}', {1})", key, *value);
-                return result;
-            }
-        }
-#endif // ENABLE_ENCAPSULATED_PARAMS
 
         return NVSDK_NGX_Result_Fail;
     }
@@ -778,21 +734,6 @@ struct NVNGX_Parameters : public NVSDK_NGX_Parameter
             return NVSDK_NGX_Result_Success;
         }
 
-#ifdef ENABLE_ENCAPSULATED_PARAMS
-        if (OriginalParam != nullptr)
-        {
-            LOG_PARAM("calling original double('{0}')", key);
-            result = OriginalParam->Get(key, value);
-            LOG_PARAM("calling original double('{0}') result: {1:X}", key, (UINT) result);
-
-            if (result == NVSDK_NGX_Result_Success)
-            {
-                LOG_PARAM("from original double('{0}', {1})", key, *value);
-                return result;
-            }
-        }
-#endif // ENABLE_ENCAPSULATED_PARAMS
-
         return NVSDK_NGX_Result_Fail;
     }
 
@@ -804,21 +745,6 @@ struct NVNGX_Parameters : public NVSDK_NGX_Parameter
             LOG_PARAM("uint('{0}', {1})", key, *value);
             return NVSDK_NGX_Result_Success;
         }
-
-#ifdef ENABLE_ENCAPSULATED_PARAMS
-        if (OriginalParam != nullptr)
-        {
-            LOG_PARAM("calling original uint('{0}')", key);
-            result = OriginalParam->Get(key, value);
-            LOG_PARAM("calling original uint('{0}') result: {1:X}", key, (UINT) result);
-
-            if (result == NVSDK_NGX_Result_Success)
-            {
-                LOG_PARAM("from original uint('{0}', {1})", key, *value);
-                return result;
-            }
-        }
-#endif // ENABLE_ENCAPSULATED_PARAMS
 
         return NVSDK_NGX_Result_Fail;
     }
@@ -832,21 +758,6 @@ struct NVNGX_Parameters : public NVSDK_NGX_Parameter
             return NVSDK_NGX_Result_Success;
         }
 
-#ifdef ENABLE_ENCAPSULATED_PARAMS
-        if (OriginalParam != nullptr)
-        {
-            LOG_PARAM("calling original int('{0}')", key);
-            result = OriginalParam->Get(key, value);
-            LOG_PARAM("calling original int('{0}') result: {1:X}", key, (UINT) result);
-
-            if (result == NVSDK_NGX_Result_Success)
-            {
-                LOG_PARAM("from original int('{0}', {1})", key, *value);
-                return result;
-            }
-        }
-#endif // ENABLE_ENCAPSULATED_PARAMS
-
         return NVSDK_NGX_Result_Fail;
     }
 
@@ -858,21 +769,6 @@ struct NVNGX_Parameters : public NVSDK_NGX_Parameter
             LOG_PARAM("void('{0}')", key);
             return NVSDK_NGX_Result_Success;
         }
-
-#ifdef ENABLE_ENCAPSULATED_PARAMS
-        if (OriginalParam != nullptr)
-        {
-            LOG_PARAM("calling original void('{0}')", key);
-            result = OriginalParam->Get(key, value);
-            LOG_PARAM("calling original void('{0}') result: {1:X}", key, (UINT) result);
-
-            if (result == NVSDK_NGX_Result_Success)
-            {
-                LOG_PARAM("from original void('{0}')", key);
-                return result;
-            }
-        }
-#endif // ENABLE_ENCAPSULATED_PARAMS
 
         return NVSDK_NGX_Result_Fail;
     }
@@ -886,21 +782,6 @@ struct NVNGX_Parameters : public NVSDK_NGX_Parameter
             return NVSDK_NGX_Result_Success;
         }
 
-#ifdef ENABLE_ENCAPSULATED_PARAMS
-        if (OriginalParam != nullptr)
-        {
-            LOG_PARAM("calling original d3d11('{0}')", key);
-            result = OriginalParam->Get(key, value);
-            LOG_PARAM("calling original d3d11('{0}') result: {1:X}", key, (UINT) result);
-
-            if (result == NVSDK_NGX_Result_Success)
-            {
-                LOG_PARAM("from original d3d11('{0}')", key);
-                return result;
-            }
-        }
-#endif // ENABLE_ENCAPSULATED_PARAMS
-
         return NVSDK_NGX_Result_Fail;
     }
 
@@ -912,21 +793,6 @@ struct NVNGX_Parameters : public NVSDK_NGX_Parameter
             LOG_PARAM("d3d12('{0}')", key);
             return NVSDK_NGX_Result_Success;
         }
-
-#ifdef ENABLE_ENCAPSULATED_PARAMS
-        if (OriginalParam != nullptr)
-        {
-            LOG_PARAM("calling original d3d12('{0}')", key);
-            result = OriginalParam->Get(key, value);
-            LOG_PARAM("calling original d3d12('{0}') result: {1:X}", key, (UINT) result);
-
-            if (result == NVSDK_NGX_Result_Success)
-            {
-                LOG_PARAM("from original d3d12('{0}')", key);
-                return result;
-            }
-        }
-#endif // ENABLE_ENCAPSULATED_PARAMS
 
         return NVSDK_NGX_Result_Fail;
     }

@@ -76,9 +76,13 @@ void PrepareLogger()
             if (existing && existing->name() != "")
                 spdlog::default_logger().reset();
         }
+        catch (const std::exception&)
+        {
+            // Logger doesn't exist yet, ignore exception
+        }
         catch (...)
         {
-            // Logger doesn't exist yet, ignore
+            // Unknown exception during logger check, ignore
         }
 
         if (Config::Instance()->LogToConsole.value_or_default() || Config::Instance()->LogToFile.value_or_default() ||
@@ -195,8 +199,12 @@ void CloseLogger()
             logger->flush();
         spdlog::shutdown();
     }
-    catch (...)
+    catch (const std::exception&)
     {
         // Ignore errors during shutdown
+    }
+    catch (...)
+    {
+        // Unknown exception during logger shutdown, ignore
     }
 }

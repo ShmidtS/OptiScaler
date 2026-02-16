@@ -355,7 +355,9 @@ LONG WINAPI hkRegQueryValueExA(HKEY hKey, LPCSTR lpValueName, LPDWORD lpReserved
             }
 
             // Copy the new data back
-            std::memcpy(lpData, newData.c_str(), *lpcbData);
+            size_t copySize = std::min(newData.size() + 1, static_cast<size_t>(*lpcbData));
+            std::memcpy(lpData, newData.c_str(), copySize);
+            *lpcbData = static_cast<DWORD>(copySize);
         }
     }
 

@@ -12,83 +12,14 @@
 #include <atomic>
 #include <shared_mutex>
 
-// #define DEBUG_TRACKING
-
-#ifdef DEBUG_TRACKING
-static void TestResource(ResourceInfo* info)
-{
-    if (info == nullptr || info->buffer == nullptr)
-        return;
-
-    auto desc = info->buffer->GetDesc();
-
-    if (desc.Width != info->width || desc.Height != info->height || desc.Format != info->format)
-    {
-        LOG_TRACK("Resource mismatch: {:X}, info: {:X}", (size_t) info->buffer, (size_t) info);
-
-        // LOG_WARN("Resource mismatch: {:X}, info: {:X}", (size_t) info->buffer, (size_t) info);
-        //__debugbreak();
-    }
-}
-#endif
-
 #define USE_SPINLOCK_MUTEX
-
-#ifdef USE_SPINLOCK_MUTEX
-
-// #define USE_PERF_SPINLOCK
 
 #ifdef __cpp_lib_hardware_interference_size
 constexpr size_t CACHE_LINE_SIZE = std::hardware_destructive_interference_size;
 #else
 constexpr size_t CACHE_LINE_SIZE = 64;
 #endif
-#else
-#ifdef __cpp_lib_hardware_interference_size
-constexpr size_t CACHE_LINE_SIZE = std::hardware_destructive_interference_size * 2;
-#else
-constexpr size_t CACHE_LINE_SIZE = 128;
-#endif
-#endif
 
-#ifdef USE_SPINLOCK_MUTEX
-#ifdef USE_PERF_SPINLOCK
-class SpinLock
-{
-    std::atomic<bool> _lock = { false };
-
-  public:
-    void lock()
-    {
-        int backoff = 1;
-
-        while (true)
-        {
-            // 1. Optimistic Read (TTAS)
-            // Using 'relaxed' because we don't need ordering until we actually acquire.
-            if (!_lock.load(std::memory_order_relaxed))
-            {
-
-                // 2. Attempt Acquire
-                // 'acquire' ensures no memory ops move before this lock
-                if (!_lock.exchange(true, std::memory_order_acquire))
-                {
-                    return; // Success
-                }
-            }
-
-            // 3. Pause instruction to help HT and branch prediction
-            _mm_pause();
-        }
-    }
-
-    void unlock()
-    {
-        // 'release' ensures all memory ops are finished before unlocking
-        _lock.store(false, std::memory_order_release);
-    }
-};
-#else
 struct SpinLock
 {
     std::atomic<bool> _lock = { false };
@@ -117,15 +48,9 @@ struct SpinLock
 
     __forceinline void unlock() { _lock.store(false, std::memory_order_release); }
 };
-#endif
-#endif
 
 static ankerl::unordered_dense::map<ID3D12Resource*, std::vector<ResourceInfo*>> _trackedResources;
-#ifdef USE_SPINLOCK_MUTEX
 static SpinLock _trackedResourcesMutex;
-#else
-static std::mutex _trackedResourcesMutex;
-#endif
 
 struct HeapInfo
 {
@@ -198,10 +123,6 @@ struct HeapInfo
         if (info[index].buffer == nullptr)
             return nullptr;
 
-#ifdef DEBUG_TRACKING
-        TestResource(&info[index]);
-#endif
-
         return &info[index];
     }
 
@@ -217,10 +138,6 @@ struct HeapInfo
         if (info[index].buffer == nullptr)
             return nullptr;
 
-#ifdef DEBUG_TRACKING
-        TestResource(&info[index]);
-#endif
-
         return &info[index];
     }
 
@@ -233,9 +150,6 @@ struct HeapInfo
 
         // std::unique_lock<std::shared_mutex> lock(mutex);
 
-#ifdef DEBUG_TRACKING
-        TestResource(&setInfo);
-#endif
         if (info[index].buffer != setInfo.buffer)
         {
             DetachFromOldResource(index);
@@ -252,10 +166,6 @@ struct HeapInfo
             return;
 
         // std::unique_lock<std::shared_mutex> lock(mutex);
-
-#ifdef DEBUG_TRACKING
-        TestResource(&setInfo);
-#endif
 
         if (info[index].buffer != setInfo.buffer)
         {
@@ -314,7 +224,6 @@ struct ResourceHeapInfo
     SIZE_T gpuStart = NULL;
 };
 
-#ifdef USE_SPINLOCK_MUTEX
 // Force each struct to start on a new cache line
 struct alignas(CACHE_LINE_SIZE) CommandListShard
 {
@@ -325,17 +234,6 @@ struct alignas(CACHE_LINE_SIZE) CommandListShard
 
     char padding[CACHE_LINE_SIZE - (sizeof(SpinLock) + sizeof(void*) % CACHE_LINE_SIZE)] = {};
 };
-#else
-struct alignas(CACHE_LINE_SIZE) CommandListShard
-{
-    std::mutex mutex;
-    ankerl::unordered_dense::map<ID3D12GraphicsCommandList*,
-                                 ankerl::unordered_dense::map<ID3D12Resource*, ResourceInfo>>
-        map;
-
-    char padding[CACHE_LINE_SIZE - (sizeof(std::mutex) + sizeof(void*) % CACHE_LINE_SIZE)] = {};
-};
-#endif
 
 class ResTrack_Dx12
 {

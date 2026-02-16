@@ -254,7 +254,6 @@ typedef VkResult (*PFN_vkCreateWin32SurfaceKHR)(VkInstance, const VkWin32Surface
 PFN_vkCreateDevice o_vkCreateDevice = nullptr;
 PFN_vkCreateInstance o_vkCreateInstance = nullptr;
 PFN_vkCreateWin32SurfaceKHR o_vkCreateWin32SurfaceKHR = nullptr;
-// PFN_vkCmdPipelineBarrier o_vkCmdPipelineBarrier = nullptr;
 PFN_QueuePresentKHR o_QueuePresentKHR = nullptr;
 PFN_CreateSwapchainKHR o_CreateSwapchainKHR = nullptr;
 static PFN_vkGetInstanceProcAddr o_vkGetInstanceProcAddr = nullptr;
@@ -316,62 +315,6 @@ static void HookDevice(VkDevice InDevice)
         LOG_ERROR("Failed to get Vulkan device proc addresses");
     }
 }
-
-// Moved to VulkanwDx12_Hooks.cpp !!
-// static void hkvkCmdPipelineBarrier(VkCommandBuffer commandBuffer, VkPipelineStageFlags srcStageMask,
-//                                   VkPipelineStageFlags dstStageMask, VkDependencyFlags dependencyFlags,
-//                                   uint32_t memoryBarrierCount, const VkMemoryBarrier* pMemoryBarriers,
-//                                   uint32_t bufferMemoryBarrierCount,
-//                                   const VkBufferMemoryBarrier* pBufferMemoryBarriers, uint32_t
-//                                   imageMemoryBarrierCount, const VkImageMemoryBarrier* pImageMemoryBarriers)
-//{
-//    if (State::Instance().gameQuirks & GameQuirk::VulkanDLSSBarrierFixup &&
-//        (!State::Instance().isRunningOnNvidia || State::Instance().isPascalOrOlder))
-//    {
-//        // AMD drivers on the cards around RDNA2 didn't treat VK_IMAGE_LAYOUT_UNDEFINED in the same way Nvidia does.
-//        // Doesn't seem like a bug, just a different way of handling an UB but we need to adjust.
-//
-//        // DLSSG Present
-//        if (imageMemoryBarrierCount == 2)
-//        {
-//            if (pImageMemoryBarriers[0].oldLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR &&
-//                pImageMemoryBarriers[0].newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
-//                pImageMemoryBarriers[1].oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
-//                pImageMemoryBarriers[1].newLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)
-//            {
-//                LOG_TRACE("Changing an UNDEFINED barrier in DLSSG Present");
-//
-//                VkImageMemoryBarrier newImageBarriers[2];
-//                std::memcpy(newImageBarriers, pImageMemoryBarriers, sizeof(newImageBarriers));
-//
-//                newImageBarriers[1].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-//
-//                return o_vkCmdPipelineBarrier(commandBuffer, srcStageMask, dstStageMask, dependencyFlags,
-//                                              memoryBarrierCount, pMemoryBarriers, bufferMemoryBarrierCount,
-//                                              pBufferMemoryBarriers, imageMemoryBarrierCount, newImageBarriers);
-//            }
-//        }
-//
-//        // DLSS
-//        // Those are already in the correct layouts
-//        if (imageMemoryBarrierCount == 4)
-//        {
-//            // In the Voyagers update, the 2nd oldLayout has changed
-//            if (pImageMemoryBarriers[0].oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
-//                // pImageMemoryBarriers[1].oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
-//                pImageMemoryBarriers[2].oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
-//                pImageMemoryBarriers[3].oldLayout == VK_IMAGE_LAYOUT_UNDEFINED)
-//            {
-//                LOG_TRACE("Removing an UNDEFINED barrier in DLSS");
-//                return;
-//            }
-//        }
-//    }
-//
-//    return o_vkCmdPipelineBarrier(commandBuffer, srcStageMask, dstStageMask, dependencyFlags, memoryBarrierCount,
-//                                  pMemoryBarriers, bufferMemoryBarrierCount, pBufferMemoryBarriers,
-//                                  imageMemoryBarrierCount, pImageMemoryBarriers);
-//}
 
 static VkResult hkvkCreateWin32SurfaceKHR(VkInstance instance, const VkWin32SurfaceCreateInfoKHR* pCreateInfo,
                                           const VkAllocationCallbacks* pAllocator, VkSurfaceKHR* pSurface)
@@ -1051,9 +994,6 @@ void VulkanHooks::Hook(HMODULE vulkan1)
     address = KernelBaseProxy::GetProcAddress_()(vulkan1, "vkCreateWin32SurfaceKHR");
     o_vkCreateWin32SurfaceKHR = (PFN_vkCreateWin32SurfaceKHR) address;
 
-    // address = KernelBaseProxy::GetProcAddress_()(vulkan1, "vkCmdPipelineBarrier");
-    // o_vkCmdPipelineBarrier = (PFN_vkCmdPipelineBarrier) address;
-
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());
 
@@ -1071,9 +1011,6 @@ void VulkanHooks::Hook(HMODULE vulkan1)
 
     if (o_vkCreateWin32SurfaceKHR != nullptr)
         DetourAttach(&(PVOID&) o_vkCreateWin32SurfaceKHR, hkvkCreateWin32SurfaceKHR);
-
-    // if (o_vkCmdPipelineBarrier != nullptr)
-    //     DetourAttach(&(PVOID&) o_vkCmdPipelineBarrier, hkvkCmdPipelineBarrier);
 
     DetourTransactionCommit();
 }
@@ -1131,9 +1068,6 @@ void VulkanHooks::Unhook()
         DetourDetach(&(PVOID&) o_vkGetDeviceProcAddr, hkvkGetDeviceProcAddr);
         o_vkGetDeviceProcAddr = nullptr;
     }
-
-    // if (o_vkCmdPipelineBarrier != nullptr)
-    //     DetourDetach(&(PVOID&) o_vkCmdPipelineBarrier, hkvkCmdPipelineBarrier);
 
     DetourTransactionCommit();
 }

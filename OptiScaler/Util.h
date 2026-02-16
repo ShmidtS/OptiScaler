@@ -6,6 +6,21 @@
 #include <dxgi.h>
 #include <xess.h>
 
+// Common constants
+constexpr size_t MAX_IMAGE_OFFSET = 0x1000000;    // Maximum valid e_lfanew offset in PE header
+constexpr size_t FRAME_TIMES_SIZE = 300;          // Number of frame time entries to track
+constexpr unsigned int DEFAULT_WIDTH = 1920;      // Default display width
+constexpr unsigned int DEFAULT_HEIGHT = 1080;     // Default display height
+constexpr unsigned int SIZE_IN_BYTES_MULTIPLIER = 31; // SizeInBytes = Width * Height * multiplier
+
+// DLSS preset counts
+constexpr size_t DLSS_PRESET_COUNT = 17;
+constexpr size_t DLSSD_PRESET_COUNT = 6;
+
+// Mipmap bias limits
+constexpr float MIPMAP_BIAS_MAX = 15.0f;
+constexpr float MIPMAP_BIAS_MIN = -15.0f;
+
 namespace Util
 {
 typedef struct _version_t

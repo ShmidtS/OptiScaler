@@ -64,7 +64,6 @@ class MenuCommon
     inline static bool _isVisible = false;
     inline static bool _isInited = false;
     inline static bool _isUWP = false;
-    // inline static bool _isResetRequested = false;
 
     // mipmap calculations
     inline static bool _showMipmapCalcWindow = false;

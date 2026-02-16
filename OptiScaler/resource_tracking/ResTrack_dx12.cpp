@@ -117,13 +117,7 @@ static ankerl::unordered_dense::map<ID3D12GraphicsCommandList*,
 
 // heaps section
 
-// #define USE_SPINLOCK_MUTEX_FOR_HEAP_CREATION
-
-#ifdef USE_SPINLOCK_MUTEX_FOR_HEAP_CREATION
-static SpinLock _heapCreationMutex;
-#else
 static std::mutex _heapCreationMutex;
-#endif
 
 static std::vector<std::unique_ptr<HeapInfo>> fgHeaps;
 
@@ -827,11 +821,7 @@ static ULONG STDMETHODCALLTYPE hkHeapRelease(ID3D12DescriptorHeap* This)
         This->AddRef();
         if (o_HeapRelease(This) <= 1)
         {
-#ifdef USE_SPINLOCK_MUTEX_FOR_HEAP_CREATION
-            std::lock_guard<SpinLock> lock(_heapCreationMutex);
-#else
             std::lock_guard<std::mutex> lock(_heapCreationMutex);
-#endif
 
             up->active = false;
 
@@ -905,11 +895,7 @@ HRESULT ResTrack_Dx12::hkCreateDescriptorHeap(ID3D12Device* This, D3D12_DESCRIPT
         LOG_TRACE("Heap: {:X}, Heap type: {}, Cpu: {}-{}, Gpu: {}-{}, Desc count: {}", (size_t) *ppvHeap, type,
                   cpuStart, cpuEnd, gpuStart, gpuEnd, numDescriptors);
         {
-#ifdef USE_SPINLOCK_MUTEX_FOR_HEAP_CREATION
-            std::lock_guard<SpinLock> lock(_heapCreationMutex);
-#else
             std::lock_guard<std::mutex> lock(_heapCreationMutex);
-#endif
             size_t count = fgHeaps.size();
             bool foundEmpty = false;
             for (size_t i = 0; i < count; i++)

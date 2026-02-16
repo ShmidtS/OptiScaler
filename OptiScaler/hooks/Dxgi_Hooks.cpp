@@ -12,7 +12,7 @@
 static DxgiProxy::PFN_CreateDxgiFactory o_CreateDXGIFactory = nullptr;
 static DxgiProxy::PFN_CreateDxgiFactory1 o_CreateDXGIFactory1 = nullptr;
 static DxgiProxy::PFN_CreateDxgiFactory2 o_CreateDXGIFactory2 = nullptr;
-static bool creatingD3D12DeviceForLuma = false;
+static std::atomic<bool> creatingD3D12DeviceForLuma{false};
 
 #pragma intrinsic(_ReturnAddress)
 

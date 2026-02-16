@@ -63,7 +63,7 @@ static D3d12Proxy::PFN_D3D12SerializeVersionedRootSignature o_D3D12SerializeVers
 static PFN_Release o_D3D12DeviceRelease = nullptr;
 
 static std::atomic<bool> _creatingD3D12Device{false};
-static bool _d3d12Captured = false;
+static std::atomic<bool> _d3d12Captured{false};
 static LUID _lastAdapterLuid = {};
 
 // Intel Atomic Extension

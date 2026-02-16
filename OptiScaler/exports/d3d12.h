@@ -97,6 +97,3 @@ void _D3D12PIXEventsReplaceBlock() { d3d12.D3D12PIXEventsReplaceBlock(); }
 void _D3D12PIXGetThreadInfo() { d3d12.D3D12PIXGetThreadInfo(); }
 void _D3D12PIXNotifyWakeFromFenceSignal() { d3d12.D3D12PIXNotifyWakeFromFenceSignal(); }
 void _D3D12PIXReportCounter() { d3d12.D3D12PIXReportCounter(); }
-
-// Disabled to prevent crashes
-// void _SetAppCompatStringPointer() { d3d12.SetAppCompatStringPointer(); }

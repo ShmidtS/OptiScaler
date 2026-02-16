@@ -12,7 +12,6 @@
 // #define DETAILED_SC_LOGS
 
 #ifdef DETAILED_SC_LOGS
-#include <magic_enum.hpp>
 #endif
 
 void DxgiFactoryHooks::CheckAdapter(IUnknown* unkAdapter)

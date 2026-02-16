@@ -98,8 +98,7 @@ HRESULT DxgiSpoofing::hkGetDesc3(IDXGIAdapter4* This, DXGI_ADAPTER_DESC3* pDesc)
             pDesc->DeviceId = Config::Instance()->SpoofedDeviceId.value_or_default();
 
             auto szName = Config::Instance()->SpoofedGPUName.value_or_default();
-            std::memset(pDesc->Description, 0, sizeof(pDesc->Description));
-            std::wcscpy(pDesc->Description, szName.c_str());
+            wcsncpy_s(pDesc->Description, 128, szName.c_str(), _TRUNCATE);
 
 #ifdef _DEBUG
             LOG_DEBUG("spoofing");
@@ -161,8 +160,7 @@ HRESULT DxgiSpoofing::hkGetDesc2(IDXGIAdapter2* This, DXGI_ADAPTER_DESC2* pDesc)
             pDesc->DeviceId = Config::Instance()->SpoofedDeviceId.value_or_default();
 
             auto szName = Config::Instance()->SpoofedGPUName.value_or_default();
-            std::memset(pDesc->Description, 0, sizeof(pDesc->Description));
-            std::wcscpy(pDesc->Description, szName.c_str());
+            wcsncpy_s(pDesc->Description, 128, szName.c_str(), _TRUNCATE);
 
 #ifdef _DEBUG
             LOG_DEBUG("spoofing");
@@ -224,8 +222,7 @@ HRESULT DxgiSpoofing::hkGetDesc1(IDXGIAdapter1* This, DXGI_ADAPTER_DESC1* pDesc)
             pDesc->DeviceId = Config::Instance()->SpoofedDeviceId.value_or_default();
 
             auto szName = Config::Instance()->SpoofedGPUName.value_or_default();
-            std::memset(pDesc->Description, 0, sizeof(pDesc->Description));
-            std::wcscpy(pDesc->Description, szName.c_str());
+            wcsncpy_s(pDesc->Description, 128, szName.c_str(), _TRUNCATE);
 
 #ifdef _DEBUG
             LOG_DEBUG("spoofing");
@@ -287,8 +284,7 @@ HRESULT DxgiSpoofing::hkGetDesc(IDXGIAdapter* This, DXGI_ADAPTER_DESC* pDesc)
             pDesc->DeviceId = Config::Instance()->SpoofedDeviceId.value_or_default();
 
             auto szName = Config::Instance()->SpoofedGPUName.value_or_default();
-            std::memset(pDesc->Description, 0, sizeof(pDesc->Description));
-            std::wcscpy(pDesc->Description, szName.c_str());
+            wcsncpy_s(pDesc->Description, 128, szName.c_str(), _TRUNCATE);
 
 #ifdef _DEBUG
             LOG_DEBUG("spoofing");
