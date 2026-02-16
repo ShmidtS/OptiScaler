@@ -308,6 +308,9 @@ static void HookDevice(VkDevice InDevice)
         if (detourResult != NO_ERROR)
         {
             LOG_ERROR("DetourTransactionCommit failed: {}", detourResult);
+            // Reset pointers on failure to prevent stale state
+            o_QueuePresentKHR = nullptr;
+            o_CreateSwapchainKHR = nullptr;
         }
     }
     else

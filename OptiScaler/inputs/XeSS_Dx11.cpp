@@ -124,20 +124,20 @@ xess_result_t hk_xessD3D11CreateContext(ID3D11Device* device, xess_context_handl
         if (Config::Instance()->DLSSFeaturePath.has_value())
             pathStorage.push_back(Config::Instance()->DLSSFeaturePath.value());
 
-        // Build pointer array
+        // Build pointer array using vector for automatic cleanup
         const size_t pathCount = pathStorage.size();
         if (pathCount == 0)
         {
             LOG_ERROR("pathStorage is empty!");
             return XESS_RESULT_ERROR_UNINITIALIZED;
         }
-        wchar_t const** paths = new const wchar_t*[pathCount];
+        std::vector<const wchar_t*> paths(pathCount);
         for (size_t i = 0; i < pathCount; ++i)
         {
             paths[i] = pathStorage[i].c_str();
         }
 
-        fcInfo.PathListInfo.Path = paths;
+        fcInfo.PathListInfo.Path = paths.data();
         fcInfo.PathListInfo.Length = (int) pathCount;
 
         auto nvResult = NVSDK_NGX_D3D11_Init_with_ProjectID(
@@ -153,7 +153,7 @@ xess_result_t hk_xessD3D11CreateContext(ID3D11Device* device, xess_context_handl
 
     NVSDK_NGX_Parameter* params = nullptr;
 
-    if (NVSDK_NGX_D3D12_GetCapabilityParameters(&params) != NVSDK_NGX_Result_Success)
+    if (NVSDK_NGX_D3D11_GetCapabilityParameters(&params) != NVSDK_NGX_Result_Success)
         return XESS_RESULT_ERROR_INVALID_ARGUMENT;
 
     _nvParams[*phContext] = params;
@@ -202,7 +202,7 @@ xess_result_t hk_xessD3D11Execute(xess_context_handle_t hContext, const xess_d3d
 
     NVSDK_NGX_Parameter* params = _nvParams[hContext];
     NVSDK_NGX_Handle* handle = _contexts[hContext];
-    xess_d3d12_init_params_t* initParams = &_d3d12InitParams[hContext];
+    xess_d3d11_init_params_t* initParams = &_d3d11InitParams[hContext];
 
     if (_motionScales.contains(hContext))
     {
@@ -287,7 +287,7 @@ xess_result_t hk_xessD3D11GetInitParams(xess_context_handle_t hContext, xess_d3d
     if (!_d3d11InitParams.contains(hContext))
         return XESS_RESULT_ERROR_INVALID_CONTEXT;
 
-    auto ip = &_d3d12InitParams[hContext];
+    auto ip = &_d3d11InitParams[hContext];
 
     pInitParams->initFlags = ip->initFlags;
     pInitParams->outputResolution = ip->outputResolution;

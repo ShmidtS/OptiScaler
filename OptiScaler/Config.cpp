@@ -51,6 +51,7 @@ Config::Config()
 
 bool Config::Reload(std::filesystem::path iniPath)
 {
+    std::lock_guard<std::mutex> lock(iniMutex);
     auto pathWStr = iniPath.wstring();
 
     LOG_INFO("Trying to load ini from: {0}", wstring_to_string(pathWStr));
@@ -735,6 +736,7 @@ std::string GetFloatValue(std::optional<float> value)
 
 bool Config::SaveIni()
 {
+    std::lock_guard<std::mutex> lock(iniMutex);
     // Upscalers
     {
         SAVE_STRING("Upscalers", "Dx11Upscaler", Dx11Upscaler, "auto");
@@ -1210,6 +1212,7 @@ bool Config::SaveIni()
 
 bool Config::ReloadFakenvapi()
 {
+    std::lock_guard<std::mutex> lock(fakenvapiIniMutex);
     auto FN_iniPath = Util::DllPath().parent_path() / L"fakenvapi.ini";
     if (NvapiDllPath.has_value())
         FN_iniPath = std::filesystem::path(NvapiDllPath.value()).parent_path() / L"fakenvapi.ini";
@@ -1468,7 +1471,8 @@ std::optional<bool> Config::readBool(std::string section, std::string key)
 
 Config* Config::Instance()
 {
-    static std::once_flag initFlag;
-    std::call_once(initFlag, []() { _config = new Config(); });
-    return _config;
+    // Meyers singleton - thread-safe by C++11 standard
+    // No need for std::call_once or manual synchronization
+    static Config instance;
+    return &instance;
 }

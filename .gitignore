@@ -441,6 +441,7 @@ CyberFSR/imgui.ini
 # AI agentic tools
 .omc/
 .memorious/
+AGENTS.md
 
 # Project documentation images (not needed for build)
 images/

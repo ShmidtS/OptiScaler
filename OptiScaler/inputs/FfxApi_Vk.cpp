@@ -442,13 +442,13 @@ ffxReturnCode_t ffxCreateContext_Vk(ffxContext* context, ffxCreateContextDescHea
             LOG_ERROR("pathStorage is empty!");
             return FFX_API_RETURN_ERROR_RUNTIME_ERROR;
         }
-        wchar_t const** paths = new const wchar_t*[pathCount];
+        std::vector<const wchar_t*> paths(pathCount);
         for (size_t i = 0; i < pathCount; ++i)
         {
             paths[i] = pathStorage[i].c_str();
         }
 
-        fcInfo.PathListInfo.Path = paths;
+        fcInfo.PathListInfo.Path = paths.data();
         fcInfo.PathListInfo.Length = (int) pathCount;
 
         auto nvResult = NVSDK_NGX_VULKAN_Init_ProjectID_Ext(
@@ -581,9 +581,9 @@ ffxReturnCode_t ffxDispatch_Vk(ffxContext* context, ffxDispatchDescHeader* desc)
         // Pass to original FFX dispatch
         return FfxApiProxy::VULKAN_Dispatch()(context, desc);
     }
-    else if (desc->type == FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE)
+    else if (desc->type == FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2)
     {
-        auto fgPrepareDesc = (ffxDispatchDescFrameGenerationPrepare*) desc;
+        auto fgPrepareDesc = (ffxDispatchDescFrameGenerationPrepareV2*) desc;
 
         // Capture depth and motion vectors for FG use
         if (fgPrepareDesc->depth.resource != nullptr && fgPrepareDesc->motionVectors.resource != nullptr)
@@ -593,7 +593,7 @@ ffxReturnCode_t ffxDispatch_Vk(ffxContext* context, ffxDispatchDescHeader* desc)
             _fgWidth = fgPrepareDesc->renderSize.width;
             _fgHeight = fgPrepareDesc->renderSize.height;
 
-            LOG_TRACE("FG Prepare: Captured depth={:X}, mv={:X}, {}x{}",
+            LOG_TRACE("FG Prepare V2: Captured depth={:X}, mv={:X}, {}x{}",
                       (size_t)_fgDepthImage, (size_t)_fgMotionVectorImage, _fgWidth, _fgHeight);
         }
 

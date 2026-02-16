@@ -2,7 +2,10 @@
 #include "IFGFeature.h"
 #include <Config.h>
 
-int IFGFeature::GetIndex() { return (_frameCount % BUFFER_COUNT); }
+int IFGFeature::GetIndex()
+{
+    return static_cast<int>(_frameCount % BUFFER_COUNT);
+}
 
 int IFGFeature::GetIndexWillBeDispatched()
 {
@@ -37,7 +40,9 @@ UINT64 IFGFeature::StartNewFrame()
 {
     _frameCount++;
 
-    if (_lastDispatchedFrame == 0 || (_frameCount - _lastDispatchedFrame) > 2)
+    // Use signed arithmetic to handle potential wrap-around correctly
+    INT64 diff = static_cast<INT64>(_frameCount) - static_cast<INT64>(_lastDispatchedFrame);
+    if (_lastDispatchedFrame == 0 || diff > 2 || diff < 0)
     {
         LOG_WARN("Frame count jumped too much! _frameCount: {}, _lastDispatchedFrame: {}", _frameCount,
                  _lastDispatchedFrame);
@@ -65,6 +70,9 @@ bool IFGFeature::IsResourceReady(FG_ResourceType type, int index)
     if (index < 0)
         index = GetIndex();
 
+    if (index < 0 || index >= BUFFER_COUNT)
+        return false;
+
     return _resourceReady[index].contains(type);
 }
 
@@ -73,17 +81,30 @@ bool IFGFeature::WaitingExecution(int index)
     if (index < 0)
         index = GetIndex();
 
+    if (index < 0 || index >= BUFFER_COUNT)
+        return false;
+
     return _waitingExecute[index];
 }
+
 void IFGFeature::SetExecuted(int index)
 {
     if (index < 0)
         index = GetIndex();
 
+    if (index < 0 || index >= BUFFER_COUNT)
+        return;
+
     _waitingExecute[index] = false;
 }
 
-bool IFGFeature::IsUsingUI() { return !_noUi[GetIndex()]; }
+bool IFGFeature::IsUsingUI()
+{
+    int index = GetIndex();
+    if (index < 0 || index >= BUFFER_COUNT)
+        return false;
+    return !_noUi[index];
+}
 bool IFGFeature::IsUsingUIAny()
 {
     for (const auto& value : _noUi)
@@ -92,7 +113,13 @@ bool IFGFeature::IsUsingUIAny()
 
     return false;
 }
-bool IFGFeature::IsUsingDistortionField() { return !_noDistortionField[GetIndex()]; }
+bool IFGFeature::IsUsingDistortionField()
+{
+    int index = GetIndex();
+    if (index < 0 || index >= BUFFER_COUNT)
+        return false;
+    return !_noDistortionField[index];
+}
 bool IFGFeature::IsUsingHudless(int index)
 {
     if (index < 0)
@@ -186,6 +213,9 @@ void IFGFeature::SetJitter(float x, float y, int index)
     if (index < 0)
         index = GetIndex();
 
+    if (index < 0 || index >= BUFFER_COUNT)
+        return;
+
     _jitterX[index] = x;
     _jitterY[index] = y;
 }
@@ -194,6 +224,9 @@ void IFGFeature::SetMVScale(float x, float y, int index)
 {
     if (index < 0)
         index = GetIndex();
+
+    if (index < 0 || index >= BUFFER_COUNT)
+        return;
 
     _mvScaleX[index] = x;
     _mvScaleY[index] = y;
@@ -204,6 +237,9 @@ void IFGFeature::SetCameraValues(float nearValue, float farValue, float vFov, fl
 {
     if (index < 0)
         index = GetIndex();
+
+    if (index < 0 || index >= BUFFER_COUNT)
+        return;
 
     _cameraFar[index] = farValue;
     _cameraNear[index] = nearValue;
@@ -218,6 +254,9 @@ void IFGFeature::SetCameraData(float cameraPosition[3], float cameraUp[3], float
     if (index < 0)
         index = GetIndex();
 
+    if (index < 0 || index >= BUFFER_COUNT)
+        return;
+
     std::memcpy(_cameraPosition[index], cameraPosition, 3 * sizeof(float));
     std::memcpy(_cameraUp[index], cameraUp, 3 * sizeof(float));
     std::memcpy(_cameraRight[index], cameraRight, 3 * sizeof(float));
@@ -229,6 +268,9 @@ void IFGFeature::SetFrameTimeDelta(double delta, int index)
     if (index < 0)
         index = GetIndex();
 
+    if (index < 0 || index >= BUFFER_COUNT)
+        return;
+
     _ftDelta[index] = delta;
 }
 
@@ -237,6 +279,9 @@ void IFGFeature::SetReset(UINT reset, int index)
     if (index < 0)
         index = GetIndex();
 
+    if (index < 0 || index >= BUFFER_COUNT)
+        return;
+
     _reset[index] = reset;
 }
 
@@ -244,6 +289,9 @@ void IFGFeature::SetInterpolationRect(UINT64 width, UINT height, int index)
 {
     if (index < 0)
         index = GetIndex();
+
+    if (index < 0 || index >= BUFFER_COUNT)
+        return;
 
     _interpolationWidth[index] = width;
     _interpolationHeight[index] = height;
@@ -254,6 +302,13 @@ void IFGFeature::GetInterpolationRect(UINT64& width, UINT& height, int index)
     if (index < 0)
         index = GetIndex();
 
+    if (index < 0 || index >= BUFFER_COUNT)
+    {
+        width = 0;
+        height = 0;
+        return;
+    }
+
     width = _interpolationWidth[index];
     height = _interpolationHeight[index];
 }
@@ -263,6 +318,9 @@ void IFGFeature::SetInterpolationPos(UINT left, UINT top, int index)
     if (index < 0)
         index = GetIndex();
 
+    if (index < 0 || index >= BUFFER_COUNT)
+        return;
+
     _interpolationLeft[index] = left;
     _interpolationTop[index] = top;
 }
@@ -271,6 +329,13 @@ void IFGFeature::GetInterpolationPos(UINT& left, UINT& top, int index)
 {
     if (index < 0)
         index = GetIndex();
+
+    if (index < 0 || index >= BUFFER_COUNT)
+    {
+        left = 0;
+        top = 0;
+        return;
+    }
 
     if (_interpolationLeft[index].has_value())
         left = _interpolationLeft[index].value();
@@ -302,6 +367,9 @@ void IFGFeature::SetResourceReady(FG_ResourceType type, int index)
 {
     if (index < 0)
         index = GetIndex();
+
+    if (index < 0 || index >= BUFFER_COUNT)
+        return;
 
     _resourceReady[index][type] = true;
     _resourceFrame[type] = _frameCount;

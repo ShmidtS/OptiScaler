@@ -583,7 +583,6 @@ ffxReturnCode_t FSRFG_Dx12::DispatchCallback(ffxDispatchDescFrameGeneration* par
         params->numGeneratedFrames = 0;
     }
 
-    static UINT64 _lastFrameId = 0;
     if (params->frameID == _lastFrameId)
     {
         LOG_WARN("Dispatched with the same frame id! frameID: {}", params->frameID);

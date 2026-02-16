@@ -41,6 +41,10 @@ void DxgiFactoryHooks::HookToFactory(IDXGIFactory* pFactory)
     if (pFactory == nullptr)
         return;
 
+    // Use static mutex to prevent race conditions in hook installation
+    static std::mutex factoryHookMutex;
+    std::lock_guard<std::mutex> lock(factoryHookMutex);
+
     LOG_FUNC();
 
     IDXGIFactory* real = nullptr;

@@ -1071,12 +1071,15 @@ HRESULT FGHooks::hkFGRelease(IDXGISwapChain* This)
     if (State::Instance().currentFGSwapchain != This || State::Instance().isShuttingDown)
         return o_FGRelease(This);
 
+    // AddRef to check refcount without releasing
     This->AddRef();
-    if (o_FGRelease(This) == 1)
+    ULONG refCount = o_FGRelease(This);
+
+    if (refCount == 1)
     {
         LOG_INFO("Preserving FG Swapchain from release");
-        return 0;
+        return 0;  // Return 0 to indicate preserved state
     }
 
-    return o_FGRelease(This);
+    return refCount;  // Return actual refcount
 }

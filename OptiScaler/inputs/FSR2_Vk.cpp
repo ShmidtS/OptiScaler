@@ -363,13 +363,13 @@ static FfxErrorCode ffxFsr2ContextCreate_Vk(FfxFsr2Context* context, FfxFsr2Cont
             LOG_ERROR("pathStorage is empty!");
             return FFX_ERROR_INVALID_ARGUMENT;
         }
-        wchar_t const** paths = new const wchar_t*[pathCount];
+        std::vector<const wchar_t*> paths(pathCount);
         for (size_t i = 0; i < pathCount; ++i)
         {
             paths[i] = pathStorage[i].c_str();
         }
 
-        fcInfo.PathListInfo.Path = paths;
+        fcInfo.PathListInfo.Path = paths.data();
         fcInfo.PathListInfo.Length = (int) pathCount;
 
         auto nvResult = NVSDK_NGX_VULKAN_Init_ProjectID_Ext(

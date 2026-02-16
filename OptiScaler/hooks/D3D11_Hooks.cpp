@@ -83,7 +83,12 @@ static void HookToDevice(ID3D11Device* InDevice)
 
         DetourAttach(&(PVOID&) o_CreateSamplerState, hkCreateSamplerState);
 
-        DetourTransactionCommit();
+        LONG detourResult = DetourTransactionCommit();
+        if (detourResult != NO_ERROR)
+        {
+            LOG_ERROR("DetourTransactionCommit failed in HookToDevice: {}", detourResult);
+            o_CreateSamplerState = nullptr;
+        }
     }
 }
 
@@ -498,7 +503,15 @@ void D3D11Hooks::Hook(HMODULE dx11Module)
         if (o_D3D11CreateDeviceAndSwapChain != nullptr)
             DetourAttach(&(PVOID&) o_D3D11CreateDeviceAndSwapChain, hkD3D11CreateDeviceAndSwapChain);
 
-        DetourTransactionCommit();
+        LONG detourResult = DetourTransactionCommit();
+        if (detourResult != NO_ERROR)
+        {
+            LOG_ERROR("DetourTransactionCommit failed in D3D11Hooks::Hook: {}", detourResult);
+            // Reset pointers on failure to prevent stale state
+            o_D3D11CreateDevice = nullptr;
+            o_D3D11On12CreateDevice = nullptr;
+            o_D3D11CreateDeviceAndSwapChain = nullptr;
+        }
     }
 }
 

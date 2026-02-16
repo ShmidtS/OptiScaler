@@ -61,9 +61,9 @@ class MenuCommon
     // internal values
     inline static HWND _handle = nullptr;
     inline static WNDPROC _oWndProc = nullptr;
-    inline static bool _isVisible = false;
-    inline static bool _isInited = false;
-    inline static bool _isUWP = false;
+    inline static std::atomic<bool> _isVisible{false};
+    inline static std::atomic<bool> _isInited{false};
+    inline static std::atomic<bool> _isUWP{false};
 
     // mipmap calculations
     inline static bool _showMipmapCalcWindow = false;

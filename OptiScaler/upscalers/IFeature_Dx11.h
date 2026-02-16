@@ -22,5 +22,5 @@ class IFeature_Dx11 : public virtual IFeature
 
     IFeature_Dx11(unsigned int InHandleId, NVSDK_NGX_Parameter* InParameters) : IFeature(InHandleId, InParameters) {}
 
-    ~IFeature_Dx11();
+    virtual ~IFeature_Dx11();
 };

@@ -245,13 +245,13 @@ static FfxErrorCode ffxFsr2ContextCreate_Dx11(FfxFsr2Context* context, FfxFsr2Co
             LOG_ERROR("pathStorage is empty!");
             return FFX_ERROR_INVALID_ARGUMENT;
         }
-        wchar_t const** paths = new const wchar_t*[pathCount];
+        std::vector<const wchar_t*> paths(pathCount);
         for (size_t i = 0; i < pathCount; ++i)
         {
             paths[i] = pathStorage[i].c_str();
         }
 
-        fcInfo.PathListInfo.Path = paths;
+        fcInfo.PathListInfo.Path = paths.data();
         fcInfo.PathListInfo.Length = (int) pathStorage.size();
 
         auto nvResult = NVSDK_NGX_D3D11_Init_with_ProjectID(

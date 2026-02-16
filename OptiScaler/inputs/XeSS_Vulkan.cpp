@@ -153,20 +153,20 @@ xess_result_t hk_xessVKCreateContext(VkInstance instance, VkPhysicalDevice physi
         if (Config::Instance()->DLSSFeaturePath.has_value())
             pathStorage.push_back(Config::Instance()->DLSSFeaturePath.value());
 
-        // Build pointer array
+        // Build pointer array using vector for automatic cleanup
         const size_t pathCount = pathStorage.size();
         if (pathCount == 0)
         {
             LOG_ERROR("pathStorage is empty!");
             return XESS_RESULT_ERROR_UNINITIALIZED;
         }
-        wchar_t const** paths = new const wchar_t*[pathCount];
+        std::vector<const wchar_t*> paths(pathCount);
         for (size_t i = 0; i < pathCount; ++i)
         {
             paths[i] = pathStorage[i].c_str();
         }
 
-        fcInfo.PathListInfo.Path = paths;
+        fcInfo.PathListInfo.Path = paths.data();
         fcInfo.PathListInfo.Length = (int) pathCount;
 
         auto nvResult = NVSDK_NGX_VULKAN_Init_ProjectID_Ext(

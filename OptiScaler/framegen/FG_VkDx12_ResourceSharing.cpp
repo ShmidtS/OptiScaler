@@ -634,7 +634,7 @@ void FG_VkDx12_ResourceSharing::SetQueue(VkQueue queue, uint32_t queueFamilyInde
 
 bool FG_VkDx12_ResourceSharing::CreateVulkanCommandPool()
 {
-    if (_vkDevice == VK_NULL_HANDLE || _queueFamilyIndex == 0)
+    if (_vkDevice == VK_NULL_HANDLE || _queueFamilyIndex == UINT32_MAX)
     {
         LOG_ERROR("Cannot create command pool - device or queue family not set");
         return false;

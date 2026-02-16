@@ -1736,8 +1736,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             NtdllProxy::FreeLibrary_Ldr(v);
         }
 
-        // Clean up Config singleton to prevent memory leak
-        Config::Cleanup();
+        // Config singleton cleanup is automatic (Meyers singleton)
 
         spdlog::info("");
         spdlog::info("DLL_PROCESS_DETACH");

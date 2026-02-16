@@ -201,7 +201,7 @@ private:
     VkCommandPool _commandPool = VK_NULL_HANDLE;
     VkCommandBuffer _commandBuffer = VK_NULL_HANDLE;
     VkQueue _vkQueue = VK_NULL_HANDLE;
-    uint32_t _queueFamilyIndex = 0;
+    uint32_t _queueFamilyIndex = UINT32_MAX;  // Use UINT32_MAX as sentinel for "not set"
 
     // Synchronization primitives
     VkSemaphore _copyCompleteSemaphore = VK_NULL_HANDLE;

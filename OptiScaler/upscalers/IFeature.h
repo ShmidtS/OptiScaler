@@ -51,12 +51,13 @@ class IFeature
 
   protected:
     // D3D11with12 - Initialized once at startup, then read-only
-    // Thread safety: Written during init, read-only after - safe for concurrent access
+    // Thread safety: Written during init (single-threaded), read-only after initialization completes
+    // Safe for concurrent read access after initialization
     inline static ID3D12Device* _dx11on12Device = nullptr;
     inline static ID3D12Device* _localDx11on12Device = nullptr;
 
     bool _initParameters = false;
-    NVSDK_NGX_Handle* _handle = nullptr;
+    std::unique_ptr<NVSDK_NGX_Handle> _handle;
 
     float _sharpness = 0;
     bool _hasColor = false;
@@ -87,7 +88,7 @@ class IFeature
     virtual void SetInit(bool InValue) { _isInited = InValue; }
 
   public:
-    NVSDK_NGX_Handle* Handle() const { return _handle; };
+    NVSDK_NGX_Handle* Handle() const { return _handle.get(); };
     static unsigned int GetNextHandleId() { return handleCounter++; }
     int GetFeatureFlags() const { return _featureFlags; }
 
@@ -129,12 +130,5 @@ class IFeature
 
     IFeature(unsigned int InHandleId, NVSDK_NGX_Parameter* InParameters) { SetHandle(InHandleId); }
 
-    virtual ~IFeature()
-    {
-        if (_handle != nullptr)
-        {
-            delete _handle;
-            _handle = nullptr;
-        }
-    }
+    virtual ~IFeature() = default;
 };

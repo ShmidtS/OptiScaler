@@ -733,22 +733,26 @@ bool XeFG_Dx12::Dispatch()
     if (Config::Instance()->FGXeFGDepthInverted.value_or_default())
         std::swap(_cameraNear[fIndex], _cameraFar[fIndex]);
 
-    if (_infiniteDepth && _cameraFar[fIndex] > _cameraNear[fIndex])
-        _cameraFar[fIndex] = std::numeric_limits<float>::infinity();
-    else if (_infiniteDepth && _cameraNear[fIndex] > _cameraFar[fIndex])
-        _cameraNear[fIndex] = std::numeric_limits<float>::infinity();
+    // Use local variables to avoid repeated swap issues
+    float nearPlane = _cameraNear[fIndex];
+    float farPlane = _cameraFar[fIndex];
+
+    if (_infiniteDepth && farPlane > nearPlane)
+        farPlane = std::numeric_limits<float>::infinity();
+    else if (_infiniteDepth && nearPlane > farPlane)
+        nearPlane = std::numeric_limits<float>::infinity();
 
     // Cyberpunk seems to be sending LH so do the same
     // it also sends some extra data in usually empty spots but no idea what that is
-    if (_cameraNear[fIndex] > 0.f && _cameraFar[fIndex] > 0.f &&
+    if (nearPlane > 0.f && farPlane > 0.f &&
         !XMScalarNearEqual(_cameraVFov[fIndex], 0.0f, 0.00001f) &&
         !XMScalarNearEqual(_cameraAspectRatio[fIndex], 0.0f, 0.00001f))
     {
-        if (XMScalarNearEqual(_cameraNear[fIndex], _cameraFar[fIndex], 0.00001f))
-            _cameraFar[fIndex]++;
+        if (XMScalarNearEqual(nearPlane, farPlane, 0.00001f))
+            farPlane += 1.0f;
 
         auto projectionMatrix = XMMatrixPerspectiveFovLH(_cameraVFov[fIndex], _cameraAspectRatio[fIndex],
-                                                         _cameraNear[fIndex], _cameraFar[fIndex]);
+                                                         nearPlane, farPlane);
         memcpy(constData.projectionMatrix, projectionMatrix.r, sizeof(projectionMatrix));
     }
     else

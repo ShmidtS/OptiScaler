@@ -407,6 +407,11 @@ bool IFGFeature_Vk::CreateBufferResource(VkDevice device, VkImage source, VkImag
     if (vkCreateImageView(device, &viewInfo, nullptr, outImageView) != VK_SUCCESS)
     {
         LOG_ERROR("Failed to create image view");
+        // Clean up already created resources to prevent leak
+        vkDestroyImage(device, *outImage, nullptr);
+        vkFreeMemory(device, *outMemory, nullptr);
+        *outImage = VK_NULL_HANDLE;
+        *outMemory = VK_NULL_HANDLE;
         return false;
     }
 

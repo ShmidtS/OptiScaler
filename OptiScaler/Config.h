@@ -556,17 +556,11 @@ class Config
     std::vector<std::string> GetConfigLog();
 
     static Config* Instance();
-    static void Cleanup()
-    {
-        if (_config != nullptr)
-        {
-            delete _config;
-            _config = nullptr;
-        }
-    }
+    // Cleanup() removed - Meyers singleton handles cleanup automatically
+    // at program termination
 
   private:
-    inline static Config* _config;
+    // _config removed - Meyers singleton uses static local variable
     inline static std::vector<std::string> _log;
 
     std::filesystem::path absoluteFileName;

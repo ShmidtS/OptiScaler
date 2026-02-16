@@ -412,13 +412,13 @@ ffxReturnCode_t ffxCreateContext_Dx12(ffxContext* context, ffxCreateContextDescH
             LOG_ERROR("pathStorage is empty!");
             return FFX_API_RETURN_ERROR_RUNTIME_ERROR;
         }
-        wchar_t const** paths = new const wchar_t*[pathCount];
+        std::vector<const wchar_t*> paths(pathCount);
         for (size_t i = 0; i < pathCount; ++i)
         {
             paths[i] = pathStorage[i].c_str();
         }
 
-        fcInfo.PathListInfo.Path = paths;
+        fcInfo.PathListInfo.Path = paths.data();
         fcInfo.PathListInfo.Length = (int) pathCount;
 
         auto nvResult = NVSDK_NGX_D3D12_Init_with_ProjectID(

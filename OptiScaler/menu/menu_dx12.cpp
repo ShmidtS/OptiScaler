@@ -319,7 +319,7 @@ void Menu_Dx12::CreateRenderTarget(const D3D12_RESOURCE_DESC& InDesc)
             renderTarget->SetName(L"Imgui_Dx12_renderTarget");
 
             D3D12_RENDER_TARGET_VIEW_DESC rtDesc = {};
-            rtDesc.Format = InDesc.Format;
+            rtDesc.Format = desc.Format;  // Use translated format to match texture creation
             rtDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
 
             _device->CreateRenderTargetView(renderTarget, &rtDesc, _renderTargetDescriptor[i]);
