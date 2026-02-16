@@ -743,6 +743,8 @@ bool FSRFG_Dx12::CreateSwapchain(IDXGIFactory* factory, ID3D12CommandQueue* cmdQ
 
     auto result = FfxApiProxy::D3D12_CreateContext(&_swapChainContext, &createSwapChainDesc.header, nullptr);
 
+    LOG_DEBUG("FSRFG_Dx12::CreateSwapchain D3D12_CreateContext result: {:X}, swapChainContext: {:X}", (uint32_t)result, (size_t)_swapChainContext);
+
     if (result == FFX_API_RETURN_OK)
     {
         ConfigureFramePaceTuning();
@@ -884,6 +886,14 @@ void FSRFG_Dx12::CreateContext(ID3D12Device* device, FG_Constants& fgConstants)
     versionQuery.outputCount = &versionCount;
     // get number of versions for allocation
     FfxApiProxy::D3D12_Query(nullptr, &versionQuery.header);
+
+    LOG_DEBUG("FG version count: {}", versionCount);
+
+    if (versionCount == 0)
+    {
+        LOG_ERROR("No FG versions available, cannot create FG context");
+        return;
+    }
 
     State::Instance().ffxFGVersionIds.resize(versionCount);
     State::Instance().ffxFGVersionNames.resize(versionCount);

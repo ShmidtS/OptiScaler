@@ -121,8 +121,14 @@ class FfxApiProxy
     static HMODULE Dx12Module_SR() { return upscaling_dx12.dll; }
     static HMODULE Dx12Module_FG() { return fg_dx12.dll; }
 
-    static bool IsFGReady() { return (main_dx12.dll && !main_dx12.isLoader) || fg_dx12.dll != nullptr || main_vk.dll != nullptr; }
-    static bool IsSRReady() { return (main_dx12.dll && !main_dx12.isLoader) || upscaling_dx12.dll != nullptr || main_vk.dll != nullptr; }
+    static bool IsFGReady()
+    {
+        return (main_dx12.dll && !main_dx12.isLoader) || fg_dx12.dll != nullptr || main_vk.dll != nullptr;
+    }
+    static bool IsSRReady()
+    {
+        return (main_dx12.dll && !main_dx12.isLoader) || upscaling_dx12.dll != nullptr || main_vk.dll != nullptr;
+    }
     static bool IsVkReady() { return main_vk.dll != nullptr && main_vk.CreateContext != nullptr; }
 
     // Check if DX12 Frame Generation is ready (for Vulkan w/DX12 interop or DX12 games)

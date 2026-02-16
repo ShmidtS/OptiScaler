@@ -130,7 +130,7 @@ bool DLSSDFeatureVk::Evaluate(VkCommandBuffer InCmdBuffer, NVSDK_NGX_Parameter* 
             useSS = false;
         }
 
-        if (rcasEnabled)
+        if (rcasEnabled && paramOutput != nullptr)
         {
             finalOutputView = paramOutput->Resource.ImageViewInfo.ImageView;
             finalOutputImage = paramOutput->Resource.ImageViewInfo.Image;

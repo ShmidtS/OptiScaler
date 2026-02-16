@@ -395,7 +395,8 @@ void ImGui_ImplDX11_UpdateTexture(ImTextureData* tex)
         srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
         srvDesc.Texture2D.MipLevels = desc.MipLevels;
         srvDesc.Texture2D.MostDetailedMip = 0;
-        bd->pd3dDevice->CreateShaderResourceView(backend_tex->pTexture, &srvDesc, &backend_tex->pTextureView);
+        if (backend_tex->pTexture != nullptr)
+            bd->pd3dDevice->CreateShaderResourceView(backend_tex->pTexture, &srvDesc, &backend_tex->pTextureView);
         IM_ASSERT(backend_tex->pTextureView != nullptr && "Backend failed to create texture!");
 
         // Store identifiers
@@ -735,8 +736,11 @@ static void ImGui_ImplDX11_CreateWindow(ImGuiViewport* viewport)
     {
         ID3D11Texture2D* pBackBuffer;
         vd->SwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer));
-        bd->pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &vd->RTView);
-        pBackBuffer->Release();
+        if (pBackBuffer != nullptr)
+        {
+            bd->pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &vd->RTView);
+            pBackBuffer->Release();
+        }
     }
 }
 

@@ -180,8 +180,14 @@ const char8_t* customD3D12SDKPath = u8".\\D3D12_Optiscaler\\"; // Hardcoded for 
 static void RunAgilityUpgrade(HMODULE dx12Module)
 {
     typedef HRESULT (*PFN_IsDeveloperModeEnabled)(BOOL* isEnabled);
+    HMODULE kernelBaseModule = GetModuleHandle(L"kernelbase.dll");
+    if (kernelBaseModule == nullptr)
+    {
+        LOG_ERROR("Failed to get kernelbase.dll module handle");
+        return;
+    }
     PFN_IsDeveloperModeEnabled o_IsDeveloperModeEnabled =
-        (PFN_IsDeveloperModeEnabled) GetProcAddress(GetModuleHandle(L"kernelbase.dll"), "IsDeveloperModeEnabled");
+        (PFN_IsDeveloperModeEnabled) GetProcAddress(kernelBaseModule, "IsDeveloperModeEnabled");
 
     if (o_IsDeveloperModeEnabled == nullptr)
     {

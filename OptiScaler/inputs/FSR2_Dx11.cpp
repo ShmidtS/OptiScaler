@@ -239,8 +239,14 @@ static FfxErrorCode ffxFsr2ContextCreate_Dx11(FfxFsr2Context* context, FfxFsr2Co
             pathStorage.push_back(Config::Instance()->DLSSFeaturePath.value());
 
         // Build pointer array
-        wchar_t const** paths = new const wchar_t*[pathStorage.size()];
-        for (size_t i = 0; i < pathStorage.size(); ++i)
+        const size_t pathCount = pathStorage.size();
+        if (pathCount == 0)
+        {
+            LOG_ERROR("pathStorage is empty!");
+            return FFX_ERROR_INVALID_ARGUMENT;
+        }
+        wchar_t const** paths = new const wchar_t*[pathCount];
+        for (size_t i = 0; i < pathCount; ++i)
         {
             paths[i] = pathStorage[i].c_str();
         }

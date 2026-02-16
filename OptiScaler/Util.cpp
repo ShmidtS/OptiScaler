@@ -324,7 +324,7 @@ bool Util::GetDLLVersion(std::wstring dllPath, version_t* versionOut)
 
     // Step 2: Allocate buffer and get the version information
     std::vector<BYTE> versionInfo(versionSize);
-    if (!GetFileVersionInfoW(dllPath.c_str(), handle, versionSize, versionInfo.data()))
+    if (!GetFileVersionInfoW(dllPath.c_str(), 0, versionSize, versionInfo.data()))
     {
         // LOG_ERROR("Failed to get version info: {0:X}", LogLastError());
         return false;

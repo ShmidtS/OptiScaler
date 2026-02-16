@@ -3,6 +3,7 @@
 #include <Logger.h>
 
 #include "DLSSFeature_Vk.h"
+#include <inputs/FfxApi_Vk.h>
 
 bool DLSSFeatureVk::Init(VkInstance InInstance, VkPhysicalDevice InPD, VkDevice InDevice, VkCommandBuffer InCmdList,
                          PFN_vkGetInstanceProcAddr InGIPA, PFN_vkGetDeviceProcAddr InGDPA,
@@ -126,7 +127,7 @@ bool DLSSFeatureVk::Evaluate(VkCommandBuffer InCmdBuffer, NVSDK_NGX_Parameter* I
             useSS = false;
         }
 
-        if (rcasEnabled)
+        if (rcasEnabled && paramOutput != nullptr)
         {
             finalOutputView = paramOutput->Resource.ImageViewInfo.ImageView;
             finalOutputImage = paramOutput->Resource.ImageViewInfo.Image;
@@ -271,6 +272,26 @@ bool DLSSFeatureVk::Evaluate(VkCommandBuffer InCmdBuffer, NVSDK_NGX_Parameter* I
     }
 
     _frameCount++;
+
+    // Capture depth and motion vectors for Frame Generation
+    NVSDK_NGX_Resource_VK* paramDepth = nullptr;
+    NVSDK_NGX_Resource_VK* paramMV = nullptr;
+
+    if (InParameters->Get(NVSDK_NGX_Parameter_Depth, (void**) &paramDepth) && paramDepth != nullptr &&
+        InParameters->Get(NVSDK_NGX_Parameter_MotionVectors, (void**) &paramMV) && paramMV != nullptr)
+    {
+        VkImage depthImage = paramDepth->Resource.ImageViewInfo.Image;
+        VkImage mvImage = paramMV->Resource.ImageViewInfo.Image;
+        uint32_t width = paramDepth->Resource.ImageViewInfo.Width;
+        uint32_t height = paramDepth->Resource.ImageViewInfo.Height;
+
+        if (depthImage != VK_NULL_HANDLE && mvImage != VK_NULL_HANDLE)
+        {
+            FfxApiVk_SetFGResources(depthImage, mvImage, width, height);
+            LOG_TRACE("DLSS VK: Captured FG resources depth={:X}, mv={:X}, {}x{}",
+                      (size_t)depthImage, (size_t)mvImage, width, height);
+        }
+    }
 
     return true;
 }

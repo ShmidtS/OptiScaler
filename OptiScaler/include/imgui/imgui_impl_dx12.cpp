@@ -537,7 +537,8 @@ void ImGui_ImplDX12_UpdateTexture(ImTextureData* tex)
 
         // FIXME-OPT: Can be use the one from user? (pass ID3D12GraphicsCommandList* to ImGui_ImplDX12_UpdateTextures)
         ID3D12GraphicsCommandList* cmdList = nullptr;
-        hr = bd->pd3dDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, cmdAlloc, nullptr, IID_PPV_ARGS(&cmdList));
+        if (cmdAlloc != nullptr)
+            hr = bd->pd3dDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, cmdAlloc, nullptr, IID_PPV_ARGS(&cmdList));
         IM_ASSERT(SUCCEEDED(hr));
 
         // Copy to upload buffer
@@ -600,12 +601,16 @@ void ImGui_ImplDX12_UpdateTexture(ImTextureData* tex)
         // - To remove this may need to create NumFramesInFlight x ImGui_ImplDX12_FrameContext in backend data (mimick docking version)
         // - Store per-frame in flight: upload buffer?
         // - Where do cmdList and cmdAlloc fit?
-        fence->SetEventOnCompletion(1, event);
-        ::WaitForSingleObject(event, INFINITE);
+        if (event != nullptr)
+        {
+            fence->SetEventOnCompletion(1, event);
+            ::WaitForSingleObject(event, INFINITE);
+        }
 
         cmdList->Release();
         cmdAlloc->Release();
-        ::CloseHandle(event);
+        if (event != nullptr)
+            ::CloseHandle(event);
         fence->Release();
         uploadBuffer->Release();
         tex->SetStatus(ImTextureStatus_OK);
@@ -1068,7 +1073,8 @@ static void ImGui_ImplDX12_CreateWindow(ImGuiViewport* viewport)
     IM_ASSERT(res == S_OK);
 
     IDXGISwapChain1* swap_chain = nullptr;
-    res = dxgi_factory->CreateSwapChainForHwnd(vd->CommandQueue, hwnd, &sd1, nullptr, nullptr, &swap_chain);
+    if (vd->CommandQueue != nullptr)
+        res = dxgi_factory->CreateSwapChainForHwnd(vd->CommandQueue, hwnd, &sd1, nullptr, nullptr, &swap_chain);
     IM_ASSERT(res == S_OK);
 
     dxgi_factory->Release();

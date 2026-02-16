@@ -51,6 +51,13 @@ ID3D12GraphicsCommandList* IFGFeature_Dx12::GetUICommandList(int index)
     if (index < 0)
         index = GetIndex();
 
+    // Bounds check to prevent buffer overflow
+    if (index < 0 || index >= BUFFER_COUNT)
+    {
+        LOG_ERROR("Invalid index {} for UI command list (BUFFER_COUNT={})", index, BUFFER_COUNT);
+        return nullptr;
+    }
+
     LOG_DEBUG("index: {}", index);
 
     if (_uiCommandAllocator[0] == nullptr)

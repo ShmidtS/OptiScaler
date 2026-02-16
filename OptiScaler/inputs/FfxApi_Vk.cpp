@@ -12,6 +12,7 @@
 
 #include <ffx_upscale.h>
 #include <vk/ffx_api_vk.h>
+#include <ffx_framegeneration.h>
 
 #include <nvsdk_ngx_vk.h>
 #include <nvsdk_ngx_helpers_vk.h>
@@ -435,14 +436,20 @@ ffxReturnCode_t ffxCreateContext_Vk(ffxContext* context, ffxCreateContextDescHea
             pathStorage.push_back(Config::Instance()->DLSSFeaturePath.value());
 
         // Build pointer array
-        wchar_t const** paths = new const wchar_t*[pathStorage.size()];
-        for (size_t i = 0; i < pathStorage.size(); ++i)
+        const size_t pathCount = pathStorage.size();
+        if (pathCount == 0)
+        {
+            LOG_ERROR("pathStorage is empty!");
+            return FFX_API_RETURN_ERROR_RUNTIME_ERROR;
+        }
+        wchar_t const** paths = new const wchar_t*[pathCount];
+        for (size_t i = 0; i < pathCount; ++i)
         {
             paths[i] = pathStorage[i].c_str();
         }
 
         fcInfo.PathListInfo.Path = paths;
-        fcInfo.PathListInfo.Length = (int) pathStorage.size();
+        fcInfo.PathListInfo.Length = (int) pathCount;
 
         auto nvResult = NVSDK_NGX_VULKAN_Init_ProjectID_Ext(
             "OptiScaler", State::Instance().NVNGX_Engine, VER_PRODUCT_VERSION_STR, exePath.c_str(),
@@ -553,6 +560,46 @@ ffxReturnCode_t ffxDispatch_Vk(ffxContext* context, ffxDispatchDescHeader* desc)
         return FFX_API_RETURN_ERROR_PARAMETER;
 
     LOG_DEBUG("context: {:X}, type: {:X}", (size_t) *context, desc->type);
+
+    // Handle Frame Generation Prepare dispatch - capture depth/velocity for DX12 interop FG
+    if (desc->type == FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2)
+    {
+        auto fgPrepareDesc = (ffxDispatchDescFrameGenerationPrepareV2*) desc;
+
+        // Capture depth and motion vectors for FG use
+        if (fgPrepareDesc->depth.resource != nullptr && fgPrepareDesc->motionVectors.resource != nullptr)
+        {
+            _fgDepthImage = (VkImage) fgPrepareDesc->depth.resource;
+            _fgMotionVectorImage = (VkImage) fgPrepareDesc->motionVectors.resource;
+            _fgWidth = fgPrepareDesc->renderSize.width;
+            _fgHeight = fgPrepareDesc->renderSize.height;
+
+            LOG_TRACE("FG Prepare V2: Captured depth={:X}, mv={:X}, {}x{}",
+                      (size_t)_fgDepthImage, (size_t)_fgMotionVectorImage, _fgWidth, _fgHeight);
+        }
+
+        // Pass to original FFX dispatch
+        return FfxApiProxy::VULKAN_Dispatch()(context, desc);
+    }
+    else if (desc->type == FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE)
+    {
+        auto fgPrepareDesc = (ffxDispatchDescFrameGenerationPrepare*) desc;
+
+        // Capture depth and motion vectors for FG use
+        if (fgPrepareDesc->depth.resource != nullptr && fgPrepareDesc->motionVectors.resource != nullptr)
+        {
+            _fgDepthImage = (VkImage) fgPrepareDesc->depth.resource;
+            _fgMotionVectorImage = (VkImage) fgPrepareDesc->motionVectors.resource;
+            _fgWidth = fgPrepareDesc->renderSize.width;
+            _fgHeight = fgPrepareDesc->renderSize.height;
+
+            LOG_TRACE("FG Prepare: Captured depth={:X}, mv={:X}, {}x{}",
+                      (size_t)_fgDepthImage, (size_t)_fgMotionVectorImage, _fgWidth, _fgHeight);
+        }
+
+        // Pass to original FFX dispatch
+        return FfxApiProxy::VULKAN_Dispatch()(context, desc);
+    }
 
     if (!_initParams.contains(*context))
     {
@@ -755,4 +802,12 @@ void FfxApiVk_GetFGResources(VkImage* depth, VkImage* motionVectors, uint32_t* w
 
     if (height != nullptr)
         *height = _fgHeight;
+}
+
+void FfxApiVk_SetFGResources(VkImage depth, VkImage motionVectors, uint32_t width, uint32_t height)
+{
+    _fgDepthImage = depth;
+    _fgMotionVectorImage = motionVectors;
+    _fgWidth = width;
+    _fgHeight = height;
 }

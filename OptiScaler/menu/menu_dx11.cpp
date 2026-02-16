@@ -60,13 +60,16 @@ void Menu_Dx11::CreateRenderTarget(ID3D11Resource* out)
 
         _device->CreateTexture2D(&textureDesc, nullptr, &_renderTargetTexture);
 
-        D3D11_RENDER_TARGET_VIEW_DESC rtvDesc;
-        ZeroMemory(&rtvDesc, sizeof(rtvDesc));
-        rtvDesc.Format = textureDesc.Format;
-        rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-        rtvDesc.Texture2D.MipSlice = 0;
+        if (_renderTargetTexture != nullptr)
+        {
+            D3D11_RENDER_TARGET_VIEW_DESC rtvDesc;
+            ZeroMemory(&rtvDesc, sizeof(rtvDesc));
+            rtvDesc.Format = textureDesc.Format;
+            rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+            rtvDesc.Texture2D.MipSlice = 0;
 
-        _device->CreateRenderTargetView(_renderTargetTexture, &rtvDesc, &_renderTargetView);
+            _device->CreateRenderTargetView(_renderTargetTexture, &rtvDesc, &_renderTargetView);
+        }
     }
 }
 

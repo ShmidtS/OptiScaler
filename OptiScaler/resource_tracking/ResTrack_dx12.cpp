@@ -184,7 +184,7 @@ inline static std::once_flag streamlineRiidInitFlag;
 bool ResTrack_Dx12::CheckForRealObject(const std::string functionName, IUnknown* pObject, IUnknown** ppRealObject)
 {
     std::call_once(streamlineRiidInitFlag,
-                   []() { IIDFromString(L"{ADEC44E2-61F0-45C3-AD9F-1B37379284FF}", &streamlineRiid); });
+                   []() { (void)IIDFromString(L"{ADEC44E2-61F0-45C3-AD9F-1B37379284FF}", &streamlineRiid); });
 
     auto qResult = pObject->QueryInterface(streamlineRiid, (void**) ppRealObject);
 

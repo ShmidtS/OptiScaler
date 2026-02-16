@@ -7,6 +7,7 @@
 #include "FG/DLSSG_Mod.h"
 #include "NVNGX_Parameter.h"
 #include "proxies/NVNGX_Proxy.h"
+#include "inputs/FfxApi_Vk.h"
 
 #include "upscalers/FeatureProvider_Vk.h"
 
@@ -14,6 +15,7 @@
 
 #include <vulkan/vulkan.hpp>
 #include <ankerl/unordered_dense.h>
+#include <nvsdk_ngx_vk.h>
 
 VkInstance vkInstance;
 VkPhysicalDevice vkPD;
@@ -872,6 +874,30 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_VULKAN_EvaluateFeature(VkCommandBuffer 
             LOG_DEBUG("VULKAN_EvaluateFeature for ({0})", handleId);
             auto result = NVNGXProxy::VULKAN_EvaluateFeature()(InCmdList, InFeatureHandle, InParameters, InCallback);
             LOG_INFO("VULKAN_EvaluateFeature result for ({0}): {1:X}", handleId, (UINT) result);
+
+            // Capture depth and motion vectors for Frame Generation
+            if (result == NVSDK_NGX_Result_Success)
+            {
+                NVSDK_NGX_Resource_VK* paramDepth = nullptr;
+                NVSDK_NGX_Resource_VK* paramMV = nullptr;
+
+                if (InParameters->Get(NVSDK_NGX_Parameter_Depth, (void**) &paramDepth) && paramDepth != nullptr &&
+                    InParameters->Get(NVSDK_NGX_Parameter_MotionVectors, (void**) &paramMV) && paramMV != nullptr)
+                {
+                    VkImage depthImage = paramDepth->Resource.ImageViewInfo.Image;
+                    VkImage mvImage = paramMV->Resource.ImageViewInfo.Image;
+                    uint32_t width = paramDepth->Resource.ImageViewInfo.Width;
+                    uint32_t height = paramDepth->Resource.ImageViewInfo.Height;
+
+                    if (depthImage != VK_NULL_HANDLE && mvImage != VK_NULL_HANDLE)
+                    {
+                        FfxApiVk_SetFGResources(depthImage, mvImage, width, height);
+                        LOG_TRACE("NVNGX_DLSS_Vk: Captured FG resources depth={:X}, mv={:X}, {}x{}",
+                                  (size_t)depthImage, (size_t)mvImage, width, height);
+                    }
+                }
+            }
+
             return result;
         }
         else

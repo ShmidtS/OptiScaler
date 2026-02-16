@@ -125,14 +125,20 @@ xess_result_t hk_xessD3D11CreateContext(ID3D11Device* device, xess_context_handl
             pathStorage.push_back(Config::Instance()->DLSSFeaturePath.value());
 
         // Build pointer array
-        wchar_t const** paths = new const wchar_t*[pathStorage.size()];
-        for (size_t i = 0; i < pathStorage.size(); ++i)
+        const size_t pathCount = pathStorage.size();
+        if (pathCount == 0)
+        {
+            LOG_ERROR("pathStorage is empty!");
+            return XESS_RESULT_ERROR_UNINITIALIZED;
+        }
+        wchar_t const** paths = new const wchar_t*[pathCount];
+        for (size_t i = 0; i < pathCount; ++i)
         {
             paths[i] = pathStorage[i].c_str();
         }
 
         fcInfo.PathListInfo.Path = paths;
-        fcInfo.PathListInfo.Length = (int) pathStorage.size();
+        fcInfo.PathListInfo.Length = (int) pathCount;
 
         auto nvResult = NVSDK_NGX_D3D11_Init_with_ProjectID(
             "OptiScaler", NVSDK_NGX_ENGINE_TYPE_CUSTOM, VER_PRODUCT_VERSION_STR, exePath.c_str(), device, &fcInfo,

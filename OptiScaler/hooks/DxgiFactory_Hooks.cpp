@@ -650,8 +650,7 @@ HRESULT DxgiFactoryHooks::CreateSwapChainForCoreWindow(IDXGIFactory2* realFactor
     if (pDevice == nullptr || pDesc == nullptr)
     {
         LOG_WARN("pDevice or pDesc is nullptr!");
-        ScopedSkipDxgiLoadChecks skipDxgiLoadChecks {};
-        return realFactory->CreateSwapChainForCoreWindow(pDevice, pWindow, pDesc, pRestrictToOutput, ppSwapChain);
+        return DXGI_ERROR_INVALID_CALL;
     }
 
     if (pDesc->Height < 100 || pDesc->Width < 100)

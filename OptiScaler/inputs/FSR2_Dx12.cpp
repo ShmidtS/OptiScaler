@@ -437,14 +437,20 @@ static Fsr212::FfxErrorCode ffxFsr2ContextCreate_Dx12(Fsr212::FfxFsr2Context* co
             pathStorage.push_back(Config::Instance()->DLSSFeaturePath.value());
 
         // Build pointer array
-        wchar_t const** paths = new const wchar_t*[pathStorage.size()];
-        for (size_t i = 0; i < pathStorage.size(); ++i)
+        const size_t pathCount = pathStorage.size();
+        if (pathCount == 0)
+        {
+            LOG_ERROR("pathStorage is empty!");
+            return Fsr212::FFX_ERROR_BACKEND_API_ERROR;
+        }
+        wchar_t const** paths = new const wchar_t*[pathCount];
+        for (size_t i = 0; i < pathCount; ++i)
         {
             paths[i] = pathStorage[i].c_str();
         }
 
         fcInfo.PathListInfo.Path = paths;
-        fcInfo.PathListInfo.Length = (int) pathStorage.size();
+        fcInfo.PathListInfo.Length = (int) pathCount;
 
         auto nvResult = NVSDK_NGX_D3D12_Init_with_ProjectID(
             "OptiScaler", state.NVNGX_Engine, VER_PRODUCT_VERSION_STR, exePath.c_str(), _d3d12Device, &fcInfo,
@@ -555,14 +561,20 @@ static Fsr212::FfxErrorCode ffxFsr2ContextCreate_Pattern_Dx12(Fsr212::FfxFsr2Con
             pathStorage.push_back(Config::Instance()->DLSSFeaturePath.value());
 
         // Build pointer array
-        wchar_t const** paths = new const wchar_t*[pathStorage.size()];
-        for (size_t i = 0; i < pathStorage.size(); ++i)
+        const size_t pathCount = pathStorage.size();
+        if (pathCount == 0)
+        {
+            LOG_ERROR("pathStorage is empty!");
+            return Fsr212::FFX_ERROR_BACKEND_API_ERROR;
+        }
+        wchar_t const** paths = new const wchar_t*[pathCount];
+        for (size_t i = 0; i < pathCount; ++i)
         {
             paths[i] = pathStorage[i].c_str();
         }
 
         fcInfo.PathListInfo.Path = paths;
-        fcInfo.PathListInfo.Length = (int) pathStorage.size();
+        fcInfo.PathListInfo.Length = (int) pathCount;
 
         auto nvResult = NVSDK_NGX_D3D12_Init_with_ProjectID(
             "OptiScaler", state.NVNGX_Engine, VER_PRODUCT_VERSION_STR, exePath.c_str(), _d3d12Device, &fcInfo,

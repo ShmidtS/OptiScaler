@@ -13,3 +13,4 @@ ffxReturnCode_t ffxDispatch_Vk(ffxContext* context, ffxDispatchDescHeader* desc)
 // Frame Generation resource helpers
 bool FfxApiVk_HasFGResources();
 void FfxApiVk_GetFGResources(VkImage* depth, VkImage* motionVectors, uint32_t* width, uint32_t* height);
+void FfxApiVk_SetFGResources(VkImage depth, VkImage motionVectors, uint32_t width, uint32_t height);
