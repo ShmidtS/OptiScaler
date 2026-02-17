@@ -166,7 +166,7 @@ bool DLSSDFeatureVk::Evaluate(VkCommandBuffer InCmdBuffer, NVSDK_NGX_Parameter* 
             }
         }
 
-        if (useSS)
+        if (useSS && paramOutput != nullptr)
         {
             if (finalOutputImage != RCAS->GetImage())
             {

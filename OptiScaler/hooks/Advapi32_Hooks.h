@@ -182,7 +182,10 @@ static LONG hkRegQueryValueExW(HKEY hKey, LPCWSTR lpValueName, LPDWORD lpReserve
 
         if (valueName == L"HardwareID")
         {
-            // Handle REG_SZ type
+            // Handle REG_SZ type - check for null pointers before dereferencing
+            if (lpData == nullptr || lpcbData == nullptr || *lpcbData == 0)
+                return result;
+
             std::wstring data(reinterpret_cast<wchar_t*>(lpData), *lpcbData / sizeof(wchar_t));
             std::wstring newData = data;
             size_t pos = 0;
@@ -319,7 +322,10 @@ LONG WINAPI hkRegQueryValueExA(HKEY hKey, LPCSTR lpValueName, LPDWORD lpReserved
 
         if (valueName == "HardwareID")
         {
-            // Handle REG_SZ type
+            // Handle REG_SZ type - check for null pointers before dereferencing
+            if (lpData == nullptr || lpcbData == nullptr || *lpcbData == 0)
+                return result;
+
             std::string data(reinterpret_cast<char*>(lpData), *lpcbData / sizeof(char));
             std::string newData = data;
             size_t pos = 0;

@@ -80,6 +80,7 @@ ID3D12GraphicsCommandList* IFGFeature_Dx12::GetUICommandList(int index)
     for (size_t j = 0; j < 2; j++)
     {
         auto i = (index + j) % BUFFER_COUNT;
+        __analysis_assume(i >= 0 && i < BUFFER_COUNT);
 
         if (i != index && _uiCommandListResetted[i])
         {

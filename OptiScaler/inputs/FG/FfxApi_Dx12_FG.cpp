@@ -11,36 +11,6 @@
 #include "dx12/ffx_api_dx12.h"
 #include "dx12/ffx_api_framegeneration_dx12.h"
 
-#define FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2 0x2000C
-struct ffxDispatchDescFrameGenerationPrepareV2
-{
-    ffxDispatchDescHeader header;
-    uint64_t frameID; ///< Identifier used to select internal resources when async support is enabled. Must increment by
-                      ///< exactly one (1) for each frame. Any non-exactly-one difference will reset the frame
-                      ///< generation logic.
-    uint32_t flags;   ///< Zero or combination of values from FfxApiDispatchFrameGenerationFlags.
-    void* commandList;                            ///< A command list to record frame generation commands into.
-    struct FfxApiDimensions2D renderSize;         ///< The dimensions used to render game content, dilatedDepth,
-                                                  ///< dilatedMotionVectors are expected to be of ths size.
-    struct FfxApiFloatCoords2D jitterOffset;      ///< The subpixel jitter offset applied to the camera.
-    struct FfxApiFloatCoords2D motionVectorScale; ///< The scale factor to apply to motion vectors.
-
-    float frameTimeDelta; ///< Time elapsed in milliseconds since the last frame.
-    bool reset; ///< A boolean value which when set to true, indicates FrameGeneration will be called in reset mode
-    float cameraNear; ///< The distance to the near plane of the camera.
-    float cameraFar;  ///< The distance to the far plane of the camera. This is used only used in case of non infinite
-                      ///< depth.
-    float cameraFovAngleVertical;  ///< The camera angle field of view in the vertical direction (expressed in radians).
-    float viewSpaceToMetersFactor; ///< The scale factor to convert view space units to meters
-    struct FfxApiResource depth;   ///< The depth buffer data
-    struct FfxApiResource motionVectors; ///< The motion vector data
-
-    float cameraPosition[3]; ///< The camera position in world space
-    float cameraUp[3];       ///< The camera up normalized vector in world space
-    float cameraRight[3];    ///< The camera right normalized vector in world space
-    float cameraForward[3];  ///< The camera forward normalized vector in world space
-};
-
 static ID3D12Device* _device = nullptr;
 static FG_Constants _fgConst {};
 

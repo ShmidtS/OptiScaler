@@ -185,8 +185,9 @@ class IGDExtProxy
 
         INTCExtensionInfo extInfo {};
 
-        if (_INTC_D3D12_GetSupportedVersions(device, extensionsVersions, &extensionsVersionCount) == S_OK &&
-            extensionsVersions != nullptr && extensionsVersionCount > 0)
+        if (extensionsVersions != nullptr &&
+            _INTC_D3D12_GetSupportedVersions(device, extensionsVersions, &extensionsVersionCount) == S_OK &&
+            extensionsVersionCount > 0)
         {
             for (uint32_t i = 0; i < extensionsVersionCount; i++)
             {
