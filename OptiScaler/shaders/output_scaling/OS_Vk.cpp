@@ -110,6 +110,9 @@ OS_Vk::OS_Vk(std::string InName, VkDevice InDevice, VkPhysicalDevice InPhysicalD
 
 OS_Vk::~OS_Vk()
 {
+    if (!_init || State::Instance().isShuttingDown)
+        return;
+
     if (_descriptorPool != VK_NULL_HANDLE)
     {
         vkDestroyDescriptorPool(_device, _descriptorPool, nullptr);

@@ -41,6 +41,12 @@ void IFeature_Dx11wDx12::ResourceBarrier(ID3D12GraphicsCommandList* commandList,
 bool IFeature_Dx11wDx12::CopyTextureFrom11To12(ID3D11Resource* InResource, D3D11_TEXTURE2D_RESOURCE_C* OutResource,
                                                bool InCopy, bool InDontUseNTShared)
 {
+    if (InResource == nullptr || OutResource == nullptr)
+    {
+        LOG_ERROR("CopyTextureFrom11To12: null input parameters!");
+        return false;
+    }
+
     ID3D11Texture2D* originalTexture = nullptr;
     D3D11_TEXTURE2D_DESC desc {};
 
@@ -82,16 +88,18 @@ bool IFeature_Dx11wDx12::CopyTextureFrom11To12(ID3D11Resource* InResource, D3D11
             if (result != S_OK)
             {
                 LOG_ERROR("CreateTexture2D error: {0:x}", result);
+                originalTexture->Release();
                 return false;
             }
 
-            IDXGIResource1* resource;
+            IDXGIResource1* resource = nullptr;
 
             result = OutResource->SharedTexture->QueryInterface(IID_PPV_ARGS(&resource));
 
             if (result != S_OK)
             {
                 LOG_ERROR("QueryInterface(resource) error: {0:x}", result);
+                originalTexture->Release();
                 return false;
             }
 
@@ -106,6 +114,8 @@ bool IFeature_Dx11wDx12::CopyTextureFrom11To12(ID3D11Resource* InResource, D3D11
             if (result != S_OK)
             {
                 LOG_ERROR("GetSharedHandle error: {0:x}", result);
+                resource->Release();
+                originalTexture->Release();
                 return false;
             }
 
@@ -133,6 +143,7 @@ bool IFeature_Dx11wDx12::CopyTextureFrom11To12(ID3D11Resource* InResource, D3D11
                 if (result != S_OK || resource == nullptr)
                 {
                     LOG_ERROR("QueryInterface(resource) error: {0:x}", result);
+                    originalTexture->Release();
                     return false;
                 }
 
@@ -143,6 +154,7 @@ bool IFeature_Dx11wDx12::CopyTextureFrom11To12(ID3D11Resource* InResource, D3D11
                 {
                     LOG_ERROR("GetSharedHandle error: {0:x}", result);
                     resource->Release();
+                    originalTexture->Release();
                     return false;
                 }
 
@@ -177,12 +189,20 @@ bool IFeature_Dx11wDx12::CopyTextureFrom11To12(ID3D11Resource* InResource, D3D11
 
                 result = Dx11Device->CreateTexture2D(&desc, nullptr, &OutResource->SharedTexture);
 
-                IDXGIResource1* resource;
+                if (result != S_OK)
+                {
+                    LOG_ERROR("CreateTexture2D error: {0:x}", result);
+                    originalTexture->Release();
+                    return false;
+                }
+
+                IDXGIResource1* resource = nullptr;
                 result = OutResource->SharedTexture->QueryInterface(IID_PPV_ARGS(&resource));
 
                 if (result != S_OK)
                 {
                     LOG_ERROR("QueryInterface(resource) error: {0:x}", result);
+                    originalTexture->Release();
                     return false;
                 }
 
@@ -193,6 +213,7 @@ bool IFeature_Dx11wDx12::CopyTextureFrom11To12(ID3D11Resource* InResource, D3D11
                 {
                     LOG_ERROR("GetSharedHandle error: {0:x}", result);
                     resource->Release();
+                    originalTexture->Release();
                     return false;
                 }
 
@@ -207,13 +228,14 @@ bool IFeature_Dx11wDx12::CopyTextureFrom11To12(ID3D11Resource* InResource, D3D11
     {
         if (OutResource->SharedTexture != InResource)
         {
-            IDXGIResource1* resource;
+            IDXGIResource1* resource = nullptr;
 
             result = originalTexture->QueryInterface(IID_PPV_ARGS(&resource));
 
             if (result != S_OK || resource == nullptr)
             {
                 LOG_ERROR("QueryInterface(resource) error: {0:x}", result);
+                originalTexture->Release();
                 return false;
             }
 
@@ -236,6 +258,8 @@ bool IFeature_Dx11wDx12::CopyTextureFrom11To12(ID3D11Resource* InResource, D3D11
             if (result != S_OK)
             {
                 LOG_ERROR("GetSharedHandle error: {0:x}", result);
+                resource->Release();
+                originalTexture->Release();
                 return false;
             }
 
@@ -299,6 +323,12 @@ void IFeature_Dx11wDx12::GetHardwareAdapter(IDXGIFactory1* InFactory, IDXGIAdapt
 {
     LOG_FUNC();
 
+    if (InFactory == nullptr || InAdapter == nullptr)
+    {
+        LOG_ERROR("GetHardwareAdapter: null input parameters!");
+        return;
+    }
+
     *InAdapter = nullptr;
 
     IDXGIAdapter1* adapter = nullptr;
@@ -320,22 +350,17 @@ void IFeature_Dx11wDx12::GetHardwareAdapter(IDXGIFactory1* InFactory, IDXGIAdapt
             adapter->GetDesc1(&desc);
 
             if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
+            {
+                adapter->Release();
+                adapter = nullptr;
                 continue;
+            }
 
             *InAdapter = adapter;
             break;
-
-            // Check to see whether the adapter supports Direct3D 12, but don't create the
-            // actual device yet.
-            // auto result = D3d12Proxy::D3D12CreateDevice_()(adapter, InFeatureLevel, _uuidof(ID3D12Device), nullptr);
-            // LOG_DEBUG("D3D12CreateDevice test result: {:X}", (UINT) result);
-
-            // if (result == S_FALSE)
-            //{
-            //     *InAdapter = adapter
-            //     break;
-            //}
         }
+
+        factory6->Release();
     }
     else
     {
@@ -347,7 +372,11 @@ void IFeature_Dx11wDx12::GetHardwareAdapter(IDXGIFactory1* InFactory, IDXGIAdapt
             adapter->GetDesc1(&desc);
 
             if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
+            {
+                adapter->Release();
+                adapter = nullptr;
                 continue;
+            }
 
             // Check to see whether the adapter supports Direct3D 12, but don't create the
             // actual device yet.
@@ -359,6 +388,9 @@ void IFeature_Dx11wDx12::GetHardwareAdapter(IDXGIFactory1* InFactory, IDXGIAdapt
                 *InAdapter = adapter;
                 break;
             }
+
+            adapter->Release();
+            adapter = nullptr;
         }
     }
 }
@@ -402,6 +434,9 @@ HRESULT IFeature_Dx11wDx12::CreateDx12Device(D3D_FEATURE_LEVEL InFeatureLevel)
         if (result != S_OK)
         {
             LOG_ERROR("Can't create device: {:X}", (UINT) result);
+            if (hwAdapter != nullptr)
+                hwAdapter->Release();
+            factory->Release();
             return result;
         }
 
@@ -416,7 +451,10 @@ HRESULT IFeature_Dx11wDx12::CreateDx12Device(D3D_FEATURE_LEVEL InFeatureLevel)
                 LOG_INFO("D3D12Device created with adapter: {}", adapterDesc);
                 State::Instance().DeviceAdapterNames[_dx11on12Device] = adapterDesc;
             }
+            hwAdapter->Release();
         }
+
+        factory->Release();
     }
     else
     {

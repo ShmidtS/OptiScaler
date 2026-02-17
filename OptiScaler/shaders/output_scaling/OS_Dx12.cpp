@@ -91,7 +91,12 @@ bool OS_Dx12::Dispatch(ID3D12Device* InDevice, ID3D12GraphicsCommandList* InCmdL
         // Copy the updated constant buffer data to the constant buffer resource
         UINT8* pCBDataBegin;
         CD3DX12_RANGE readRange(0, 0); // We do not intend to read from this resource on the CPU
-        _constantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pCBDataBegin));
+        auto mapResult = _constantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pCBDataBegin));
+        if (mapResult != S_OK || pCBDataBegin == nullptr)
+        {
+            LOG_ERROR("[{0}] ConstantBuffer Map error {1:x}", _name, (unsigned int)mapResult);
+            return false;
+        }
         memcpy(pCBDataBegin, &constants, sizeof(constants));
         _constantBuffer->Unmap(0, nullptr);
 
@@ -109,7 +114,12 @@ bool OS_Dx12::Dispatch(ID3D12Device* InDevice, ID3D12GraphicsCommandList* InCmdL
         // Copy the updated constant buffer data to the constant buffer resource
         UINT8* pCBDataBegin;
         CD3DX12_RANGE readRange(0, 0); // We do not intend to read from this resource on the CPU
-        _constantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pCBDataBegin));
+        auto mapResult = _constantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pCBDataBegin));
+        if (mapResult != S_OK || pCBDataBegin == nullptr)
+        {
+            LOG_ERROR("[{0}] ConstantBuffer Map error {1:x}", _name, (unsigned int)mapResult);
+            return false;
+        }
         memcpy(pCBDataBegin, &constants, sizeof(constants));
         _constantBuffer->Unmap(0, nullptr);
 
@@ -188,7 +198,9 @@ OS_Dx12::OS_Dx12(std::string InName, ID3D12Device* InDevice, bool InUpsample)
     //     rootSigDesc.Desc_1_1.pStaticSamplers = nullptr;
     // }
 
-    D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(sizeof(Constants));
+    // Allocate enough space for the larger of the two constant buffer types
+    constexpr size_t maxConstantSize = (sizeof(Constants) > sizeof(UpscaleShaderConstants)) ? sizeof(Constants) : sizeof(UpscaleShaderConstants);
+    D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(maxConstantSize);
     auto heapProps = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
     InDevice->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_GENERIC_READ,
                                       nullptr, IID_PPV_ARGS(&_constantBuffer));

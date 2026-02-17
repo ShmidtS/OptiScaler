@@ -25,9 +25,6 @@ bool DS_Dx12::CreateBufferResource(ID3D12Device* InDevice, ID3D12Resource* InSou
     }
 
     return result;
-
-    if (InDevice == nullptr || InSource == nullptr)
-        return false;
 }
 
 void DS_Dx12::SetBufferState(ID3D12GraphicsCommandList* InCommandList, D3D12_RESOURCE_STATES InState)

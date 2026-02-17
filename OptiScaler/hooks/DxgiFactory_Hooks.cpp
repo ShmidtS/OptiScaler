@@ -51,9 +51,23 @@ void DxgiFactoryHooks::HookToFactory(IDXGIFactory* pFactory)
     if (!Util::CheckForRealObject(__FUNCTION__, pFactory, (IUnknown**) &real))
         real = pFactory;
 
-    void** pFactoryVTable = *reinterpret_cast<void***>(real);
+    // Validate vtable pointer
+    void*** ppVTable = reinterpret_cast<void***>(real);
+    if (ppVTable == nullptr || *ppVTable == nullptr)
+    {
+        LOG_ERROR("VTable pointer is null in HookToFactory");
+        return;
+    }
 
-    DetourTransactionBegin();
+    void** pFactoryVTable = *ppVTable;
+
+    LONG detourResult = DetourTransactionBegin();
+    if (detourResult != NO_ERROR)
+    {
+        LOG_ERROR("DetourTransactionBegin failed in HookToFactory: {}", detourResult);
+        return;
+    }
+
     DetourUpdateThread(GetCurrentThread());
 
     if (o_EnumAdapters == nullptr)
@@ -61,7 +75,11 @@ void DxgiFactoryHooks::HookToFactory(IDXGIFactory* pFactory)
         o_EnumAdapters = (PFN_EnumAdapters) pFactoryVTable[7];
 
         if (o_EnumAdapters != nullptr)
-            DetourAttach(&(PVOID&) o_EnumAdapters, DxgiFactoryHooks::EnumAdapters);
+        {
+            detourResult = DetourAttach(&(PVOID&) o_EnumAdapters, DxgiFactoryHooks::EnumAdapters);
+            if (detourResult != NO_ERROR)
+                LOG_ERROR("DetourAttach o_EnumAdapters failed: {}", detourResult);
+        }
     }
 
     if (o_CreateSwapChain == nullptr)
@@ -69,7 +87,11 @@ void DxgiFactoryHooks::HookToFactory(IDXGIFactory* pFactory)
         o_CreateSwapChain = (PFN_CreateSwapChain) pFactoryVTable[10];
 
         if (o_CreateSwapChain != nullptr)
-            DetourAttach(&(PVOID&) o_CreateSwapChain, DxgiFactoryHooks::CreateSwapChain);
+        {
+            detourResult = DetourAttach(&(PVOID&) o_CreateSwapChain, DxgiFactoryHooks::CreateSwapChain);
+            if (detourResult != NO_ERROR)
+                LOG_ERROR("DetourAttach o_CreateSwapChain failed: {}", detourResult);
+        }
     }
 
     IDXGIFactory1* factory1 = nullptr;
@@ -82,7 +104,11 @@ void DxgiFactoryHooks::HookToFactory(IDXGIFactory* pFactory)
             o_EnumAdapters1 = (PFN_EnumAdapters1) pFactoryVTable[12];
 
             if (o_EnumAdapters1 != nullptr)
-                DetourAttach(&(PVOID&) o_EnumAdapters1, DxgiFactoryHooks::EnumAdapters1);
+            {
+                detourResult = DetourAttach(&(PVOID&) o_EnumAdapters1, DxgiFactoryHooks::EnumAdapters1);
+                if (detourResult != NO_ERROR)
+                    LOG_ERROR("DetourAttach o_EnumAdapters1 failed: {}", detourResult);
+            }
         }
     }
 
@@ -96,7 +122,11 @@ void DxgiFactoryHooks::HookToFactory(IDXGIFactory* pFactory)
             o_CreateSwapChainForHwnd = (PFN_CreateSwapChainForHwnd) pFactoryVTable[15];
 
             if (o_CreateSwapChainForHwnd != nullptr)
-                DetourAttach(&(PVOID&) o_CreateSwapChainForHwnd, DxgiFactoryHooks::CreateSwapChainForHwnd);
+            {
+                detourResult = DetourAttach(&(PVOID&) o_CreateSwapChainForHwnd, DxgiFactoryHooks::CreateSwapChainForHwnd);
+                if (detourResult != NO_ERROR)
+                    LOG_ERROR("DetourAttach o_CreateSwapChainForHwnd failed: {}", detourResult);
+            }
         }
 
         if (o_CreateSwapChainForCoreWindow == nullptr)
@@ -104,7 +134,11 @@ void DxgiFactoryHooks::HookToFactory(IDXGIFactory* pFactory)
             o_CreateSwapChainForCoreWindow = (PFN_CreateSwapChainForCoreWindow) pFactoryVTable[16];
 
             if (o_CreateSwapChainForCoreWindow != nullptr)
-                DetourAttach(&(PVOID&) o_CreateSwapChainForCoreWindow, DxgiFactoryHooks::CreateSwapChainForCoreWindow);
+            {
+                detourResult = DetourAttach(&(PVOID&) o_CreateSwapChainForCoreWindow, DxgiFactoryHooks::CreateSwapChainForCoreWindow);
+                if (detourResult != NO_ERROR)
+                    LOG_ERROR("DetourAttach o_CreateSwapChainForCoreWindow failed: {}", detourResult);
+            }
         }
     }
 
@@ -118,7 +152,11 @@ void DxgiFactoryHooks::HookToFactory(IDXGIFactory* pFactory)
             o_EnumAdapterByLuid = (PFN_EnumAdapterByLuid) pFactoryVTable[26];
 
             if (o_EnumAdapterByLuid != nullptr)
-                DetourAttach(&(PVOID&) o_EnumAdapterByLuid, DxgiFactoryHooks::EnumAdapterByLuid);
+            {
+                detourResult = DetourAttach(&(PVOID&) o_EnumAdapterByLuid, DxgiFactoryHooks::EnumAdapterByLuid);
+                if (detourResult != NO_ERROR)
+                    LOG_ERROR("DetourAttach o_EnumAdapterByLuid failed: {}", detourResult);
+            }
         }
     }
 
@@ -132,11 +170,19 @@ void DxgiFactoryHooks::HookToFactory(IDXGIFactory* pFactory)
             o_EnumAdapterByGpuPreference = (PFN_EnumAdapterByGpuPreference) pFactoryVTable[29];
 
             if (o_EnumAdapterByGpuPreference != nullptr)
-                DetourAttach(&(PVOID&) o_EnumAdapterByGpuPreference, DxgiFactoryHooks::EnumAdapterByGpuPreference);
+            {
+                detourResult = DetourAttach(&(PVOID&) o_EnumAdapterByGpuPreference, DxgiFactoryHooks::EnumAdapterByGpuPreference);
+                if (detourResult != NO_ERROR)
+                    LOG_ERROR("DetourAttach o_EnumAdapterByGpuPreference failed: {}", detourResult);
+            }
         }
     }
 
-    DetourTransactionCommit();
+    detourResult = DetourTransactionCommit();
+    if (detourResult != NO_ERROR)
+    {
+        LOG_ERROR("DetourTransactionCommit failed in HookToFactory: {}", detourResult);
+    }
 }
 
 HRESULT DxgiFactoryHooks::CreateSwapChain(IDXGIFactory* realFactory, IUnknown* pDevice, DXGI_SWAP_CHAIN_DESC* pDesc,

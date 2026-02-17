@@ -277,6 +277,27 @@ bool XeSSFeature::InitXeSS(ID3D12Device* device, const NVSDK_NGX_Parameter* InPa
             if (ret != XESS_RESULT_SUCCESS)
             {
                 LOG_ERROR("xessD3D12BuildPipelines error: {0}", ResultToString(ret));
+                // Cleanup on failure
+                if (_localPipeline != nullptr)
+                {
+                    _localPipeline->Release();
+                    _localPipeline = nullptr;
+                }
+                if (_localBufferHeap != nullptr)
+                {
+                    _localBufferHeap->Release();
+                    _localBufferHeap = nullptr;
+                }
+                if (_localTextureHeap != nullptr)
+                {
+                    _localTextureHeap->Release();
+                    _localTextureHeap = nullptr;
+                }
+                if (_xessContext != nullptr)
+                {
+                    XeSSProxy::DestroyContext()(_xessContext);
+                    _xessContext = nullptr;
+                }
                 return false;
             }
         }
@@ -299,6 +320,27 @@ bool XeSSFeature::InitXeSS(ID3D12Device* device, const NVSDK_NGX_Parameter* InPa
         if (ret != XESS_RESULT_SUCCESS)
         {
             LOG_ERROR("xessD3D12Init error: {0}", ResultToString(ret));
+            // Cleanup on failure
+            if (_localPipeline != nullptr)
+            {
+                _localPipeline->Release();
+                _localPipeline = nullptr;
+            }
+            if (_localBufferHeap != nullptr)
+            {
+                _localBufferHeap->Release();
+                _localBufferHeap = nullptr;
+            }
+            if (_localTextureHeap != nullptr)
+            {
+                _localTextureHeap->Release();
+                _localTextureHeap = nullptr;
+            }
+            if (_xessContext != nullptr)
+            {
+                XeSSProxy::DestroyContext()(_xessContext);
+                _xessContext = nullptr;
+            }
             return false;
         }
     }

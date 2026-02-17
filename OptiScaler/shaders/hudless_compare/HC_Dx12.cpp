@@ -119,7 +119,7 @@ HC_Dx12::HC_Dx12(std::string InName, ID3D12Device* InDevice) : Shader_Dx12(InNam
 
     // Compile shaders
     UINT cflags = 0;
-    ID3DBlob *vs, *ps;
+    ID3DBlob *vs = nullptr, *ps = nullptr;
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC graphicsPsoDesc {};
     graphicsPsoDesc.pRootSignature = _rootSignature;
@@ -154,6 +154,19 @@ HC_Dx12::HC_Dx12(std::string InName, ID3D12Device* InDevice) : Shader_Dx12(InNam
     graphicsPsoDesc.SampleDesc = { 1, 0 };
 
     result = InDevice->CreateGraphicsPipelineState(&graphicsPsoDesc, IID_PPV_ARGS(&_pipelineState));
+
+    // Release shader blobs if they were compiled
+    if (vs != nullptr)
+    {
+        vs->Release();
+        vs = nullptr;
+    }
+    if (ps != nullptr)
+    {
+        ps->Release();
+        ps = nullptr;
+    }
+
     if (result != S_OK)
     {
         LOG_ERROR("CreateGraphicsPipelineState error: {:X}", (unsigned long) result);
@@ -360,9 +373,21 @@ HC_Dx12::~HC_Dx12()
         _rootSignature = nullptr;
     }
 
+    if (_pipelineState != nullptr)
+    {
+        _pipelineState->Release();
+        _pipelineState = nullptr;
+    }
+
     for (int i = 0; i < HC_NUM_OF_HEAPS; i++)
     {
         _frameHeaps[i].ReleaseHeaps();
+
+        if (_buffer[i] != nullptr)
+        {
+            _buffer[i]->Release();
+            _buffer[i] = nullptr;
+        }
     }
 
     if (_constantBuffer != nullptr)

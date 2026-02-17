@@ -41,6 +41,9 @@ RCAS_Vk::RCAS_Vk(std::string InName, VkDevice InDevice, VkPhysicalDevice InPhysi
 
 RCAS_Vk::~RCAS_Vk()
 {
+    if (!_init || State::Instance().isShuttingDown)
+        return;
+
     if (_descriptorPool != VK_NULL_HANDLE)
     {
         vkDestroyDescriptorPool(_device, _descriptorPool, nullptr);

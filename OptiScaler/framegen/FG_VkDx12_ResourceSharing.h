@@ -129,6 +129,20 @@ public:
     bool SynchronizeWithD3D12();
 
     /**
+     * Submit a copy command buffer with proper synchronization.
+     * @param cmdBuffer The command buffer to submit
+     * @return true if submission succeeded
+     */
+    bool SubmitCopyCommand(VkCommandBuffer cmdBuffer);
+
+    /**
+     * Wait for D3D12 to complete access to shared resources.
+     * @param timeoutNs Timeout in nanoseconds (UINT64_MAX for infinite)
+     * @return true if wait succeeded or no wait needed
+     */
+    bool WaitForD3D12Access(uint64_t timeoutNs = UINT64_MAX);
+
+    /**
      * Get a command buffer for copy operations.
      * Creates command pool if needed and allocates command buffer.
      * @return Command buffer handle, or VK_NULL_HANDLE on failure
@@ -205,13 +219,17 @@ private:
 
     // Synchronization primitives
     VkSemaphore _copyCompleteSemaphore = VK_NULL_HANDLE;
+    VkFence _copyFence = VK_NULL_HANDLE;           // Fence for Vulkan command completion
     ID3D12Fence* _d3d12Fence = nullptr;
     HANDLE _fenceEvent = nullptr;
     uint64_t _fenceValue = 0;
+    uint64_t _lastCompletedFenceValue = 0;         // Track last completed fence
     bool _useTimelineSemaphore = false;
+    bool _syncPrimitivesInitialized = false;       // Track sync primitive state
 
     // Vulkan function pointers for semaphore interop
     PFN_vkImportSemaphoreWin32HandleKHR _vkImportSemaphoreWin32HandleKHR = nullptr;
+    PFN_vkGetSemaphoreWin32HandleKHR _vkGetSemaphoreWin32HandleKHR = nullptr;
 
     // Internal helper methods
     bool LoadVulkanFunctions(PFN_vkGetDeviceProcAddr vkGetDeviceProcAddr);

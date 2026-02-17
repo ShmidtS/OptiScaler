@@ -65,25 +65,49 @@ static inline D3D11_FILTER UpgradeToAF(D3D11_FILTER f)
 
 static void HookToDevice(ID3D11Device* InDevice)
 {
+    // Use static mutex for thread safety
+    static std::mutex deviceHookMutex;
+    std::lock_guard<std::mutex> lock(deviceHookMutex);
+
     if (o_CreateSamplerState != nullptr || InDevice == nullptr)
         return;
 
     LOG_DEBUG("Dx11");
 
-    // Get the vtable pointer
-    PVOID* pVTable = *(PVOID**) InDevice;
+    // Get the vtable pointer with null check
+    PVOID** ppVTable = reinterpret_cast<PVOID**>(InDevice);
+    if (ppVTable == nullptr || *ppVTable == nullptr)
+    {
+        LOG_ERROR("VTable pointer is null in HookToDevice");
+        return;
+    }
 
+    PVOID* pVTable = *ppVTable;
     o_CreateSamplerState = (PFN_CreateSamplerState) pVTable[23];
 
     // Apply the detour
     if (o_CreateSamplerState != nullptr)
     {
-        DetourTransactionBegin();
+        LONG detourResult = DetourTransactionBegin();
+        if (detourResult != NO_ERROR)
+        {
+            LOG_ERROR("DetourTransactionBegin failed in HookToDevice: {}", detourResult);
+            o_CreateSamplerState = nullptr;
+            return;
+        }
+
         DetourUpdateThread(GetCurrentThread());
 
-        DetourAttach(&(PVOID&) o_CreateSamplerState, hkCreateSamplerState);
+        detourResult = DetourAttach(&(PVOID&) o_CreateSamplerState, hkCreateSamplerState);
+        if (detourResult != NO_ERROR)
+        {
+            LOG_ERROR("DetourAttach failed in HookToDevice: {}", detourResult);
+            DetourTransactionAbort();
+            o_CreateSamplerState = nullptr;
+            return;
+        }
 
-        LONG detourResult = DetourTransactionCommit();
+        detourResult = DetourTransactionCommit();
         if (detourResult != NO_ERROR)
         {
             LOG_ERROR("DetourTransactionCommit failed in HookToDevice: {}", detourResult);
@@ -519,34 +543,82 @@ void D3D11Hooks::Hook(HMODULE dx11Module)
 
 void D3D11Hooks::Unhook()
 {
-    DetourTransactionBegin();
+    // Use static mutex for thread safety
+    static std::mutex unhookMutex;
+    std::lock_guard<std::mutex> lock(unhookMutex);
+
+    LONG detourResult = DetourTransactionBegin();
+    if (detourResult != NO_ERROR)
+    {
+        LOG_ERROR("DetourTransactionBegin failed in Unhook: {}", detourResult);
+        return;
+    }
+
     DetourUpdateThread(GetCurrentThread());
+
+    bool hasDetachments = false;
 
     if (o_D3D11CreateDevice != nullptr)
     {
-        DetourDetach(&(PVOID&) o_D3D11CreateDevice, hkD3D11CreateDevice);
-        o_D3D11CreateDevice = nullptr;
+        detourResult = DetourDetach(&(PVOID&) o_D3D11CreateDevice, hkD3D11CreateDevice);
+        if (detourResult == NO_ERROR)
+        {
+            o_D3D11CreateDevice = nullptr;
+            hasDetachments = true;
+        }
+        else
+        {
+            LOG_ERROR("DetourDetach o_D3D11CreateDevice failed: {}", detourResult);
+        }
     }
 
     if (o_D3D11On12CreateDevice != nullptr)
     {
-        DetourDetach(&(PVOID&) o_D3D11On12CreateDevice, hkD3D11On12CreateDevice);
-        o_D3D11On12CreateDevice = nullptr;
+        detourResult = DetourDetach(&(PVOID&) o_D3D11On12CreateDevice, hkD3D11On12CreateDevice);
+        if (detourResult == NO_ERROR)
+        {
+            o_D3D11On12CreateDevice = nullptr;
+            hasDetachments = true;
+        }
+        else
+        {
+            LOG_ERROR("DetourDetach o_D3D11On12CreateDevice failed: {}", detourResult);
+        }
     }
 
     if (o_D3D11CreateDeviceAndSwapChain != nullptr)
     {
-        DetourDetach(&(PVOID&) o_D3D11CreateDeviceAndSwapChain, hkD3D11CreateDeviceAndSwapChain);
-        o_D3D11CreateDeviceAndSwapChain = nullptr;
+        detourResult = DetourDetach(&(PVOID&) o_D3D11CreateDeviceAndSwapChain, hkD3D11CreateDeviceAndSwapChain);
+        if (detourResult == NO_ERROR)
+        {
+            o_D3D11CreateDeviceAndSwapChain = nullptr;
+            hasDetachments = true;
+        }
+        else
+        {
+            LOG_ERROR("DetourDetach o_D3D11CreateDeviceAndSwapChain failed: {}", detourResult);
+        }
     }
 
     if (o_CreateSamplerState != nullptr)
     {
-        DetourDetach(&(PVOID&) o_CreateSamplerState, hkCreateSamplerState);
-        o_CreateSamplerState = nullptr;
+        detourResult = DetourDetach(&(PVOID&) o_CreateSamplerState, hkCreateSamplerState);
+        if (detourResult == NO_ERROR)
+        {
+            o_CreateSamplerState = nullptr;
+            hasDetachments = true;
+        }
+        else
+        {
+            LOG_ERROR("DetourDetach o_CreateSamplerState failed: {}", detourResult);
+        }
     }
 
-    DetourTransactionCommit();
+    detourResult = DetourTransactionCommit();
+    if (detourResult != NO_ERROR)
+    {
+        LOG_ERROR("DetourTransactionCommit failed in Unhook: {}", detourResult);
+    }
 }
 
 #pragma endregion

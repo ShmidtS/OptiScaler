@@ -38,6 +38,12 @@ uint64_t FSR4ModelSelection::hkgetModelBlob(uint32_t preset, uint64_t unknown, u
 
     preset = getCorrectedPreset(preset);
 
+    if (o_getModelBlob == nullptr)
+    {
+        LOG_ERROR("o_getModelBlob is null, cannot call original function");
+        return 0;
+    }
+
     auto result = o_getModelBlob(preset, unknown, source, size);
 
     return result;
@@ -48,6 +54,12 @@ uint64_t FSR4ModelSelection::hkcreateModel(void* context, uint32_t preset)
     LOG_FUNC();
 
     preset = getCorrectedPreset(preset);
+
+    if (o_createModel == nullptr)
+    {
+        LOG_ERROR("o_createModel is null, cannot call original function");
+        return 0;
+    }
 
     auto result = o_createModel(context, preset);
 
@@ -93,9 +105,17 @@ void FSR4ModelSelection::Hook(HMODULE module, bool unhookOld)
             DetourTransactionBegin();
             DetourUpdateThread(GetCurrentThread());
 
-            DetourAttach(&(PVOID&) o_getModelBlob, hkgetModelBlob);
+            LONG detourResult = DetourAttach(&(PVOID&) o_getModelBlob, hkgetModelBlob);
 
-            DetourTransactionCommit();
+            if (detourResult != 0)
+            {
+                LOG_ERROR("DetourAttach failed for o_getModelBlob: {}", detourResult);
+            }
+
+            if (DetourTransactionCommit() != 0)
+            {
+                LOG_ERROR("DetourTransactionCommit failed for o_getModelBlob hook");
+            }
         }
         else
         {
@@ -112,9 +132,17 @@ void FSR4ModelSelection::Hook(HMODULE module, bool unhookOld)
                 DetourTransactionBegin();
                 DetourUpdateThread(GetCurrentThread());
 
-                DetourAttach(&(PVOID&) o_createModel, hkcreateModel);
+                LONG detourResult = DetourAttach(&(PVOID&) o_createModel, hkcreateModel);
 
-                DetourTransactionCommit();
+                if (detourResult != 0)
+                {
+                    LOG_ERROR("DetourAttach failed for o_createModel: {}", detourResult);
+                }
+
+                if (DetourTransactionCommit() != 0)
+                {
+                    LOG_ERROR("DetourTransactionCommit failed for o_createModel hook");
+                }
             }
             else
             {

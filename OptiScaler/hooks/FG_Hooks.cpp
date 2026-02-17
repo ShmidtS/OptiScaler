@@ -389,6 +389,10 @@ HRESULT FGHooks::CreateSwapChainForHwnd(IDXGIFactory* pFactory, IUnknown* pDevic
 
 void FGHooks::HookFGSwapchain(IDXGISwapChain* pSwapChain)
 {
+    // Use static mutex for thread safety
+    static std::mutex fgHookMutex;
+    std::lock_guard<std::mutex> lock(fgHookMutex);
+
     if (o_FGSCPresent != nullptr || pSwapChain == nullptr)
         return;
 
@@ -422,30 +426,68 @@ void FGHooks::HookFGSwapchain(IDXGISwapChain* pSwapChain)
         LOG_TRACE("FGSCPresent1: {:X}", (size_t) o_FGSCPresent1);
         LOG_TRACE("FGSCResizeBuffers1: {:X}", (size_t) o_FGSCResizeBuffers1);
 
-        DetourTransactionBegin();
+        LONG detourResult = DetourTransactionBegin();
+        if (detourResult != NO_ERROR)
+        {
+            LOG_ERROR("DetourTransactionBegin failed in HookFGSwapchain: {}", detourResult);
+            return;
+        }
+
         DetourUpdateThread(GetCurrentThread());
 
-        DetourAttach(&(PVOID&) o_FGRelease, hkFGRelease);
-        DetourAttach(&(PVOID&) o_FGSCPresent, hkFGPresent);
-        DetourAttach(&(PVOID&) o_FGSCResizeTarget, hkResizeTarget);
-        DetourAttach(&(PVOID&) o_FGSCResizeBuffers, hkResizeBuffers);
-        DetourAttach(&(PVOID&) o_FGSCSetFullscreenState, hkSetFullscreenState);
+        detourResult = DetourAttach(&(PVOID&) o_FGRelease, hkFGRelease);
+        if (detourResult != NO_ERROR)
+            LOG_ERROR("DetourAttach o_FGRelease failed: {}", detourResult);
+
+        detourResult = DetourAttach(&(PVOID&) o_FGSCPresent, hkFGPresent);
+        if (detourResult != NO_ERROR)
+            LOG_ERROR("DetourAttach o_FGSCPresent failed: {}", detourResult);
+
+        detourResult = DetourAttach(&(PVOID&) o_FGSCResizeTarget, hkResizeTarget);
+        if (detourResult != NO_ERROR)
+            LOG_ERROR("DetourAttach o_FGSCResizeTarget failed: {}", detourResult);
+
+        detourResult = DetourAttach(&(PVOID&) o_FGSCResizeBuffers, hkResizeBuffers);
+        if (detourResult != NO_ERROR)
+            LOG_ERROR("DetourAttach o_FGSCResizeBuffers failed: {}", detourResult);
+
+        detourResult = DetourAttach(&(PVOID&) o_FGSCSetFullscreenState, hkSetFullscreenState);
+        if (detourResult != NO_ERROR)
+            LOG_ERROR("DetourAttach o_FGSCSetFullscreenState failed: {}", detourResult);
 
         if (o_FGSCPresent1 != nullptr)
-            DetourAttach(&(PVOID&) o_FGSCPresent1, hkFGPresent1);
+        {
+            detourResult = DetourAttach(&(PVOID&) o_FGSCPresent1, hkFGPresent1);
+            if (detourResult != NO_ERROR)
+                LOG_ERROR("DetourAttach o_FGSCPresent1 failed: {}", detourResult);
+        }
 
         if (o_FGSCResizeBuffers1 != nullptr)
-            DetourAttach(&(PVOID&) o_FGSCResizeBuffers1, hkResizeBuffers1);
+        {
+            detourResult = DetourAttach(&(PVOID&) o_FGSCResizeBuffers1, hkResizeBuffers1);
+            if (detourResult != NO_ERROR)
+                LOG_ERROR("DetourAttach o_FGSCResizeBuffers1 failed: {}", detourResult);
+        }
 
         if (State::Instance().activeFgOutput == FGOutput::XeFG)
         {
-            DetourAttach(&(PVOID&) o_FGSCGetFullscreenState, hkGetFullscreenState);
+            detourResult = DetourAttach(&(PVOID&) o_FGSCGetFullscreenState, hkGetFullscreenState);
+            if (detourResult != NO_ERROR)
+                LOG_ERROR("DetourAttach o_FGSCGetFullscreenState failed: {}", detourResult);
 
             if (o_FGSCGetFullscreenDesc != nullptr)
-                DetourAttach(&(PVOID&) o_FGSCGetFullscreenDesc, hkGetFullscreenDesc);
+            {
+                detourResult = DetourAttach(&(PVOID&) o_FGSCGetFullscreenDesc, hkGetFullscreenDesc);
+                if (detourResult != NO_ERROR)
+                    LOG_ERROR("DetourAttach o_FGSCGetFullscreenDesc failed: {}", detourResult);
+            }
         }
 
-        DetourTransactionCommit();
+        detourResult = DetourTransactionCommit();
+        if (detourResult != NO_ERROR)
+        {
+            LOG_ERROR("DetourTransactionCommit failed in HookFGSwapchain: {}", detourResult);
+        }
     }
 }
 

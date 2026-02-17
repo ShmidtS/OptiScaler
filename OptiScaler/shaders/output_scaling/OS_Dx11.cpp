@@ -369,10 +369,11 @@ OS_Dx11::OS_Dx11(std::string InName, ID3D11Device* InDevice, bool InUpsample)
         }
     }
 
-    // CBV
+    // CBV - allocate enough space for the larger of the two constant buffer types
     D3D11_BUFFER_DESC cbDesc = {};
     cbDesc.Usage = D3D11_USAGE_DYNAMIC;
-    cbDesc.ByteWidth = sizeof(Constants);
+    constexpr size_t maxConstantSize = (sizeof(Constants) > sizeof(UpscaleShaderConstants)) ? sizeof(Constants) : sizeof(UpscaleShaderConstants);
+    cbDesc.ByteWidth = static_cast<UINT>(maxConstantSize);
     cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     auto result = InDevice->CreateBuffer(&cbDesc, nullptr, &_constantBuffer);

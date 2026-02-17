@@ -419,6 +419,11 @@ struct AmdExtD3DFactory : public IAmdExtD3DFactory
 {
     HRESULT STDMETHODCALLTYPE CreateInterface(IUnknown* pOuter, REFIID riid, void** ppvObject) override
     {
+        if (ppvObject == nullptr)
+            return E_POINTER;
+
+        *ppvObject = nullptr;
+
         if (riid == __uuidof(IAmdExtD3DShaderIntrinsics))
         {
             if (amdExtD3DShaderIntrinsics == nullptr)
@@ -505,8 +510,15 @@ void InitFSR4Update()
             LOG_DEBUG("Hooking AmdExtD3DCreateInterface");
             DetourTransactionBegin();
             DetourUpdateThread(GetCurrentThread());
-            DetourAttach(&(PVOID&) o_AmdExtD3DCreateInterface, hkAmdExtD3DCreateInterface);
-            DetourTransactionCommit();
+            LONG detourResult = DetourAttach(&(PVOID&) o_AmdExtD3DCreateInterface, hkAmdExtD3DCreateInterface);
+            if (detourResult != 0)
+            {
+                LOG_ERROR("DetourAttach failed for AmdExtD3DCreateInterface: {}", detourResult);
+            }
+            if (DetourTransactionCommit() != 0)
+            {
+                LOG_ERROR("DetourTransactionCommit failed for AmdExtD3DCreateInterface hook");
+            }
         }
     }
     else
@@ -519,13 +531,18 @@ HMODULE GetFSR4Module() { return fsr4Module; }
 
 HRESULT STDMETHODCALLTYPE hkAmdExtD3DCreateInterface(IUnknown* pOuter, REFIID riid, void** ppvObject)
 {
+    if (ppvObject == nullptr)
+        return E_POINTER;
+
+    *ppvObject = nullptr;
+
     CheckForGPU();
 
     if (!Config::Instance()->Fsr4Update.value_or_default() && o_AmdExtD3DCreateInterface != nullptr)
         return o_AmdExtD3DCreateInterface(pOuter, riid, ppvObject);
 
     // Proton bleeding edge ships amdxc64 that is missing some required functions
-    else if (riid == __uuidof(IAmdExtD3DFactory) && State::Instance().isRunningOnLinux)
+    if (riid == __uuidof(IAmdExtD3DFactory) && State::Instance().isRunningOnLinux)
     {
         // Required for the custom AmdExtFfxApi, lack of it triggers visual glitches
         if (amdExtD3DFactory == nullptr)
@@ -541,7 +558,7 @@ HRESULT STDMETHODCALLTYPE hkAmdExtD3DCreateInterface(IUnknown* pOuter, REFIID ri
         return S_OK;
     }
 
-    else if (riid == __uuidof(IAmdExtFfxApi))
+    if (riid == __uuidof(IAmdExtFfxApi))
     {
         if (amdExtFfxApi == nullptr)
             amdExtFfxApi = new AmdExtFfxApi();
@@ -554,7 +571,7 @@ HRESULT STDMETHODCALLTYPE hkAmdExtD3DCreateInterface(IUnknown* pOuter, REFIID ri
         return S_OK;
     }
 
-    else if (o_AmdExtD3DCreateInterface != nullptr)
+    if (o_AmdExtD3DCreateInterface != nullptr)
         return o_AmdExtD3DCreateInterface(pOuter, riid, ppvObject);
 
     return E_NOINTERFACE;

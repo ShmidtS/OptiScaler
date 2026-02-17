@@ -676,6 +676,21 @@ bool FG_VkDx12_ResourceSharing::CreateSyncPrimitives()
         if (_fenceEvent == nullptr)
         {
             LOG_ERROR("Failed to create fence event");
+            SAFE_RELEASE(_d3d12Fence);
+            return false;
+        }
+    }
+
+    // Create Vulkan fence for command buffer completion
+    if (_copyFence == VK_NULL_HANDLE)
+    {
+        VkFenceCreateInfo fenceInfo = {};
+        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;  // Start signaled
+
+        if (vkCreateFence(_vkDevice, &fenceInfo, nullptr, &_copyFence) != VK_SUCCESS)
+        {
+            LOG_ERROR("Failed to create Vulkan fence");
             return false;
         }
     }
@@ -693,11 +708,20 @@ bool FG_VkDx12_ResourceSharing::CreateSyncPrimitives()
         }
     }
 
+    _syncPrimitivesInitialized = true;
     return true;
 }
 
 void FG_VkDx12_ResourceSharing::ReleaseSyncPrimitives()
 {
+    // Wait for any pending Vulkan operations before destroying
+    if (_copyFence != VK_NULL_HANDLE && _vkDevice != VK_NULL_HANDLE)
+    {
+        vkWaitForFences(_vkDevice, 1, &_copyFence, VK_TRUE, UINT64_MAX);
+        vkDestroyFence(_vkDevice, _copyFence, nullptr);
+        _copyFence = VK_NULL_HANDLE;
+    }
+
     if (_copyCompleteSemaphore != VK_NULL_HANDLE)
     {
         vkDestroySemaphore(_vkDevice, _copyCompleteSemaphore, nullptr);
@@ -713,6 +737,8 @@ void FG_VkDx12_ResourceSharing::ReleaseSyncPrimitives()
     }
 
     _fenceValue = 0;
+    _lastCompletedFenceValue = 0;
+    _syncPrimitivesInitialized = false;
 }
 
 VkCommandBuffer FG_VkDx12_ResourceSharing::GetCommandBuffer()
@@ -875,32 +901,114 @@ bool FG_VkDx12_ResourceSharing::CopyVelocityToShared(VkCommandBuffer cmd, VkImag
 
 bool FG_VkDx12_ResourceSharing::SynchronizeWithD3D12()
 {
-    if (_d3d12Fence == nullptr)
+    if (!_syncPrimitivesInitialized)
     {
-        // No fence created, try to create sync primitives
+        // No sync primitives created, try to create them
         if (!CreateSyncPrimitives())
         {
-            LOG_WARN("Cannot synchronize - no D3D12 fence available");
-            return true; // Continue without sync
+            LOG_WARN("Cannot synchronize - sync primitives not available");
+            return true; // Continue without sync (caller's responsibility)
         }
     }
 
-    // Signal the D3D12 fence from Vulkan side
-    // This would typically be done after submitting the Vulkan command buffer
-    // with the semaphore signaling
-
-    // Wait for D3D12 to complete any pending operations
-    _fenceValue++;
-
-    // For now, simple synchronization using fence wait
-    if (_fenceEvent != nullptr && _d3d12Fence != nullptr)
+    // Wait for Vulkan copy to complete before D3D12 access
+    if (_copyFence != VK_NULL_HANDLE)
     {
-        auto hr = _d3d12Fence->SetEventOnCompletion(_fenceValue, _fenceEvent);
-        if (SUCCEEDED(hr))
+        // Wait with a reasonable timeout (1 second)
+        auto result = vkWaitForFences(_vkDevice, 1, &_copyFence, VK_TRUE, 1000000000ULL);
+        if (result != VK_SUCCESS)
         {
-            // In a real implementation, this would be called after D3D12 work is submitted
-            // WaitForSingleObject(_fenceEvent, INFINITE);
+            LOG_ERROR("Failed to wait for Vulkan fence: {}", (UINT)result);
+            return false;
         }
+
+        // Reset the fence for next use
+        vkResetFences(_vkDevice, 1, &_copyFence);
+    }
+
+    // Signal D3D12 fence to indicate Vulkan work is complete
+    if (_d3d12Fence != nullptr)
+    {
+        _fenceValue++;
+        _d3d12Fence->Signal(_fenceValue);
+        _lastCompletedFenceValue = _fenceValue;
+    }
+
+    return true;
+}
+
+bool FG_VkDx12_ResourceSharing::SubmitCopyCommand(VkCommandBuffer cmdBuffer)
+{
+    if (cmdBuffer == VK_NULL_HANDLE)
+    {
+        LOG_ERROR("Invalid command buffer for submit");
+        return false;
+    }
+
+    if (_vkQueue == VK_NULL_HANDLE)
+    {
+        LOG_ERROR("Vulkan queue not set");
+        return false;
+    }
+
+    // Ensure sync primitives are ready
+    if (!_syncPrimitivesInitialized && !CreateSyncPrimitives())
+    {
+        LOG_ERROR("Cannot submit - sync primitives not available");
+        return false;
+    }
+
+    // End command buffer if not already ended
+    // (caller should have recorded commands)
+
+    // Submit with fence for synchronization
+    VkSubmitInfo submitInfo = {};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &cmdBuffer;
+
+    // Signal semaphore when done
+    if (_copyCompleteSemaphore != VK_NULL_HANDLE)
+    {
+        submitInfo.signalSemaphoreCount = 1;
+        submitInfo.pSignalSemaphores = &_copyCompleteSemaphore;
+    }
+
+    auto result = vkQueueSubmit(_vkQueue, 1, &submitInfo, _copyFence);
+    if (result != VK_SUCCESS)
+    {
+        LOG_ERROR("Failed to submit Vulkan command buffer: {}", (UINT)result);
+        return false;
+    }
+
+    return true;
+}
+
+bool FG_VkDx12_ResourceSharing::WaitForD3D12Access(uint64_t timeoutNs)
+{
+    if (_d3d12Fence == nullptr || _fenceEvent == nullptr)
+        return true; // No sync needed
+
+    // Check if D3D12 has completed work up to last completed value
+    auto currentVal = _d3d12Fence->GetCompletedValue();
+    if (currentVal >= _lastCompletedFenceValue)
+        return true; // Already completed
+
+    // Wait for completion
+    auto hr = _d3d12Fence->SetEventOnCompletion(_lastCompletedFenceValue, _fenceEvent);
+    if (FAILED(hr))
+    {
+        LOG_ERROR("SetEventOnCompletion failed: {0:x}", hr);
+        return false;
+    }
+
+    DWORD waitMs = (timeoutNs == UINT64_MAX) ? INFINITE : static_cast<DWORD>(timeoutNs / 1000000ULL);
+    auto waitResult = WaitForSingleObject(_fenceEvent, waitMs);
+
+    if (waitResult != WAIT_OBJECT_0)
+    {
+        LOG_WARN("WaitForD3D12Access timeout or error: {}", waitResult);
+        return false;
     }
 
     return true;

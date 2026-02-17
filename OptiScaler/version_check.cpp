@@ -232,6 +232,10 @@ void FinishVersionCheck()
 
 void RunVersionCheck()
 {
+    // Early exit if the application is shutting down
+    if (State::Instance().isShuttingDown)
+        return;
+
     struct Finalizer
     {
         ~Finalizer() { FinishVersionCheck(); }
@@ -297,6 +301,11 @@ const std::string& VersionCheck::CurrentVersionString()
 void VersionCheck::Start()
 {
     auto& state = State::Instance();
+
+    // Don't start version check if the application is shutting down
+    if (state.isShuttingDown)
+        return;
+
     {
         std::scoped_lock lock(state.versionCheckMutex);
         if (state.versionCheckInProgress || state.versionCheckCompleted)

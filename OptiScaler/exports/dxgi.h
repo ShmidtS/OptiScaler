@@ -4,10 +4,14 @@
 
 #include <proxies/Dxgi_Proxy.h>
 #include <proxies/KernelBase_Proxy.h>
+#include <atomic>
+#include <shared_mutex>
 
 struct dxgi_dll
 {
     HMODULE dll = nullptr;
+    std::atomic<bool> initialized{false};
+    std::shared_mutex loadMutex;
 
     FARPROC ApplyCompatResolutionQuirking = nullptr;
     FARPROC CompatString = nullptr;
@@ -27,6 +31,8 @@ struct dxgi_dll
 
     void LoadOriginalLibrary(HMODULE module)
     {
+        std::unique_lock<std::shared_mutex> lock(loadMutex);
+
         dll = module;
 
         ApplyCompatResolutionQuirking = KernelBaseProxy::GetProcAddress_()(module, "ApplyCompatResolutionQuirking");
@@ -44,117 +50,205 @@ struct dxgi_dll
         PIXGetCaptureState = KernelBaseProxy::GetProcAddress_()(module, "PIXGetCaptureState");
         SetAppCompatStringPointer = KernelBaseProxy::GetProcAddress_()(module, "SetAppCompatStringPointer");
         UpdateHMDEmulationStatus = KernelBaseProxy::GetProcAddress_()(module, "UpdateHMDEmulationStatus");
+
+        initialized.store(true, std::memory_order_release);
     }
+
+    bool IsInitialized() const { return initialized.load(std::memory_order_acquire); }
 } dxgi;
 
-HRESULT _CreateDXGIFactory(REFIID riid, IDXGIFactory** ppFactory)
+// Export functions with proper calling convention and safety checks
+HRESULT WINAPI _CreateDXGIFactory(REFIID riid, IDXGIFactory** ppFactory)
 {
+    LOG_FUNC();
     return DxgiProxy::CreateDxgiFactory_()(riid, ppFactory);
 }
 
-HRESULT _CreateDXGIFactory1(REFIID riid, IDXGIFactory1** ppFactory)
+HRESULT WINAPI _CreateDXGIFactory1(REFIID riid, IDXGIFactory1** ppFactory)
 {
+    LOG_FUNC();
     return DxgiProxy::CreateDxgiFactory1_()(riid, ppFactory);
 }
 
-HRESULT _CreateDXGIFactory2(UINT Flags, REFIID riid, IDXGIFactory2** ppFactory)
+HRESULT WINAPI _CreateDXGIFactory2(UINT Flags, REFIID riid, IDXGIFactory2** ppFactory)
 {
+    LOG_FUNC();
     return DxgiProxy::CreateDxgiFactory2_Hooked()(Flags, riid, ppFactory);
 }
 
-HRESULT _DXGIDeclareAdapterRemovalSupport() { return DxgiProxy::DeclareAdepterRemovalSupport_()(); }
-
-HRESULT _DXGIGetDebugInterface1(UINT Flags, REFIID riid, void** pDebug)
+HRESULT WINAPI _DXGIDeclareAdapterRemovalSupport()
 {
+    LOG_FUNC();
+    return DxgiProxy::DeclareAdepterRemovalSupport_()();
+}
+
+HRESULT WINAPI _DXGIGetDebugInterface1(UINT Flags, REFIID riid, void** pDebug)
+{
+    LOG_FUNC();
     return DxgiProxy::GetDebugInterface_()(Flags, riid, pDebug);
 }
 
-void _ApplyCompatResolutionQuirking()
+void WINAPI _ApplyCompatResolutionQuirking()
 {
     LOG_FUNC();
-    dxgi.ApplyCompatResolutionQuirking();
+    if (!dxgi.IsInitialized())
+    {
+        LOG_WARN("_ApplyCompatResolutionQuirking called before initialization");
+        return;
+    }
+    SafeCall_VOID(dxgi.ApplyCompatResolutionQuirking);
 }
 
-void _CompatString()
+void WINAPI _CompatString()
 {
     LOG_FUNC();
-    dxgi.CompatString();
+    if (!dxgi.IsInitialized())
+    {
+        LOG_WARN("_CompatString called before initialization");
+        return;
+    }
+    SafeCall_VOID(dxgi.CompatString);
 }
 
-void _CompatValue()
+void WINAPI _CompatValue()
 {
     LOG_FUNC();
-    dxgi.CompatValue();
+    if (!dxgi.IsInitialized())
+    {
+        LOG_WARN("_CompatValue called before initialization");
+        return;
+    }
+    SafeCall_VOID(dxgi.CompatValue);
 }
 
-void _DXGID3D10CreateDevice()
+void WINAPI _DXGID3D10CreateDevice()
 {
     LOG_FUNC();
-    dxgi.D3D10CreateDevice();
+    if (!dxgi.IsInitialized())
+    {
+        LOG_WARN("_DXGID3D10CreateDevice called before initialization");
+        return;
+    }
+    SafeCall_VOID(dxgi.D3D10CreateDevice);
 }
 
-void _DXGID3D10CreateLayeredDevice()
+void WINAPI _DXGID3D10CreateLayeredDevice()
 {
     LOG_FUNC();
-    dxgi.D3D10CreateLayeredDevice();
+    if (!dxgi.IsInitialized())
+    {
+        LOG_WARN("_DXGID3D10CreateLayeredDevice called before initialization");
+        return;
+    }
+    SafeCall_VOID(dxgi.D3D10CreateLayeredDevice);
 }
 
-void _DXGID3D10GetLayeredDeviceSize()
+void WINAPI _DXGID3D10GetLayeredDeviceSize()
 {
     LOG_FUNC();
-    dxgi.D3D10GetLayeredDeviceSize();
+    if (!dxgi.IsInitialized())
+    {
+        LOG_WARN("_DXGID3D10GetLayeredDeviceSize called before initialization");
+        return;
+    }
+    SafeCall_VOID(dxgi.D3D10GetLayeredDeviceSize);
 }
 
-void _DXGID3D10RegisterLayers()
+void WINAPI _DXGID3D10RegisterLayers()
 {
     LOG_FUNC();
-    dxgi.D3D10RegisterLayers();
+    if (!dxgi.IsInitialized())
+    {
+        LOG_WARN("_DXGID3D10RegisterLayers called before initialization");
+        return;
+    }
+    SafeCall_VOID(dxgi.D3D10RegisterLayers);
 }
 
-void _DXGID3D10ETWRundown()
+void WINAPI _DXGID3D10ETWRundown()
 {
     LOG_FUNC();
-    dxgi.D3D10ETWRundown();
+    if (!dxgi.IsInitialized())
+    {
+        LOG_WARN("_DXGID3D10ETWRundown called before initialization");
+        return;
+    }
+    SafeCall_VOID(dxgi.D3D10ETWRundown);
 }
 
-void _DXGIDumpJournal()
+void WINAPI _DXGIDumpJournal()
 {
     LOG_FUNC();
-    dxgi.DumpJournal();
+    if (!dxgi.IsInitialized())
+    {
+        LOG_WARN("_DXGIDumpJournal called before initialization");
+        return;
+    }
+    SafeCall_VOID(dxgi.DumpJournal);
 }
 
-void _DXGIReportAdapterConfiguration()
+void WINAPI _DXGIReportAdapterConfiguration()
 {
     LOG_FUNC();
-    dxgi.ReportAdapterConfiguration();
+    if (!dxgi.IsInitialized())
+    {
+        LOG_WARN("_DXGIReportAdapterConfiguration called before initialization");
+        return;
+    }
+    SafeCall_VOID(dxgi.ReportAdapterConfiguration);
 }
 
-void _PIXBeginCapture()
+void WINAPI _PIXBeginCapture()
 {
     LOG_FUNC();
-    dxgi.PIXBeginCapture();
+    if (!dxgi.IsInitialized())
+    {
+        LOG_WARN("_PIXBeginCapture called before initialization");
+        return;
+    }
+    SafeCall_VOID(dxgi.PIXBeginCapture);
 }
 
-void _PIXEndCapture()
+void WINAPI _PIXEndCapture()
 {
     LOG_FUNC();
-    dxgi.PIXEndCapture();
+    if (!dxgi.IsInitialized())
+    {
+        LOG_WARN("_PIXEndCapture called before initialization");
+        return;
+    }
+    SafeCall_VOID(dxgi.PIXEndCapture);
 }
 
-void _PIXGetCaptureState()
+void WINAPI _PIXGetCaptureState()
 {
     LOG_FUNC();
-    dxgi.PIXGetCaptureState();
+    if (!dxgi.IsInitialized())
+    {
+        LOG_WARN("_PIXGetCaptureState called before initialization");
+        return;
+    }
+    SafeCall_VOID(dxgi.PIXGetCaptureState);
 }
 
-void _SetAppCompatStringPointer()
+void WINAPI _SetAppCompatStringPointer()
 {
     LOG_FUNC();
-    dxgi.SetAppCompatStringPointer();
+    if (!dxgi.IsInitialized())
+    {
+        LOG_WARN("_SetAppCompatStringPointer called before initialization");
+        return;
+    }
+    SafeCall_VOID(dxgi.SetAppCompatStringPointer);
 }
 
-void _UpdateHMDEmulationStatus()
+void WINAPI _UpdateHMDEmulationStatus()
 {
     LOG_FUNC();
-    dxgi.UpdateHMDEmulationStatus();
+    if (!dxgi.IsInitialized())
+    {
+        LOG_WARN("_UpdateHMDEmulationStatus called before initialization");
+        return;
+    }
+    SafeCall_VOID(dxgi.UpdateHMDEmulationStatus);
 }

@@ -853,10 +853,25 @@ static HRESULT hkD3D12GetInterface(REFCLSID rclsid, REFIID riid, void** ppvDebug
         {
             LOG_DEBUG("Detouring ID3D12DeviceFactory::CreateDevice");
 
-            DetourTransactionBegin();
-            DetourUpdateThread(GetCurrentThread());
-            DetourAttach(&(PVOID&) o_CreateDevice, hkCreateDevice);
-            DetourTransactionCommit();
+            LONG detourResult = DetourTransactionBegin();
+            if (detourResult != NO_ERROR)
+            {
+                LOG_ERROR("DetourTransactionBegin failed for CreateDevice: {}", detourResult);
+            }
+            else
+            {
+                DetourUpdateThread(GetCurrentThread());
+                detourResult = DetourAttach(&(PVOID&) o_CreateDevice, hkCreateDevice);
+                if (detourResult != NO_ERROR)
+                {
+                    LOG_ERROR("DetourAttach o_CreateDevice failed: {}", detourResult);
+                }
+                detourResult = DetourTransactionCommit();
+                if (detourResult != NO_ERROR)
+                {
+                    LOG_ERROR("DetourTransactionCommit failed for CreateDevice: {}", detourResult);
+                }
+            }
         }
     }
 
@@ -865,17 +880,32 @@ static HRESULT hkD3D12GetInterface(REFCLSID rclsid, REFIID riid, void** ppvDebug
 
 static void HookToDevice(ID3D12Device* InDevice)
 {
+    // Use static mutex for thread safety
+    static std::mutex deviceHookMutex;
+    std::lock_guard<std::mutex> lock(deviceHookMutex);
+
     if (o_CreateSampler != nullptr || InDevice == nullptr)
         return;
 
     LOG_DEBUG("Dx12");
 
-    // Get the vtable pointer
-    PVOID* pVTable = *(PVOID**) InDevice;
+    // Get the vtable pointer with null check
+    PVOID** ppVTable = reinterpret_cast<PVOID**>(InDevice);
+    if (ppVTable == nullptr || *ppVTable == nullptr)
+    {
+        LOG_ERROR("VTable pointer is null in HookToDevice");
+        return;
+    }
+
+    PVOID* pVTable = *ppVTable;
 
     ID3D12Device* realDevice = nullptr;
     if (Util::CheckForRealObject(__FUNCTION__, InDevice, (IUnknown**) &realDevice))
-        pVTable = *(PVOID**) realDevice;
+    {
+        PVOID** ppRealVTable = reinterpret_cast<PVOID**>(realDevice);
+        if (ppRealVTable != nullptr && *ppRealVTable != nullptr)
+            pVTable = *ppRealVTable;
+    }
 
     // hudless
     o_D3D12DeviceRelease = (PFN_Release) pVTable[2];
@@ -889,34 +919,83 @@ static void HookToDevice(ID3D12Device* InDevice)
     // Apply the detour
     if (o_CreateSampler != nullptr)
     {
-        DetourTransactionBegin();
+        LONG detourResult = DetourTransactionBegin();
+        if (detourResult != NO_ERROR)
+        {
+            LOG_ERROR("DetourTransactionBegin failed in HookToDevice: {}", detourResult);
+            return;
+        }
+
         DetourUpdateThread(GetCurrentThread());
 
-        if (o_CreateSampler != nullptr)
-            DetourAttach(&(PVOID&) o_CreateSampler, hkCreateSampler);
+        detourResult = DetourAttach(&(PVOID&) o_CreateSampler, hkCreateSampler);
+        if (detourResult != NO_ERROR)
+        {
+            LOG_ERROR("DetourAttach o_CreateSampler failed: {}", detourResult);
+        }
 
         if (o_CreateRootSignature != nullptr)
-            DetourAttach(&(PVOID&) o_CreateRootSignature, hkCreateRootSignature);
+        {
+            detourResult = DetourAttach(&(PVOID&) o_CreateRootSignature, hkCreateRootSignature);
+            if (detourResult != NO_ERROR)
+            {
+                LOG_ERROR("DetourAttach o_CreateRootSignature failed: {}", detourResult);
+            }
+        }
 
         if (Config::Instance()->UESpoofIntelAtomics64.value_or_default())
         {
             if (o_CheckFeatureSupport != nullptr)
-                DetourAttach(&(PVOID&) o_CheckFeatureSupport, hkCheckFeatureSupport);
+            {
+                detourResult = DetourAttach(&(PVOID&) o_CheckFeatureSupport, hkCheckFeatureSupport);
+                if (detourResult != NO_ERROR)
+                {
+                    LOG_ERROR("DetourAttach o_CheckFeatureSupport failed: {}", detourResult);
+                }
+            }
 
             if (o_CreateCommittedResource != nullptr)
-                DetourAttach(&(PVOID&) o_CreateCommittedResource, hkCreateCommittedResource);
+            {
+                detourResult = DetourAttach(&(PVOID&) o_CreateCommittedResource, hkCreateCommittedResource);
+                if (detourResult != NO_ERROR)
+                {
+                    LOG_ERROR("DetourAttach o_CreateCommittedResource failed: {}", detourResult);
+                }
+            }
 
             if (o_CreatePlacedResource != nullptr)
-                DetourAttach(&(PVOID&) o_CreatePlacedResource, hkCreatePlacedResource);
+            {
+                detourResult = DetourAttach(&(PVOID&) o_CreatePlacedResource, hkCreatePlacedResource);
+                if (detourResult != NO_ERROR)
+                {
+                    LOG_ERROR("DetourAttach o_CreatePlacedResource failed: {}", detourResult);
+                }
+            }
 
             if (o_D3D12DeviceRelease != nullptr)
-                DetourAttach(&(PVOID&) o_D3D12DeviceRelease, hkD3D12DeviceRelease);
+            {
+                detourResult = DetourAttach(&(PVOID&) o_D3D12DeviceRelease, hkD3D12DeviceRelease);
+                if (detourResult != NO_ERROR)
+                {
+                    LOG_ERROR("DetourAttach o_D3D12DeviceRelease failed: {}", detourResult);
+                }
+            }
 
             if (o_GetResourceAllocationInfo != nullptr)
-                DetourAttach(&(PVOID&) o_GetResourceAllocationInfo, hkGetResourceAllocationInfo);
+            {
+                detourResult = DetourAttach(&(PVOID&) o_GetResourceAllocationInfo, hkGetResourceAllocationInfo);
+                if (detourResult != NO_ERROR)
+                {
+                    LOG_ERROR("DetourAttach o_GetResourceAllocationInfo failed: {}", detourResult);
+                }
+            }
         }
 
-        DetourTransactionCommit();
+        detourResult = DetourTransactionCommit();
+        if (detourResult != NO_ERROR)
+        {
+            LOG_ERROR("DetourTransactionCommit failed in HookToDevice: {}", detourResult);
+        }
     }
 
     if (State::Instance().activeFgInput == FGInput::Upscaler)
@@ -927,38 +1006,87 @@ static void UnhookDevice()
 {
     LOG_FUNC();
 
-    DetourTransactionBegin();
+    // Use static mutex for thread safety
+    static std::mutex unhookMutex;
+    std::lock_guard<std::mutex> lock(unhookMutex);
+
+    LONG detourResult = DetourTransactionBegin();
+    if (detourResult != NO_ERROR)
+    {
+        LOG_ERROR("DetourTransactionBegin failed in UnhookDevice: {}", detourResult);
+        return;
+    }
+
     DetourUpdateThread(GetCurrentThread());
 
     if (o_CreateSampler != nullptr)
-        DetourDetach(&(PVOID&) o_CreateSampler, hkCreateSampler);
+    {
+        detourResult = DetourDetach(&(PVOID&) o_CreateSampler, hkCreateSampler);
+        if (detourResult == NO_ERROR)
+            o_CreateSampler = nullptr;
+        else
+            LOG_ERROR("DetourDetach o_CreateSampler failed: {}", detourResult);
+    }
 
     if (o_CreateRootSignature != nullptr)
-        DetourDetach(&(PVOID&) o_CreateRootSignature, hkCreateRootSignature);
+    {
+        detourResult = DetourDetach(&(PVOID&) o_CreateRootSignature, hkCreateRootSignature);
+        if (detourResult == NO_ERROR)
+            o_CreateRootSignature = nullptr;
+        else
+            LOG_ERROR("DetourDetach o_CreateRootSignature failed: {}", detourResult);
+    }
 
     if (o_CheckFeatureSupport != nullptr)
-        DetourDetach(&(PVOID&) o_CheckFeatureSupport, hkCheckFeatureSupport);
+    {
+        detourResult = DetourDetach(&(PVOID&) o_CheckFeatureSupport, hkCheckFeatureSupport);
+        if (detourResult == NO_ERROR)
+            o_CheckFeatureSupport = nullptr;
+        else
+            LOG_ERROR("DetourDetach o_CheckFeatureSupport failed: {}", detourResult);
+    }
 
     if (o_CreateCommittedResource != nullptr)
-        DetourDetach(&(PVOID&) o_CreateCommittedResource, hkCreateCommittedResource);
+    {
+        detourResult = DetourDetach(&(PVOID&) o_CreateCommittedResource, hkCreateCommittedResource);
+        if (detourResult == NO_ERROR)
+            o_CreateCommittedResource = nullptr;
+        else
+            LOG_ERROR("DetourDetach o_CreateCommittedResource failed: {}", detourResult);
+    }
 
     if (o_CreatePlacedResource != nullptr)
-        DetourDetach(&(PVOID&) o_CreatePlacedResource, hkCreatePlacedResource);
+    {
+        detourResult = DetourDetach(&(PVOID&) o_CreatePlacedResource, hkCreatePlacedResource);
+        if (detourResult == NO_ERROR)
+            o_CreatePlacedResource = nullptr;
+        else
+            LOG_ERROR("DetourDetach o_CreatePlacedResource failed: {}", detourResult);
+    }
 
     if (o_D3D12DeviceRelease != nullptr)
-        DetourDetach(&(PVOID&) o_D3D12DeviceRelease, hkD3D12DeviceRelease);
+    {
+        detourResult = DetourDetach(&(PVOID&) o_D3D12DeviceRelease, hkD3D12DeviceRelease);
+        if (detourResult == NO_ERROR)
+            o_D3D12DeviceRelease = nullptr;
+        else
+            LOG_ERROR("DetourDetach o_D3D12DeviceRelease failed: {}", detourResult);
+    }
 
     if (o_GetResourceAllocationInfo != nullptr)
-        DetourDetach(&(PVOID&) o_GetResourceAllocationInfo, hkGetResourceAllocationInfo);
+    {
+        detourResult = DetourDetach(&(PVOID&) o_GetResourceAllocationInfo, hkGetResourceAllocationInfo);
+        if (detourResult == NO_ERROR)
+            o_GetResourceAllocationInfo = nullptr;
+        else
+            LOG_ERROR("DetourDetach o_GetResourceAllocationInfo failed: {}", detourResult);
+    }
 
-    DetourTransactionCommit();
-
-    o_CreateSampler = nullptr;
-    o_CheckFeatureSupport = nullptr;
-    o_CreateCommittedResource = nullptr;
-    o_CreatePlacedResource = nullptr;
-    o_D3D12DeviceRelease = nullptr;
-    o_GetResourceAllocationInfo = nullptr;
+    detourResult = DetourTransactionCommit();
+    if (detourResult != NO_ERROR)
+    {
+        LOG_ERROR("DetourTransactionCommit failed in UnhookDevice: {}", detourResult);
+    }
 
     ResTrack_Dx12::ReleaseDeviceHooks();
 }
