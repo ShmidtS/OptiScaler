@@ -177,21 +177,6 @@ bool Hudfix_Dx12::CreateBufferResourceWithSize(ID3D12Device* InDevice, ResourceI
     return true;
 }
 
-void Hudfix_Dx12::ResourceBarrier(ID3D12GraphicsCommandList* InCommandList, ID3D12Resource* InResource,
-                                  D3D12_RESOURCE_STATES InBeforeState, D3D12_RESOURCE_STATES InAfterState)
-{
-    if (InBeforeState == InAfterState)
-        return;
-
-    D3D12_RESOURCE_BARRIER barrier = {};
-    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Transition.pResource = InResource;
-    barrier.Transition.StateBefore = InBeforeState;
-    barrier.Transition.StateAfter = InAfterState;
-    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    InCommandList->ResourceBarrier(1, &barrier);
-}
-
 bool Hudfix_Dx12::CheckCapture()
 {
     auto fIndex = GetIndex();
@@ -641,13 +626,13 @@ bool Hudfix_Dx12::CheckForHudless(ID3D12GraphicsCommandList* cmdList, ResourceIn
 
                 // Using state D3D12_RESOURCE_STATE_VIDEO_ENCODE_WRITE as skip flag
                 if (state != D3D12_RESOURCE_STATE_VIDEO_ENCODE_WRITE)
-                    ResourceBarrier(cmdList, resource->buffer, resource->state, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                    ResourceBarrierManager::TransitionResource(cmdList, resource->buffer, resource->state, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
                 cmdList->CopyResource(_captureBuffer[fIndex], resource->buffer);
 
                 // Using state D3D12_RESOURCE_STATE_VIDEO_ENCODE_WRITE as skip flag
                 if (state != D3D12_RESOURCE_STATE_VIDEO_ENCODE_WRITE)
-                    ResourceBarrier(cmdList, resource->buffer, D3D12_RESOURCE_STATE_COPY_SOURCE, resource->state);
+                    ResourceBarrierManager::TransitionResource(cmdList, resource->buffer, D3D12_RESOURCE_STATE_COPY_SOURCE, resource->state);
 
                 LOG_DEBUG("Copy created");
             }
@@ -667,7 +652,7 @@ bool Hudfix_Dx12::CheckForHudless(ID3D12GraphicsCommandList* cmdList, ResourceIn
 
                 // Using state D3D12_RESOURCE_STATE_VIDEO_ENCODE_WRITE as skip flag
                 if (state != D3D12_RESOURCE_STATE_VIDEO_ENCODE_WRITE)
-                    ResourceBarrier(cmdList, resource->buffer, state, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                    ResourceBarrierManager::TransitionResource(cmdList, resource->buffer, state, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
                 D3D12_TEXTURE_COPY_LOCATION srcLocation;
                 ZeroMemory(&srcLocation, sizeof(srcLocation));
@@ -706,7 +691,7 @@ bool Hudfix_Dx12::CheckForHudless(ID3D12GraphicsCommandList* cmdList, ResourceIn
 
                 // Using state D3D12_RESOURCE_STATE_VIDEO_ENCODE_WRITE as skip flag
                 if (state != D3D12_RESOURCE_STATE_VIDEO_ENCODE_WRITE)
-                    ResourceBarrier(cmdList, resource->buffer, D3D12_RESOURCE_STATE_COPY_SOURCE, state);
+                    ResourceBarrierManager::TransitionResource(cmdList, resource->buffer, D3D12_RESOURCE_STATE_COPY_SOURCE, state);
 
                 LOG_DEBUG("Copy created");
             }
@@ -759,13 +744,13 @@ bool Hudfix_Dx12::CheckForHudless(ID3D12GraphicsCommandList* cmdList, ResourceIn
                 // Will reset after FG dispatch
                 _skipHudlessChecks = true;
 
-                ResourceBarrier(fgCmdList, _captureBuffer[fIndex], D3D12_RESOURCE_STATE_COPY_DEST,
+                ResourceBarrierManager::TransitionResource(fgCmdList, _captureBuffer[fIndex], D3D12_RESOURCE_STATE_COPY_DEST,
                                 D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
                 _formatTransfer[fIndex]->Dispatch(s.currentD3D12Device, fgCmdList, _captureBuffer[fIndex],
                                                   _formatTransfer[fIndex]->Buffer());
 
-                ResourceBarrier(fgCmdList, _captureBuffer[fIndex], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                ResourceBarrierManager::TransitionResource(fgCmdList, _captureBuffer[fIndex], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                                 D3D12_RESOURCE_STATE_COPY_DEST);
 
                 LOG_TRACE("Using _formatTransfer->Buffer()");

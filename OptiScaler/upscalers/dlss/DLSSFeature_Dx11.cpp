@@ -1,6 +1,7 @@
 #include <pch.h>
 #include "DLSSFeature_Dx11.h"
 #include <Config.h>
+#include <resource_tracking/D3D11ShaderResourceBackup.h>
 
 #include <dxgi.h>
 
@@ -103,35 +104,9 @@ bool DLSSFeatureDx11::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_NGX_P
 
     if (NVNGXProxy::D3D11_EvaluateFeature() != nullptr)
     {
-        ID3D11ShaderResourceView* restoreSRVs[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
-        ID3D11SamplerState* restoreSamplerStates[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT] = {};
-        ID3D11Buffer* restoreCBVs[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT] = {};
-        ID3D11UnorderedAccessView* restoreUAVs[D3D11_1_UAV_SLOT_COUNT] = {};
-
-        // backup compute shader resources
-        for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
-        {
-            restoreSRVs[i] = nullptr;
-            InDeviceContext->CSGetShaderResources(i, 1, &restoreSRVs[i]);
-        }
-
-        for (UINT i = 0; i < D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT; i++)
-        {
-            restoreSamplerStates[i] = nullptr;
-            InDeviceContext->CSGetSamplers(i, 1, &restoreSamplerStates[i]);
-        }
-
-        for (UINT i = 0; i < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT; i++)
-        {
-            restoreCBVs[i] = nullptr;
-            InDeviceContext->CSGetConstantBuffers(i, 1, &restoreCBVs[i]);
-        }
-
-        for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
-        {
-            restoreUAVs[i] = nullptr;
-            InDeviceContext->CSGetUnorderedAccessViews(i, 1, &restoreUAVs[i]);
-        }
+        // Backup current shader resources
+        D3D11ShaderResourceBackup resourceBackup;
+        resourceBackup.Backup(InDeviceContext);
 
         ProcessEvaluateParams(InParameters);
 
@@ -256,29 +231,7 @@ bool DLSSFeatureDx11::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_NGX_P
         InParameters->Set(NVSDK_NGX_Parameter_Output, paramOutput);
 
         // restore compute shader resources
-        for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
-        {
-            if (restoreSRVs[i] != nullptr)
-                InDeviceContext->CSSetShaderResources(i, 1, &restoreSRVs[i]);
-        }
-
-        for (UINT i = 0; i < D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT; i++)
-        {
-            if (restoreSamplerStates[i] != nullptr)
-                InDeviceContext->CSSetSamplers(i, 1, &restoreSamplerStates[i]);
-        }
-
-        for (UINT i = 0; i < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT; i++)
-        {
-            if (restoreCBVs[i] != nullptr)
-                InDeviceContext->CSSetConstantBuffers(i, 1, &restoreCBVs[i]);
-        }
-
-        for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
-        {
-            if (restoreUAVs[i] != nullptr)
-                InDeviceContext->CSSetUnorderedAccessViews(i, 1, &restoreUAVs[i], 0);
-        }
+        resourceBackup.Restore(InDeviceContext);
     }
     else
     {

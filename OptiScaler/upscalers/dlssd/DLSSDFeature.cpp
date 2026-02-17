@@ -58,18 +58,7 @@ void DLSSDFeature::ProcessInitParams(NVSDK_NGX_Parameter* InParameters)
     // Resolution -----------------------------
     if (State::Instance().api != Vulkan && Config::Instance()->OutputScalingEnabled.value_or_default() && LowResMV())
     {
-        float ssMulti = Config::Instance()->OutputScalingMultiplier.value_or_default();
-
-        if (ssMulti < 0.5f)
-        {
-            ssMulti = 0.5f;
-            Config::Instance()->OutputScalingMultiplier.set_volatile_value(ssMulti);
-        }
-        else if (ssMulti > 3.0f)
-        {
-            ssMulti = 3.0f;
-            Config::Instance()->OutputScalingMultiplier.set_volatile_value(ssMulti);
-        }
+        float ssMulti = GetValidatedScalingMultiplier();
 
         _targetWidth = static_cast<unsigned int>(DisplayWidth() * ssMulti);
         _targetHeight = static_cast<unsigned int>(DisplayHeight() * ssMulti);

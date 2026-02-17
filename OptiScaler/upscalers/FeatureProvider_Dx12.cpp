@@ -161,7 +161,7 @@ bool FeatureProvider_Dx12::ChangeFeature(std::string upscalerName, ID3D12Device*
 
             if (contextData->createParams != nullptr)
             {
-                free(contextData->createParams);
+                delete contextData->createParams;
                 contextData->createParams = nullptr;
             }
 
@@ -226,7 +226,7 @@ bool FeatureProvider_Dx12::ChangeFeature(std::string upscalerName, ID3D12Device*
         int optiParam = 0;
         if (contextData->createParams->Get("OptiScaler", &optiParam) == NVSDK_NGX_Result_Success && optiParam == 1)
         {
-            free(contextData->createParams);
+            delete contextData->createParams;
             contextData->createParams = nullptr;
         }
     }

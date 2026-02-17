@@ -148,18 +148,7 @@ bool XeSSFeature::InitXeSS(ID3D12Device* device, const NVSDK_NGX_Parameter* InPa
 
         if (Config::Instance()->OutputScalingEnabled.value_or(false) && LowResMV())
         {
-            float ssMulti = Config::Instance()->OutputScalingMultiplier.value_or(1.5f);
-
-            if (ssMulti < 0.5f)
-            {
-                ssMulti = 0.5f;
-                Config::Instance()->OutputScalingMultiplier = ssMulti;
-            }
-            else if (ssMulti > 3.0f)
-            {
-                ssMulti = 3.0f;
-                Config::Instance()->OutputScalingMultiplier = ssMulti;
-            }
+            float ssMulti = GetValidatedScalingMultiplier();
 
             _targetWidth = static_cast<unsigned int>(DisplayWidth() * ssMulti);
             _targetHeight = static_cast<unsigned int>(DisplayHeight() * ssMulti);
@@ -229,6 +218,7 @@ bool XeSSFeature::InitXeSS(ID3D12Device* device, const NVSDK_NGX_Parameter* InPa
                     else
                     {
                         _localBufferHeap->Release();
+                        _localBufferHeap = nullptr;
                         LOG_ERROR("CreateHeap textureHeapDesc failed {0:x}!", (UINT) hr);
                     }
                 }

@@ -323,28 +323,13 @@ bool FSR31FeatureDx11on12::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_
             params.motionVectorScale.y = MVScaleY;
         }
 
-        if (DepthInverted())
-        {
-            params.cameraFar = Config::Instance()->FsrCameraNear.value_or_default();
-            params.cameraNear = Config::Instance()->FsrCameraFar.value_or_default();
-        }
-        else
-        {
-            params.cameraFar = Config::Instance()->FsrCameraFar.value_or_default();
-            params.cameraNear = Config::Instance()->FsrCameraNear.value_or_default();
-        }
+        auto cameraParams = SetupCameraParams(InParameters);
+        params.cameraNear = cameraParams.Near;
+        params.cameraFar = cameraParams.Far;
+        params.cameraFovAngleVertical = cameraParams.FovAngleVertical;
 
         State::Instance().lastFsrCameraFar = params.cameraFar;
         State::Instance().lastFsrCameraNear = params.cameraNear;
-
-        if (Config::Instance()->FsrVerticalFov.has_value())
-            params.cameraFovAngleVertical = Config::Instance()->FsrVerticalFov.value() * 0.0174532925199433f;
-        else if (Config::Instance()->FsrHorizontalFov.value_or_default() > 0.0f)
-            params.cameraFovAngleVertical =
-                2.0f * atan((tan(Config::Instance()->FsrHorizontalFov.value() * 0.0174532925199433f) * 0.5f) /
-                            (float) TargetHeight() * (float) TargetWidth());
-        else
-            params.cameraFovAngleVertical = 1.0471975511966f;
 
         if (InParameters->Get(NVSDK_NGX_Parameter_FrameTimeDeltaInMsec, &params.frameTimeDelta) !=
                 NVSDK_NGX_Result_Success ||
@@ -653,18 +638,7 @@ bool FSR31FeatureDx11on12::InitFSR3(const NVSDK_NGX_Parameter* InParameters)
 
         if (Config::Instance()->OutputScalingEnabled.value_or_default() && LowResMV())
         {
-            float ssMulti = Config::Instance()->OutputScalingMultiplier.value_or_default();
-
-            if (ssMulti < 0.5f)
-            {
-                ssMulti = 0.5f;
-                Config::Instance()->OutputScalingMultiplier.set_volatile_value(ssMulti);
-            }
-            else if (ssMulti > 3.0f)
-            {
-                ssMulti = 3.0f;
-                Config::Instance()->OutputScalingMultiplier.set_volatile_value(ssMulti);
-            }
+            float ssMulti = GetValidatedScalingMultiplier();
 
             _targetWidth = static_cast<unsigned int>(DisplayWidth() * ssMulti);
             _targetHeight = static_cast<unsigned int>(DisplayHeight() * ssMulti);

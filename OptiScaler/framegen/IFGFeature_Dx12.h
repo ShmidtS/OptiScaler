@@ -3,6 +3,7 @@
 #include "IFGFeature.h"
 
 #include <upscalers/IFeature.h>
+#include <resource_tracking/ResourceBarrierManager.h>
 
 #include <shaders/resource_flip/RF_Dx12.h>
 #include <shaders/hudless_compare/HC_Dx12.h>
@@ -65,8 +66,6 @@ class IFGFeature_Dx12 : public virtual IFGFeature
                               ID3D12Resource** OutResource, bool UAV = false, bool depth = false);
     bool CreateBufferResourceWithSize(ID3D12Device* device, ID3D12Resource* source, D3D12_RESOURCE_STATES state,
                                       ID3D12Resource** target, UINT width, UINT height, bool UAV, bool depth);
-    void ResourceBarrier(ID3D12GraphicsCommandList* InCommandList, ID3D12Resource* InResource,
-                         D3D12_RESOURCE_STATES InBeforeState, D3D12_RESOURCE_STATES InAfterState);
     bool CopyResource(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* source, ID3D12Resource** target,
                       D3D12_RESOURCE_STATES sourceState);
 

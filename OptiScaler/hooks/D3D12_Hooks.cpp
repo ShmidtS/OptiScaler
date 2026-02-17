@@ -151,86 +151,88 @@ static inline D3D12_FILTER UpgradeToAF(D3D12_FILTER f)
     return D3D12_ENCODE_ANISOTROPIC_FILTER(D3D12_FILTER_REDUCTION_TYPE_STANDARD);
 }
 
-static void ApplySamplerOverrides(D3D12_STATIC_SAMPLER_DESC& samplerDesc)
+// Common sampler override fields accessor template
+template <typename T>
+struct SamplerFields
+{
+    static D3D12_FILTER& Filter(T& s);
+    static UINT& MaxAnisotropy(T& s);
+    static FLOAT& MipLODBias(T& s);
+    static FLOAT MinLOD(const T& s);
+    static FLOAT MaxLOD(const T& s);
+};
+
+template <>
+struct SamplerFields<D3D12_STATIC_SAMPLER_DESC>
+{
+    static D3D12_FILTER& Filter(D3D12_STATIC_SAMPLER_DESC& s) { return s.Filter; }
+    static UINT& MaxAnisotropy(D3D12_STATIC_SAMPLER_DESC& s) { return s.MaxAnisotropy; }
+    static FLOAT& MipLODBias(D3D12_STATIC_SAMPLER_DESC& s) { return s.MipLODBias; }
+    static FLOAT MinLOD(const D3D12_STATIC_SAMPLER_DESC& s) { return s.MinLOD; }
+    static FLOAT MaxLOD(const D3D12_STATIC_SAMPLER_DESC& s) { return s.MaxLOD; }
+};
+
+template <>
+struct SamplerFields<D3D12_STATIC_SAMPLER_DESC1>
+{
+    static D3D12_FILTER& Filter(D3D12_STATIC_SAMPLER_DESC1& s) { return s.Filter; }
+    static UINT& MaxAnisotropy(D3D12_STATIC_SAMPLER_DESC1& s) { return s.MaxAnisotropy; }
+    static FLOAT& MipLODBias(D3D12_STATIC_SAMPLER_DESC1& s) { return s.MipLODBias; }
+    static FLOAT MinLOD(const D3D12_STATIC_SAMPLER_DESC1& s) { return s.MinLOD; }
+    static FLOAT MaxLOD(const D3D12_STATIC_SAMPLER_DESC1& s) { return s.MaxLOD; }
+};
+
+// Unified sampler override implementation
+template <typename T>
+static void ApplySamplerOverridesImpl(T& samplerDesc)
 {
     if (Config::Instance()->MipmapBiasOverride.has_value())
     {
-        auto isMipmapped = samplerDesc.MinLOD != samplerDesc.MaxLOD;
-        auto isAnisotropic = (samplerDesc.Filter == D3D12_FILTER_ANISOTROPIC) || (samplerDesc.MaxAnisotropy > 1);
-        auto isAlreadyBiased = samplerDesc.MipLODBias < 0.0f;
+        auto isMipmapped = SamplerFields<T>::MinLOD(samplerDesc) != SamplerFields<T>::MaxLOD(samplerDesc);
+        auto isAnisotropic = (SamplerFields<T>::Filter(samplerDesc) == D3D12_FILTER_ANISOTROPIC) || (SamplerFields<T>::MaxAnisotropy(samplerDesc) > 1);
+        auto isAlreadyBiased = SamplerFields<T>::MipLODBias(samplerDesc) < 0.0f;
 
         if ((isMipmapped && (isAnisotropic || isAlreadyBiased)) ||
             Config::Instance()->MipmapBiasOverrideAll.value_or_default())
         {
-            if (Config::Instance()->MipmapBiasOverride.has_value())
-            {
-                LOG_DEBUG("Overriding mipmap bias {0} -> {1}", samplerDesc.MipLODBias,
-                          Config::Instance()->MipmapBiasOverride.value());
+            LOG_DEBUG("Overriding mipmap bias {0} -> {1}", SamplerFields<T>::MipLODBias(samplerDesc),
+                      Config::Instance()->MipmapBiasOverride.value());
 
-                if (Config::Instance()->MipmapBiasFixedOverride.value_or_default())
-                    samplerDesc.MipLODBias = Config::Instance()->MipmapBiasOverride.value();
-                else if (Config::Instance()->MipmapBiasScaleOverride.value_or_default())
-                    samplerDesc.MipLODBias = samplerDesc.MipLODBias * Config::Instance()->MipmapBiasOverride.value();
-                else
-                    samplerDesc.MipLODBias = samplerDesc.MipLODBias + Config::Instance()->MipmapBiasOverride.value();
+            if (Config::Instance()->MipmapBiasFixedOverride.value_or_default())
+                SamplerFields<T>::MipLODBias(samplerDesc) = Config::Instance()->MipmapBiasOverride.value();
+            else if (Config::Instance()->MipmapBiasScaleOverride.value_or_default())
+                SamplerFields<T>::MipLODBias(samplerDesc) = SamplerFields<T>::MipLODBias(samplerDesc) * Config::Instance()->MipmapBiasOverride.value();
+            else
+                SamplerFields<T>::MipLODBias(samplerDesc) = SamplerFields<T>::MipLODBias(samplerDesc) + Config::Instance()->MipmapBiasOverride.value();
 
-                samplerDesc.MipLODBias = std::clamp(samplerDesc.MipLODBias, -16.0f, 15.99f);
-            }
+            SamplerFields<T>::MipLODBias(samplerDesc) = std::clamp(SamplerFields<T>::MipLODBias(samplerDesc), -16.0f, 15.99f);
 
-            if (State::Instance().lastMipBiasMax < samplerDesc.MipLODBias)
-                State::Instance().lastMipBiasMax = samplerDesc.MipLODBias;
+            if (State::Instance().lastMipBiasMax < SamplerFields<T>::MipLODBias(samplerDesc))
+                State::Instance().lastMipBiasMax = SamplerFields<T>::MipLODBias(samplerDesc);
 
-            if (State::Instance().lastMipBias > samplerDesc.MipLODBias)
-                State::Instance().lastMipBias = samplerDesc.MipLODBias;
+            if (State::Instance().lastMipBias > SamplerFields<T>::MipLODBias(samplerDesc))
+                State::Instance().lastMipBias = SamplerFields<T>::MipLODBias(samplerDesc);
         }
     }
 
     if (Config::Instance()->AnisotropyOverride.has_value())
     {
-        LOG_DEBUG("Overriding {2:X} to anisotropic filtering {0} -> {1}", samplerDesc.MaxAnisotropy,
-                  Config::Instance()->AnisotropyOverride.value(), (UINT) samplerDesc.Filter);
+        LOG_DEBUG("Overriding {2:X} to anisotropic filtering {0} -> {1}", SamplerFields<T>::MaxAnisotropy(samplerDesc),
+                  Config::Instance()->AnisotropyOverride.value(), (UINT) SamplerFields<T>::Filter(samplerDesc));
 
-        samplerDesc.Filter = UpgradeToAF(samplerDesc.Filter);
-        samplerDesc.MaxAnisotropy = Config::Instance()->AnisotropyOverride.value();
+        SamplerFields<T>::Filter(samplerDesc) = UpgradeToAF(SamplerFields<T>::Filter(samplerDesc));
+        SamplerFields<T>::MaxAnisotropy(samplerDesc) = Config::Instance()->AnisotropyOverride.value();
     }
+}
+
+static void ApplySamplerOverrides(D3D12_STATIC_SAMPLER_DESC& samplerDesc)
+{
+    ApplySamplerOverridesImpl(samplerDesc);
 }
 
 static void ApplySamplerOverrides(D3D12_STATIC_SAMPLER_DESC1& samplerDesc)
 {
-    if (Config::Instance()->MipmapBiasOverride.has_value())
-    {
-        if ((samplerDesc.MipLODBias < 0.0f && samplerDesc.MinLOD != samplerDesc.MaxLOD) ||
-            Config::Instance()->MipmapBiasOverrideAll.value_or_default())
-        {
-            if (Config::Instance()->MipmapBiasOverride.has_value())
-            {
-                LOG_DEBUG("Overriding mipmap bias {0} -> {1}", samplerDesc.MipLODBias,
-                          Config::Instance()->MipmapBiasOverride.value());
-
-                if (Config::Instance()->MipmapBiasFixedOverride.value_or_default())
-                    samplerDesc.MipLODBias = Config::Instance()->MipmapBiasOverride.value();
-                else if (Config::Instance()->MipmapBiasScaleOverride.value_or_default())
-                    samplerDesc.MipLODBias = samplerDesc.MipLODBias * Config::Instance()->MipmapBiasOverride.value();
-                else
-                    samplerDesc.MipLODBias = samplerDesc.MipLODBias + Config::Instance()->MipmapBiasOverride.value();
-            }
-
-            if (State::Instance().lastMipBiasMax < samplerDesc.MipLODBias)
-                State::Instance().lastMipBiasMax = samplerDesc.MipLODBias;
-
-            if (State::Instance().lastMipBias > samplerDesc.MipLODBias)
-                State::Instance().lastMipBias = samplerDesc.MipLODBias;
-        }
-    }
-
-    if (Config::Instance()->AnisotropyOverride.has_value())
-    {
-        LOG_DEBUG("Overriding {2:X} to anisotropic filtering {0} -> {1}", samplerDesc.MaxAnisotropy,
-                  Config::Instance()->AnisotropyOverride.value(), (UINT) samplerDesc.Filter);
-
-        samplerDesc.Filter = UpgradeToAF(samplerDesc.Filter);
-        samplerDesc.MaxAnisotropy = Config::Instance()->AnisotropyOverride.value();
-    }
+    ApplySamplerOverridesImpl(samplerDesc);
 }
 
 static HRESULT hkD3D12CreateDevice(IDXGIAdapter* pAdapter, D3D_FEATURE_LEVEL MinimumFeatureLevel, REFIID riid,

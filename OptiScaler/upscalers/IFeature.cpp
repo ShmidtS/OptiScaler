@@ -354,3 +354,69 @@ void IFeature::GetDynamicOutputResolution(NVSDK_NGX_Parameter* InParameters, uns
         *height = fsrDynamicOutputHeight;
     }
 }
+
+IFeature::CameraParams IFeature::SetupCameraParams(const NVSDK_NGX_Parameter* InParameters)
+{
+    CameraParams params;
+
+    // Try to get camera near/far from FSR parameters first
+    bool useFsrValues = Config::Instance()->FsrUseFsrInputValues.value_or_default();
+
+    if (!useFsrValues || InParameters->Get("FSR.cameraNear", &params.Near) != NVSDK_NGX_Result_Success)
+    {
+        // Apply DepthInverted logic: swap near/far when depth is inverted
+        if (DepthInverted())
+        {
+            params.Far = Config::Instance()->FsrCameraNear.value_or_default();
+            params.Near = Config::Instance()->FsrCameraFar.value_or_default();
+        }
+        else
+        {
+            params.Near = Config::Instance()->FsrCameraNear.value_or_default();
+            params.Far = Config::Instance()->FsrCameraFar.value_or_default();
+        }
+    }
+    else
+    {
+        // If we got FSR.cameraNear, we still need to get FSR.cameraFar
+        InParameters->Get("FSR.cameraFar", &params.Far);
+    }
+
+    // Get vertical FOV
+    if (!useFsrValues || InParameters->Get("FSR.cameraFovAngleVertical", &params.FovAngleVertical) != NVSDK_NGX_Result_Success)
+    {
+        if (Config::Instance()->FsrVerticalFov.has_value())
+        {
+            params.FovAngleVertical = Config::Instance()->FsrVerticalFov.value() * 0.0174532925199433f;
+        }
+        else if (Config::Instance()->FsrHorizontalFov.value_or_default() > 0.0f)
+        {
+            params.FovAngleVertical = 2.0f * atan((tan(Config::Instance()->FsrHorizontalFov.value() * 0.0174532925199433f) * 0.5f) /
+                (float)TargetHeight() * (float)TargetWidth());
+        }
+        else
+        {
+            params.FovAngleVertical = 1.0471975511966f; // 60 degrees default
+        }
+    }
+
+    return params;
+}
+
+float IFeature::GetValidatedScalingMultiplier()
+{
+    float multiplier = Config::Instance()->OutputScalingMultiplier.value_or_default();
+
+    if (multiplier < 0.5f)
+    {
+        multiplier = 0.5f;
+        Config::Instance()->OutputScalingMultiplier.set_volatile_value(multiplier);
+    }
+    else if (multiplier > 3.0f)
+    {
+        multiplier = 3.0f;
+        Config::Instance()->OutputScalingMultiplier.set_volatile_value(multiplier);
+    }
+
+    return multiplier;
+}

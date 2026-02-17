@@ -1,6 +1,7 @@
 #pragma once
 #include "SysUtils.h"
 #include <shaders/format_transfer/FT_Dx12.h>
+#include <resource_tracking/ResourceBarrierManager.h>
 
 #include <ankerl/unordered_dense.h>
 
@@ -102,8 +103,6 @@ class Hudfix_Dx12
     static bool CreateBufferResourceWithSize(ID3D12Device* InDevice, ResourceInfo* InSource,
                                              D3D12_RESOURCE_STATES InState, ID3D12Resource** OutResource, UINT InWidth,
                                              UINT InHeight);
-    static void ResourceBarrier(ID3D12GraphicsCommandList* InCommandList, ID3D12Resource* InResource,
-                                D3D12_RESOURCE_STATES InBeforeState, D3D12_RESOURCE_STATES InAfterState);
 
     // Check _captureCounter for current frame
     static bool CheckCapture();

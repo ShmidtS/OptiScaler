@@ -283,6 +283,7 @@ bool IFGFeature_Dx12::InitCopyCmdList()
         if (result != S_OK)
         {
             LOG_ERROR("_copyCommandAllocator: {:X}", (unsigned long) result);
+            DestroyCopyCmdList(); // Clean up on failure
             return false;
         }
 
@@ -294,7 +295,8 @@ bool IFGFeature_Dx12::InitCopyCmdList()
                                             IID_PPV_ARGS(&_copyCommandList[i]));
         if (result != S_OK)
         {
-            LOG_ERROR("_copyCommandAllocator: {:X}", (unsigned long) result);
+            LOG_ERROR("_copyCommandList: {:X}", (unsigned long) result);
+            DestroyCopyCmdList(); // Clean up on failure
             return false;
         }
         _copyCommandList[i]->SetName(L"_copyCommandList");
@@ -305,6 +307,7 @@ bool IFGFeature_Dx12::InitCopyCmdList()
         if (result != S_OK)
         {
             LOG_ERROR("_copyCommandList->Close: {:X}", (unsigned long) result);
+            DestroyCopyCmdList(); // Clean up on failure
             return false;
         }
     }
@@ -368,6 +371,12 @@ bool IFGFeature_Dx12::CreateBufferResource(ID3D12Device* device, ID3D12Resource*
     D3D12_HEAP_FLAGS heapFlags;
     auto hr = source->GetHeapProperties(&heapProperties, &heapFlags);
 
+    if (hr != S_OK)
+    {
+        LOG_ERROR("GetHeapProperties result: {:X}", (UINT64) hr);
+        return false;
+    }
+
     hr = device->CreateCommittedResource(&heapProperties, D3D12_HEAP_FLAG_NONE, &inDesc, initialState, nullptr,
                                          IID_PPV_ARGS(target));
 
@@ -382,34 +391,22 @@ bool IFGFeature_Dx12::CreateBufferResource(ID3D12Device* device, ID3D12Resource*
     return true;
 }
 
-void IFGFeature_Dx12::ResourceBarrier(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* resource,
-                                      D3D12_RESOURCE_STATES beforeState, D3D12_RESOURCE_STATES afterState)
-{
-    if (beforeState == afterState)
-        return;
-
-    D3D12_RESOURCE_BARRIER barrier = {};
-    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Transition.pResource = resource;
-    barrier.Transition.StateBefore = beforeState;
-    barrier.Transition.StateAfter = afterState;
-    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    cmdList->ResourceBarrier(1, &barrier);
-}
-
 bool IFGFeature_Dx12::CopyResource(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* source, ID3D12Resource** target,
                                    D3D12_RESOURCE_STATES sourceState)
 {
+    if (cmdList == nullptr || source == nullptr || target == nullptr)
+        return false;
+
     auto result = true;
 
-    ResourceBarrier(cmdList, source, sourceState, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    ResourceBarrierManager::TransitionResource(cmdList, source, sourceState, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
-    if (CreateBufferResource(_device, source, D3D12_RESOURCE_STATE_COPY_DEST, target))
+    if (CreateBufferResource(_device, source, D3D12_RESOURCE_STATE_COPY_DEST, target) && *target != nullptr)
         cmdList->CopyResource(*target, source);
     else
         result = false;
 
-    ResourceBarrier(cmdList, source, D3D12_RESOURCE_STATE_COPY_SOURCE, sourceState);
+    ResourceBarrierManager::TransitionResource(cmdList, source, D3D12_RESOURCE_STATE_COPY_SOURCE, sourceState);
 
     return result;
 }

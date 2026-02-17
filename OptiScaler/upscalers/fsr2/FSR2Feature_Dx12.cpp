@@ -35,10 +35,10 @@ bool FSR2FeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_N
     if (!IsInited())
         return false;
 
-    if (!RCAS->IsInit())
+    if (RCAS != nullptr && RCAS.get() != nullptr && !RCAS->IsInit())
         Config::Instance()->RcasEnabled.set_volatile_value(false);
 
-    if (!OutputScaler->IsInit())
+    if (OutputScaler != nullptr && OutputScaler.get() != nullptr && !OutputScaler->IsInit())
         Config::Instance()->OutputScalingEnabled.set_volatile_value(false);
 
     FfxFsr2DispatchDescription params {};
@@ -281,7 +281,8 @@ bool FSR2FeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_N
                         ffxGetResourceDX12(&_context, paramReactiveMask2, (wchar_t*) L"FSR2_Transparency",
                                            FFX_RESOURCE_STATE_COMPUTE_READ);
 
-                if (Config::Instance()->DlssReactiveMaskBias.value_or_default() > 0.0f && Bias->IsInit() &&
+                if (Config::Instance()->DlssReactiveMaskBias.value_or_default() > 0.0f && Bias != nullptr &&
+                    Bias.get() != nullptr && Bias->IsInit() &&
                     Bias->CreateBufferResource(Device, paramReactiveMask2, D3D12_RESOURCE_STATE_UNORDERED_ACCESS) &&
                     Bias->CanRender())
                 {
@@ -298,8 +299,9 @@ bool FSR2FeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_N
                 else
                 {
                     LOG_DEBUG("Skipping reactive mask, Bias: {0}, Bias Init: {1}, Bias CanRender: {2}",
-                              Config::Instance()->DlssReactiveMaskBias.value_or_default(), Bias->IsInit(),
-                              Bias->CanRender());
+                              Config::Instance()->DlssReactiveMaskBias.value_or_default(),
+                              (Bias != nullptr && Bias.get() != nullptr) ? Bias->IsInit() : false,
+                              (Bias != nullptr && Bias.get() != nullptr) ? Bias->CanRender() : false);
                 }
             }
         }
@@ -330,36 +332,11 @@ bool FSR2FeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_N
         params.motionVectorScale.y = MVScaleY;
     }
 
-    if (!Config::Instance()->FsrUseFsrInputValues.value_or_default() ||
-        InParameters->Get("FSR.cameraNear", &params.cameraNear) != NVSDK_NGX_Result_Success)
-    {
-        if (DepthInverted())
-            params.cameraFar = Config::Instance()->FsrCameraNear.value_or_default();
-        else
-            params.cameraNear = Config::Instance()->FsrCameraNear.value_or_default();
-    }
-
-    if (!Config::Instance()->FsrUseFsrInputValues.value_or_default() ||
-        InParameters->Get("FSR.cameraFar", &params.cameraFar) != NVSDK_NGX_Result_Success)
-    {
-        if (DepthInverted())
-            params.cameraNear = Config::Instance()->FsrCameraFar.value_or_default();
-        else
-            params.cameraFar = Config::Instance()->FsrCameraFar.value_or_default();
-    }
-
-    if (!Config::Instance()->FsrUseFsrInputValues.value_or_default() ||
-        InParameters->Get("FSR.cameraFovAngleVertical", &params.cameraFovAngleVertical) != NVSDK_NGX_Result_Success)
-    {
-        if (Config::Instance()->FsrVerticalFov.has_value())
-            params.cameraFovAngleVertical = Config::Instance()->FsrVerticalFov.value() * 0.0174532925199433f;
-        else if (Config::Instance()->FsrHorizontalFov.value_or_default() > 0.0f)
-            params.cameraFovAngleVertical =
-                2.0f * atan((tan(Config::Instance()->FsrHorizontalFov.value() * 0.0174532925199433f) * 0.5f) /
-                            (float) TargetHeight() * (float) TargetWidth());
-        else
-            params.cameraFovAngleVertical = 1.0471975511966f;
-    }
+    // Use common camera params setup
+    auto cameraParams = SetupCameraParams(InParameters);
+    params.cameraNear = cameraParams.Near;
+    params.cameraFar = cameraParams.Far;
+    params.cameraFovAngleVertical = cameraParams.FovAngleVertical;
 
     if (!Config::Instance()->FsrUseFsrInputValues.value_or_default() ||
         InParameters->Get("FSR.frameTimeDelta", &params.frameTimeDelta) != NVSDK_NGX_Result_Success)
@@ -537,19 +514,7 @@ bool FSR2FeatureDx12::InitFSR2(const NVSDK_NGX_Parameter* InParameters)
 
         if (Config::Instance()->OutputScalingEnabled.value_or_default() && LowResMV())
         {
-            float ssMulti = Config::Instance()->OutputScalingMultiplier.value_or_default();
-
-            if (ssMulti < 0.5f)
-            {
-                ssMulti = 0.5f;
-                Config::Instance()->OutputScalingMultiplier.set_volatile_value(ssMulti);
-            }
-            else if (ssMulti > 3.0f)
-            {
-                ssMulti = 3.0f;
-                Config::Instance()->OutputScalingMultiplier.set_volatile_value(ssMulti);
-            }
-
+            float ssMulti = GetValidatedScalingMultiplier();
             _targetWidth = static_cast<unsigned int>(DisplayWidth() * ssMulti);
             _targetHeight = static_cast<unsigned int>(DisplayHeight() * ssMulti);
         }

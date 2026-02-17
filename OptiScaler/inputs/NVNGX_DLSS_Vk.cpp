@@ -536,15 +536,15 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_VULKAN_GetFeatureRequirements(
 {
     LOG_DEBUG("for FeatureID: {0}", (int) FeatureDiscoveryInfo->FeatureID);
 
+    if (OutSupported == nullptr)
+        return NVSDK_NGX_Result_FAIL_InvalidParameter;
+
     DLSSGMod::InitDLSSGMod_Vulkan();
 
     if (FeatureDiscoveryInfo->FeatureID == NVSDK_NGX_Feature_SuperSampling ||
         ((State::Instance().activeFgInput == FGInput::Nukems || State::Instance().activeFgInput == FGInput::DLSSG) &&
          DLSSGMod::isVulkanAvailable() && FeatureDiscoveryInfo->FeatureID == NVSDK_NGX_Feature_FrameGeneration))
     {
-        if (OutSupported == nullptr)
-            OutSupported = new NVSDK_NGX_FeatureRequirement();
-
         OutSupported->FeatureSupported = NVSDK_NGX_FeatureSupportResult_Supported;
         OutSupported->MinHWArchitecture = 0;
 
@@ -645,6 +645,9 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_VULKAN_GetScratchBufferSize(NVSDK_NGX_F
                                                                      const NVSDK_NGX_Parameter* InParameters,
                                                                      size_t* OutSizeInBytes)
 {
+    if (OutSizeInBytes == nullptr)
+        return NVSDK_NGX_Result_FAIL_InvalidParameter;
+
     if (DLSSGMod::isVulkanAvailable() && InFeatureId == NVSDK_NGX_Feature_FrameGeneration)
     {
         return DLSSGMod::VULKAN_GetScratchBufferSize(InFeatureId, InParameters, OutSizeInBytes);

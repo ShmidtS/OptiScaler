@@ -315,12 +315,7 @@ class State
             auto* ptr = new std::string(std::move(dllName));
             delete _skipDllName.exchange(ptr);
         }
-        else
-        {
-            // Another thread already owns the lock
-            auto* ptr = new std::string(""); // Hack for multiple skip calls
-            delete _skipDllName.exchange(ptr);
-        }
+        // If another thread already owns the lock, do nothing - they already set the skip
     };
 
     static void EnableChecks(UINT owner)

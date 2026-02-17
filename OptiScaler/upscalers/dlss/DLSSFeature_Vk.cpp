@@ -112,7 +112,7 @@ bool DLSSFeatureVk::Evaluate(VkCommandBuffer InCmdBuffer, NVSDK_NGX_Parameter* I
         VkImage finalOutputImage = VK_NULL_HANDLE;
 
         _sharpness = GetSharpness(InParameters);
-        float ssMulti = Config::Instance()->OutputScalingMultiplier.value_or(1.5f);
+        float ssMulti = GetValidatedScalingMultiplier();
         bool useSS = Config::Instance()->OutputScalingEnabled.value_or(false) && LowResMV();
 
         bool rcasEnabled = Config::Instance()->RcasEnabled.value_or(true) &&

@@ -37,7 +37,6 @@ static VkInstance _instance = VK_NULL_HANDLE;
 static VkPhysicalDevice _PD = VK_NULL_HANDLE;
 static HWND _hwnd = nullptr;
 
-static std::mutex _vkPresentMutex;
 static std::mutex _vkDeviceMutex;
 
 // DX12 interop FG state
@@ -812,6 +811,7 @@ static VkResult hkvkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateI
                             LOG_ERROR("Failed to create hidden window for DX12 FG swapchain");
                             factory->Release();
                             delete fg;
+                            fg = nullptr;
                             LOG_INFO("===========================================");
                             return result;
                         }
@@ -889,6 +889,7 @@ static VkResult hkvkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateI
                             {
                                 LOG_ERROR("Failed to create FSRFG_Dx12 swapchain");
                                 delete fg;
+                                fg = nullptr;
                             }
                         }
 
@@ -898,6 +899,7 @@ static VkResult hkvkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateI
                     {
                         LOG_ERROR("Failed to create DXGI factory for FG swapchain");
                         delete fg;
+                        fg = nullptr;
                     }
                 }
                 else

@@ -8,7 +8,8 @@
 
 NVSDK_NGX_Parameter* FSR31FeatureDx12::SetParameters(NVSDK_NGX_Parameter* InParameters)
 {
-    InParameters->Set("OptiScaler.SupportsUpscaleSize", true);
+    if (InParameters != nullptr)
+        InParameters->Set("OptiScaler.SupportsUpscaleSize", true);
     return InParameters;
 }
 
@@ -34,6 +35,12 @@ bool FSR31FeatureDx12::Init(ID3D12Device* InDevice, ID3D12GraphicsCommandList* I
     if (IsInited())
         return true;
 
+    if (InDevice == nullptr)
+    {
+        LOG_ERROR("InDevice is null!");
+        return false;
+    }
+
     Device = InDevice;
 
     if (InitFSR3(InParameters))
@@ -58,10 +65,22 @@ bool FSR31FeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_
     if (!IsInited())
         return false;
 
-    if (!RCAS->IsInit())
+    if (InCommandList == nullptr)
+    {
+        LOG_ERROR("InCommandList is null!");
+        return false;
+    }
+
+    if (InParameters == nullptr)
+    {
+        LOG_ERROR("InParameters is null!");
+        return false;
+    }
+
+    if (RCAS && !RCAS->IsInit())
         Config::Instance()->RcasEnabled.set_volatile_value(false);
 
-    if (!OutputScaler->IsInit())
+    if (OutputScaler && !OutputScaler->IsInit())
         Config::Instance()->OutputScalingEnabled.set_volatile_value(false);
 
     struct ffxDispatchDescUpscale params = { 0 };
@@ -197,7 +216,7 @@ bool FSR31FeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_
                             (D3D12_RESOURCE_STATES) Config::Instance()->OutputResourceBarrier.value(),
                             D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
-        if (useSS)
+        if (useSS && OutputScaler)
         {
             if (OutputScaler->CreateBufferResource(Device, paramOutput, TargetWidth(), TargetHeight(),
                                                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS))
@@ -214,7 +233,7 @@ bool FSR31FeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_
         if (Config::Instance()->RcasEnabled.value_or_default() &&
             (_sharpness > 0.0f || (Config::Instance()->MotionSharpnessEnabled.value_or_default() &&
                                    Config::Instance()->MotionSharpness.value_or_default() > 0.0f)) &&
-            RCAS->IsInit() &&
+            RCAS && RCAS->IsInit() &&
             RCAS->CreateBufferResource(Device, (ID3D12Resource*) params.output.resource,
                                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS))
         {
@@ -276,7 +295,9 @@ bool FSR31FeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_
         {
             LOG_DEBUG("AutoExposure disabled but ExposureTexture is not exist, it may cause problems!!");
             State::Instance().AutoExposure = true;
-            State::Instance().changeBackend[Handle()->Id] = true;
+            auto handle = Handle();
+            if (handle != nullptr)
+                State::Instance().changeBackend[handle->Id] = true;
             return true;
         }
     }
@@ -325,7 +346,8 @@ bool FSR31FeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_
                     params.transparencyAndComposition =
                         ffxApiGetResourceDX12(paramReactiveMask2, FFX_API_RESOURCE_STATE_COMPUTE_READ);
 
-                if (Config::Instance()->DlssReactiveMaskBias.value_or_default() > 0.0f && Bias->IsInit() &&
+                if (Config::Instance()->DlssReactiveMaskBias.value_or_default() > 0.0f && Bias &&
+                    Bias->IsInit() &&
                     Bias->CreateBufferResource(Device, paramReactiveMask2, D3D12_RESOURCE_STATE_UNORDERED_ACCESS) &&
                     Bias->CanRender())
                 {
@@ -341,8 +363,9 @@ bool FSR31FeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_
                 else
                 {
                     LOG_DEBUG("Skipping reactive mask, Bias: {0}, Bias Init: {1}, Bias CanRender: {2}",
-                              Config::Instance()->DlssReactiveMaskBias.value_or_default(), Bias->IsInit(),
-                              Bias->CanRender());
+                              Config::Instance()->DlssReactiveMaskBias.value_or_default(),
+                              Bias ? Bias->IsInit() : false,
+                              Bias ? Bias->CanRender() : false);
                 }
             }
         }
@@ -388,36 +411,10 @@ bool FSR31FeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_
 
     LOG_DEBUG("Sharpness: {0}", params.sharpness);
 
-    if (!Config::Instance()->FsrUseFsrInputValues.value_or_default() ||
-        InParameters->Get("FSR.cameraNear", &params.cameraNear) != NVSDK_NGX_Result_Success)
-    {
-        if (DepthInverted())
-            params.cameraFar = Config::Instance()->FsrCameraNear.value_or_default();
-        else
-            params.cameraNear = Config::Instance()->FsrCameraNear.value_or_default();
-    }
-
-    if (!Config::Instance()->FsrUseFsrInputValues.value_or_default() ||
-        InParameters->Get("FSR.cameraFar", &params.cameraFar) != NVSDK_NGX_Result_Success)
-    {
-        if (DepthInverted())
-            params.cameraNear = Config::Instance()->FsrCameraFar.value_or_default();
-        else
-            params.cameraFar = Config::Instance()->FsrCameraFar.value_or_default();
-    }
-
-    if (!Config::Instance()->FsrUseFsrInputValues.value_or_default() ||
-        InParameters->Get("FSR.cameraFovAngleVertical", &params.cameraFovAngleVertical) != NVSDK_NGX_Result_Success)
-    {
-        if (Config::Instance()->FsrVerticalFov.has_value())
-            params.cameraFovAngleVertical = Config::Instance()->FsrVerticalFov.value() * 0.0174532925199433f;
-        else if (Config::Instance()->FsrHorizontalFov.value_or_default() > 0.0f)
-            params.cameraFovAngleVertical =
-                2.0f * atan((tan(Config::Instance()->FsrHorizontalFov.value() * 0.0174532925199433f) * 0.5f) /
-                            (float) TargetHeight() * (float) TargetWidth());
-        else
-            params.cameraFovAngleVertical = 1.0471975511966f;
-    }
+    auto cameraParams = SetupCameraParams(InParameters);
+    params.cameraNear = cameraParams.Near;
+    params.cameraFar = cameraParams.Far;
+    params.cameraFovAngleVertical = cameraParams.FovAngleVertical;
 
     if (!Config::Instance()->FsrUseFsrInputValues.value_or_default() ||
         InParameters->Get("FSR.frameTimeDelta", &params.frameTimeDelta) != NVSDK_NGX_Result_Success)
@@ -539,7 +536,9 @@ bool FSR31FeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_
         if (result == FFX_API_RETURN_ERROR_RUNTIME_ERROR)
         {
             LOG_WARN("Trying to recover by recreating the feature");
-            State::Instance().changeBackend[Handle()->Id] = true;
+            auto handle = Handle();
+            if (handle != nullptr)
+                State::Instance().changeBackend[handle->Id] = true;
         }
 
         return false;
@@ -549,7 +548,7 @@ bool FSR31FeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_
     if (Config::Instance()->RcasEnabled.value_or_default() &&
         (_sharpness > 0.0f || (Config::Instance()->MotionSharpnessEnabled.value_or_default() &&
                                Config::Instance()->MotionSharpness.value_or_default() > 0.0f)) &&
-        RCAS->CanRender())
+        RCAS && RCAS->CanRender())
     {
         if (params.output.resource != RCAS->Buffer())
             ResourceBarrier(InCommandList, (ID3D12Resource*) params.output.resource,
@@ -568,7 +567,7 @@ bool FSR31FeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_
         rcasConstants.RenderHeight = RenderHeight();
         rcasConstants.RenderWidth = RenderWidth();
 
-        if (useSS)
+        if (useSS && OutputScaler)
         {
             if (!RCAS->Dispatch(Device, InCommandList, (ID3D12Resource*) params.output.resource,
                                 (ID3D12Resource*) params.motionVectors.resource, rcasConstants, OutputScaler->Buffer()))
@@ -588,7 +587,7 @@ bool FSR31FeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_
         }
     }
 
-    if (useSS)
+    if (useSS && OutputScaler)
     {
         LOG_DEBUG("scaling output...");
         OutputScaler->SetBufferState(InCommandList, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -596,7 +595,9 @@ bool FSR31FeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_
         if (!OutputScaler->Dispatch(Device, InCommandList, OutputScaler->Buffer(), paramOutput))
         {
             Config::Instance()->OutputScalingEnabled.set_volatile_value(false);
-            State::Instance().changeBackend[Handle()->Id] = true;
+            auto handle = Handle();
+            if (handle != nullptr)
+                State::Instance().changeBackend[handle->Id] = true;
             return true;
         }
     }
@@ -678,6 +679,12 @@ bool FSR31FeatureDx12::InitFSR3(const NVSDK_NGX_Parameter* InParameters)
         // get number of versions for allocation
         FfxApiProxy::D3D12_Query(nullptr, &versionQuery.header);
 
+        if (versionCount == 0)
+        {
+            LOG_ERROR("No FSR versions available!");
+            return false;
+        }
+
         State::Instance().ffxUpscalerVersionIds.resize(versionCount);
         State::Instance().ffxUpscalerVersionNames.resize(versionCount);
         versionQuery.versionIds = State::Instance().ffxUpscalerVersionIds.data();
@@ -724,18 +731,7 @@ bool FSR31FeatureDx12::InitFSR3(const NVSDK_NGX_Parameter* InParameters)
 
         if (Config::Instance()->OutputScalingEnabled.value_or_default() && LowResMV())
         {
-            float ssMulti = Config::Instance()->OutputScalingMultiplier.value_or_default();
-
-            if (ssMulti < 0.5f)
-            {
-                ssMulti = 0.5f;
-                Config::Instance()->OutputScalingMultiplier.set_volatile_value(ssMulti);
-            }
-            else if (ssMulti > 3.0f)
-            {
-                ssMulti = 3.0f;
-                Config::Instance()->OutputScalingMultiplier.set_volatile_value(ssMulti);
-            }
+            float ssMulti = GetValidatedScalingMultiplier();
 
             _targetWidth = static_cast<unsigned int>(DisplayWidth() * ssMulti);
             _targetHeight = static_cast<unsigned int>(DisplayHeight() * ssMulti);

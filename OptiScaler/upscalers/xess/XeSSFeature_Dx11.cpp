@@ -1,5 +1,6 @@
 #include <pch.h>
 #include "XeSSFeature_Dx11.h"
+#include <resource_tracking/D3D11ShaderResourceBackup.h>
 
 static std::string ResultToString(xess_result_t result)
 {
@@ -187,18 +188,7 @@ bool XeSSFeature_Dx11::Init(ID3D11Device* InDevice, ID3D11DeviceContext* InConte
 
         if (Config::Instance()->OutputScalingEnabled.value_or(false) && LowResMV())
         {
-            float ssMulti = Config::Instance()->OutputScalingMultiplier.value_or(1.5f);
-
-            if (ssMulti < 0.5f)
-            {
-                ssMulti = 0.5f;
-                Config::Instance()->OutputScalingMultiplier = ssMulti;
-            }
-            else if (ssMulti > 3.0f)
-            {
-                ssMulti = 3.0f;
-                Config::Instance()->OutputScalingMultiplier = ssMulti;
-            }
+            float ssMulti = GetValidatedScalingMultiplier();
 
             _targetWidth = static_cast<unsigned int>(DisplayWidth() * ssMulti);
             _targetHeight = static_cast<unsigned int>(DisplayHeight() * ssMulti);
@@ -262,35 +252,9 @@ bool XeSSFeature_Dx11::Evaluate(ID3D11DeviceContext* DeviceContext, NVSDK_NGX_Pa
     if (!RCAS->IsInit())
         Config::Instance()->RcasEnabled = false;
 
-    ID3D11ShaderResourceView* restoreSRVs[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
-    ID3D11SamplerState* restoreSamplerStates[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT] = {};
-    ID3D11Buffer* restoreCBVs[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT] = {};
-    ID3D11UnorderedAccessView* restoreUAVs[D3D11_1_UAV_SLOT_COUNT] = {};
-
-    // backup compute shader resources
-    for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
-    {
-        restoreSRVs[i] = nullptr;
-        DeviceContext->CSGetShaderResources(i, 1, &restoreSRVs[i]);
-    }
-
-    for (UINT i = 0; i < D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT; i++)
-    {
-        restoreSamplerStates[i] = nullptr;
-        DeviceContext->CSGetSamplers(i, 1, &restoreSamplerStates[i]);
-    }
-
-    for (UINT i = 0; i < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT; i++)
-    {
-        restoreCBVs[i] = nullptr;
-        DeviceContext->CSGetConstantBuffers(i, 1, &restoreCBVs[i]);
-    }
-
-    for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
-    {
-        restoreUAVs[i] = nullptr;
-        DeviceContext->CSGetUnorderedAccessViews(i, 1, &restoreUAVs[i]);
-    }
+    // Backup current shader resources
+    D3D11ShaderResourceBackup resourceBackup;
+    resourceBackup.Backup(DeviceContext);
 
     if (State::Instance().xessDebug)
     {
@@ -577,29 +541,7 @@ bool XeSSFeature_Dx11::Evaluate(ID3D11DeviceContext* DeviceContext, NVSDK_NGX_Pa
     }
 
     // restore compute shader resources
-    for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
-    {
-        if (restoreSRVs[i] != nullptr)
-            DeviceContext->CSSetShaderResources(i, 1, &restoreSRVs[i]);
-    }
-
-    for (UINT i = 0; i < D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT; i++)
-    {
-        if (restoreSamplerStates[i] != nullptr)
-            DeviceContext->CSSetSamplers(i, 1, &restoreSamplerStates[i]);
-    }
-
-    for (UINT i = 0; i < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT; i++)
-    {
-        if (restoreCBVs[i] != nullptr)
-            DeviceContext->CSSetConstantBuffers(i, 1, &restoreCBVs[i]);
-    }
-
-    for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
-    {
-        if (restoreUAVs[i] != nullptr)
-            DeviceContext->CSSetUnorderedAccessViews(i, 1, &restoreUAVs[i], 0);
-    }
+    resourceBackup.Restore(DeviceContext);
 
     _frameCount++;
 

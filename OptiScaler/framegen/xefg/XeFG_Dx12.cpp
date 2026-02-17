@@ -1250,7 +1250,7 @@ bool XeFG_Dx12::SetResource(Dx12Resource* inputResource)
             // https://github.com/intel/xess/issues/47
             if (inputResource->state == D3D12_RESOURCE_STATE_COPY_SOURCE)
             {
-                ResourceBarrier(inputResource->cmdList, inputResource->resource, inputResource->state,
+                ResTrack_Dx12::ResourceBarrier(inputResource->cmdList, inputResource->resource, inputResource->state,
                                 D3D12_RESOURCE_STATE_COPY_DEST);
 
                 resourceParam.incomingState = D3D12_RESOURCE_STATE_COPY_DEST;
@@ -1279,7 +1279,7 @@ bool XeFG_Dx12::SetResource(Dx12Resource* inputResource)
         // Potentially we don't need to restore but do it just to be safe
         if (inputResource->state == D3D12_RESOURCE_STATE_COPY_SOURCE)
         {
-            ResourceBarrier(inputResource->cmdList, inputResource->resource, D3D12_RESOURCE_STATE_COPY_DEST,
+            ResTrack_Dx12::ResourceBarrier(inputResource->cmdList, inputResource->resource, D3D12_RESOURCE_STATE_COPY_DEST,
                             inputResource->state);
         }
 

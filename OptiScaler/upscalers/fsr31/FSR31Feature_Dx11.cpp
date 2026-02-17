@@ -3,6 +3,7 @@
 #include <Util.h>
 
 #include "FSR31Feature_Dx11.h"
+#include <resource_tracking/D3D11ShaderResourceBackup.h>
 
 #define ASSIGN_DESC(dest, src)                                                                                         \
     dest.Width = src.Width;                                                                                            \
@@ -148,39 +149,9 @@ bool FSR31FeatureDx11::Evaluate(ID3D11DeviceContext* DeviceContext, NVSDK_NGX_Pa
     if (!OutputScaler->IsInit())
         Config::Instance()->OutputScalingEnabled.set_volatile_value(false);
 
-    ID3D11ShaderResourceView* restoreSRVs[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
-    ID3D11SamplerState* restoreSamplerStates[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT] = {};
-    ID3D11Buffer* restoreCBVs[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT] = {};
-    ID3D11UnorderedAccessView* restoreUAVs[D3D11_1_UAV_SLOT_COUNT] = {};
-    ID3D11RenderTargetView* restoreRTVs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
-    ID3D11DepthStencilView* restoreDSV = nullptr;
-
-    // backup compute shader resources
-    for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
-    {
-        restoreSRVs[i] = nullptr;
-        DeviceContext->CSGetShaderResources(i, 1, &restoreSRVs[i]);
-    }
-
-    for (UINT i = 0; i < D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT; i++)
-    {
-        restoreSamplerStates[i] = nullptr;
-        DeviceContext->CSGetSamplers(i, 1, &restoreSamplerStates[i]);
-    }
-
-    for (UINT i = 0; i < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT; i++)
-    {
-        restoreCBVs[i] = nullptr;
-        DeviceContext->CSGetConstantBuffers(i, 1, &restoreCBVs[i]);
-    }
-
-    for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
-    {
-        restoreUAVs[i] = nullptr;
-        DeviceContext->CSGetUnorderedAccessViews(i, 1, &restoreUAVs[i]);
-    }
-
-    DeviceContext->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, restoreRTVs, &restoreDSV);
+    // Backup current shader resources
+    D3D11ShaderResourceBackup resourceBackup;
+    resourceBackup.Backup(DeviceContext);
 
     // Unbind RenderTargets
     ID3D11RenderTargetView* nullRTVs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
@@ -418,28 +389,13 @@ bool FSR31FeatureDx11::Evaluate(ID3D11DeviceContext* DeviceContext, NVSDK_NGX_Pa
 
     LOG_DEBUG("Sharpness: {0}", params.sharpness);
 
-    if (DepthInverted())
-    {
-        params.cameraFar = Config::Instance()->FsrCameraNear.value_or_default();
-        params.cameraNear = Config::Instance()->FsrCameraFar.value_or_default();
-    }
-    else
-    {
-        params.cameraFar = Config::Instance()->FsrCameraFar.value_or_default();
-        params.cameraNear = Config::Instance()->FsrCameraNear.value_or_default();
-    }
+    auto cameraParams = SetupCameraParams(InParameters);
+    params.cameraNear = cameraParams.Near;
+    params.cameraFar = cameraParams.Far;
+    params.cameraFovAngleVertical = cameraParams.FovAngleVertical;
 
     State::Instance().lastFsrCameraFar = params.cameraFar;
     State::Instance().lastFsrCameraNear = params.cameraNear;
-
-    if (Config::Instance()->FsrVerticalFov.has_value())
-        params.cameraFovAngleVertical = Config::Instance()->FsrVerticalFov.value() * 0.0174532925199433f;
-    else if (Config::Instance()->FsrHorizontalFov.value_or_default() > 0.0f)
-        params.cameraFovAngleVertical =
-            2.0f * atan((tan(Config::Instance()->FsrHorizontalFov.value() * 0.0174532925199433f) * 0.5f) /
-                        (float) DisplayHeight() * (float) DisplayWidth());
-    else
-        params.cameraFovAngleVertical = 1.0471975511966f;
 
     LOG_DEBUG("FsrVerticalFov: {0}", params.cameraFovAngleVertical);
 
@@ -567,31 +523,7 @@ bool FSR31FeatureDx11::Evaluate(ID3D11DeviceContext* DeviceContext, NVSDK_NGX_Pa
     }
 
     // restore compute shader resources
-    for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
-    {
-        if (restoreSRVs[i] != nullptr)
-            DeviceContext->CSSetShaderResources(i, 1, &restoreSRVs[i]);
-    }
-
-    for (UINT i = 0; i < D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT; i++)
-    {
-        if (restoreSamplerStates[i] != nullptr)
-            DeviceContext->CSSetSamplers(i, 1, &restoreSamplerStates[i]);
-    }
-
-    for (UINT i = 0; i < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT; i++)
-    {
-        if (restoreCBVs[i] != nullptr)
-            DeviceContext->CSSetConstantBuffers(i, 1, &restoreCBVs[i]);
-    }
-
-    for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
-    {
-        if (restoreUAVs[i] != nullptr)
-            DeviceContext->CSSetUnorderedAccessViews(i, 1, &restoreUAVs[i], 0);
-    }
-
-    DeviceContext->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, restoreRTVs, restoreDSV);
+    resourceBackup.Restore(DeviceContext);
 
     _frameCount++;
 
@@ -696,18 +628,7 @@ bool FSR31FeatureDx11::InitFSR3(const NVSDK_NGX_Parameter* InParameters)
 
         if (Config::Instance()->OutputScalingEnabled.value_or_default() && LowResMV())
         {
-            float ssMulti = Config::Instance()->OutputScalingMultiplier.value_or_default();
-
-            if (ssMulti < 0.5f)
-            {
-                ssMulti = 0.5f;
-                Config::Instance()->OutputScalingMultiplier.set_volatile_value(ssMulti);
-            }
-            else if (ssMulti > 3.0f)
-            {
-                ssMulti = 3.0f;
-                Config::Instance()->OutputScalingMultiplier.set_volatile_value(ssMulti);
-            }
+            float ssMulti = GetValidatedScalingMultiplier();
 
             _targetWidth = static_cast<unsigned int>(DisplayWidth() * ssMulti);
             _targetHeight = static_cast<unsigned int>(DisplayHeight() * ssMulti);

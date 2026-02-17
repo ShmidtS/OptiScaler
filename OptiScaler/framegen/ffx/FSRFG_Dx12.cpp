@@ -5,6 +5,7 @@
 
 #include <hudfix/Hudfix_Dx12.h>
 #include <menu/menu_overlay_dx.h>
+#include <resource_tracking/ResTrack_dx12.h>
 
 #include <magic_enum.hpp>
 
@@ -99,21 +100,6 @@ static inline bool FormatsCompatible(DXGI_FORMAT format1, DXGI_FORMAT format2)
     return false;
 }
 
-static inline void ResourceBarrier(ID3D12GraphicsCommandList* InCommandList, ID3D12Resource* InResource,
-                                   D3D12_RESOURCE_STATES InBeforeState, D3D12_RESOURCE_STATES InAfterState)
-{
-    if (InBeforeState == InAfterState)
-        return;
-
-    D3D12_RESOURCE_BARRIER barrier = {};
-    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Transition.pResource = InResource;
-    barrier.Transition.StateBefore = InBeforeState;
-    barrier.Transition.StateAfter = InAfterState;
-    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    InCommandList->ResourceBarrier(1, &barrier);
-}
-
 bool FSRFG_Dx12::HudlessFormatTransfer(int index, ID3D12Device* device, DXGI_FORMAT targetFormat,
                                        Dx12Resource* resource)
 {
@@ -140,32 +126,32 @@ bool FSRFG_Dx12::HudlessFormatTransfer(int index, ID3D12Device* device, DXGI_FOR
 
         if (resource->cmdList != nullptr && _hudlessCopyResource[index] != nullptr)
         {
-            ResourceBarrier(resource->cmdList, resource->GetResource(), resource->state,
+            ResTrack_Dx12::ResourceBarrier(resource->cmdList, resource->GetResource(), resource->state,
                             D3D12_RESOURCE_STATE_COPY_SOURCE);
 
             resource->cmdList->CopyResource(_hudlessCopyResource[index], resource->GetResource());
 
-            ResourceBarrier(resource->cmdList, resource->GetResource(), D3D12_RESOURCE_STATE_COPY_SOURCE,
+            ResTrack_Dx12::ResourceBarrier(resource->cmdList, resource->GetResource(), D3D12_RESOURCE_STATE_COPY_SOURCE,
                             resource->state);
 
-            ResourceBarrier(resource->cmdList, _hudlessCopyResource[index], D3D12_RESOURCE_STATE_COPY_DEST,
+            ResTrack_Dx12::ResourceBarrier(resource->cmdList, _hudlessCopyResource[index], D3D12_RESOURCE_STATE_COPY_DEST,
                             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
             _hudlessTransfer[index].get()->Dispatch(device, cmdList, _hudlessCopyResource[index],
                                                     _hudlessTransfer[index].get()->Buffer());
 
-            ResourceBarrier(cmdList, _hudlessCopyResource[index], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            ResTrack_Dx12::ResourceBarrier(cmdList, _hudlessCopyResource[index], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                             D3D12_RESOURCE_STATE_COPY_DEST);
         }
         else
         {
-            ResourceBarrier(cmdList, resource->GetResource(), resource->state,
+            ResTrack_Dx12::ResourceBarrier(cmdList, resource->GetResource(), resource->state,
                             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
             _hudlessTransfer[index].get()->Dispatch(device, cmdList, resource->GetResource(),
                                                     _hudlessTransfer[index].get()->Buffer());
 
-            ResourceBarrier(cmdList, resource->GetResource(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            ResTrack_Dx12::ResourceBarrier(cmdList, resource->GetResource(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                             resource->state);
         }
 
@@ -197,13 +183,13 @@ bool FSRFG_Dx12::UIFormatTransfer(int index, ID3D12Device* device, ID3D12Graphic
         _uiTransfer[index].get()->CreateBufferResource(device, resource->GetResource(),
                                                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS))
     {
-        ResourceBarrier(cmdList, resource->GetResource(), resource->state,
+        ResTrack_Dx12::ResourceBarrier(cmdList, resource->GetResource(), resource->state,
                         D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
         _uiTransfer[index].get()->Dispatch(device, cmdList, resource->GetResource(),
                                            _uiTransfer[index].get()->Buffer());
 
-        ResourceBarrier(cmdList, resource->GetResource(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+        ResTrack_Dx12::ResourceBarrier(cmdList, resource->GetResource(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                         resource->state);
 
         resource->copy = _uiTransfer[index].get()->Buffer();

@@ -634,11 +634,11 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_CreateFeature(ID3D12GraphicsComma
     if (!D3D12Device)
     {
         LOG_DEBUG("Get D3d12 device from InCmdList!");
-        auto deviceResult = InCmdList->GetDevice(IID_PPV_ARGS(&D3D12Device));
+        HRESULT deviceResult = InCmdList->GetDevice(IID_PPV_ARGS(&D3D12Device));
 
-        if (deviceResult != S_OK || !D3D12Device)
+        if (FAILED(deviceResult) || D3D12Device == nullptr)
         {
-            LOG_ERROR("Can't get Dx12Device from InCmdList!");
+            LOG_ERROR("Can't get Dx12Device from InCmdList! HRESULT: {0:X}", (UINT)deviceResult);
             return NVSDK_NGX_Result_Fail;
         }
     }
@@ -767,6 +767,9 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_GetFeatureRequirements(
 {
     LOG_DEBUG("for ({0})", (int) FeatureDiscoveryInfo->FeatureID);
 
+    if (OutSupported == nullptr)
+        return NVSDK_NGX_Result_FAIL_InvalidParameter;
+
     if (State::Instance().activeFgInput == FGInput::Nukems)
         DLSSGMod::InitDLSSGMod_Dx12();
 
@@ -775,9 +778,6 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_GetFeatureRequirements(
          ((DLSSGMod::isDx12Available() && Config::Instance()->FGInput == FGInput::Nukems) ||
           Config::Instance()->FGInput == FGInput::DLSSG)))
     {
-        if (OutSupported == nullptr)
-            OutSupported = new NVSDK_NGX_FeatureRequirement();
-
         OutSupported->FeatureSupported = NVSDK_NGX_FeatureSupportResult_Supported;
         OutSupported->MinHWArchitecture = 0;
 

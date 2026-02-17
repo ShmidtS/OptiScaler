@@ -154,7 +154,7 @@ bool FeatureProvider_Vk::ChangeFeature(std::string upscalerName, VkInstance inst
 
             if (contextData->createParams != nullptr)
             {
-                free(contextData->createParams);
+                delete contextData->createParams;
                 contextData->createParams = nullptr;
             }
 
@@ -227,7 +227,7 @@ bool FeatureProvider_Vk::ChangeFeature(std::string upscalerName, VkInstance inst
         int optiParam = 0;
         if (contextData->createParams->Get("OptiScaler", &optiParam) == NVSDK_NGX_Result_Success && optiParam == 1)
         {
-            free(contextData->createParams);
+            delete contextData->createParams;
             contextData->createParams = nullptr;
         }
     }

@@ -312,9 +312,6 @@ class ResTrack_Dx12
     static bool CreateBufferResource(ID3D12Device* InDevice, ResourceInfo* InSource, D3D12_RESOURCE_STATES InState,
                                      ID3D12Resource** OutResource);
 
-    static void ResourceBarrier(ID3D12GraphicsCommandList* InCommandList, ID3D12Resource* InResource,
-                                D3D12_RESOURCE_STATES InBeforeState, D3D12_RESOURCE_STATES InAfterState);
-
     static SIZE_T GetGPUHandle(ID3D12Device* This, SIZE_T cpuHandle, D3D12_DESCRIPTOR_HEAP_TYPE type);
     static SIZE_T GetCPUHandle(ID3D12Device* This, SIZE_T gpuHandle, D3D12_DESCRIPTOR_HEAP_TYPE type);
 
@@ -344,4 +341,8 @@ class ResTrack_Dx12
     static void ReleaseDeviceHooks();
     static void ClearPossibleHudless();
     static void SetResourceCmdList(FG_ResourceType type, ID3D12GraphicsCommandList* cmdList);
+
+    // Public helper for resource barrier transitions
+    static void ResourceBarrier(ID3D12GraphicsCommandList* InCommandList, ID3D12Resource* InResource,
+                                D3D12_RESOURCE_STATES InBeforeState, D3D12_RESOURCE_STATES InAfterState);
 };

@@ -85,6 +85,19 @@ class IFeature
     void GetDynamicOutputResolution(NVSDK_NGX_Parameter* InParameters, unsigned int* width, unsigned int* height);
     float GetSharpness(const NVSDK_NGX_Parameter* InParameters);
 
+    // Common camera parameters setup - used by FSR2/FSR31/XeSS
+    struct CameraParams
+    {
+        float Near = 0.0f;
+        float Far = 0.0f;
+        float FovAngleVertical = 1.0471975511966f;
+    };
+
+    CameraParams SetupCameraParams(const NVSDK_NGX_Parameter* InParameters);
+
+    // Validate and clamp scaling multiplier between 0.5f and 3.0f
+    float GetValidatedScalingMultiplier();
+
     virtual void SetInit(bool InValue) { _isInited = InValue; }
 
   public:
@@ -131,4 +144,106 @@ class IFeature
     IFeature(unsigned int InHandleId, NVSDK_NGX_Parameter* InParameters) { SetHandle(InHandleId); }
 
     virtual ~IFeature() = default;
+
+    // Safe parameter retrieval with nullptr check and error handling
+    template<typename T>
+    static bool GetParameterSafe(NVSDK_NGX_Parameter* params, const char* name, T& outValue, T defaultValue = T{});
 };
+
+// Template specializations for common types
+template<>
+inline bool IFeature::GetParameterSafe<int>(NVSDK_NGX_Parameter* params, const char* name, int& outValue, int defaultValue)
+{
+    if (params == nullptr || name == nullptr)
+    {
+        outValue = defaultValue;
+        return false;
+    }
+
+    NVSDK_NGX_Result result = NVSDK_NGX_Parameter_GetI(params, name, &outValue);
+    if (result != NVSDK_NGX_Result_Success)
+    {
+        outValue = defaultValue;
+        return false;
+    }
+
+    return true;
+}
+
+template<>
+inline bool IFeature::GetParameterSafe<float>(NVSDK_NGX_Parameter* params, const char* name, float& outValue, float defaultValue)
+{
+    if (params == nullptr || name == nullptr)
+    {
+        outValue = defaultValue;
+        return false;
+    }
+
+    NVSDK_NGX_Result result = NVSDK_NGX_Parameter_GetF(params, name, &outValue);
+    if (result != NVSDK_NGX_Result_Success)
+    {
+        outValue = defaultValue;
+        return false;
+    }
+
+    return true;
+}
+
+template<>
+inline bool IFeature::GetParameterSafe<double>(NVSDK_NGX_Parameter* params, const char* name, double& outValue, double defaultValue)
+{
+    if (params == nullptr || name == nullptr)
+    {
+        outValue = defaultValue;
+        return false;
+    }
+
+    NVSDK_NGX_Result result = NVSDK_NGX_Parameter_GetD(params, name, &outValue);
+    if (result != NVSDK_NGX_Result_Success)
+    {
+        outValue = defaultValue;
+        return false;
+    }
+
+    return true;
+}
+
+template<>
+inline bool IFeature::GetParameterSafe<unsigned int>(NVSDK_NGX_Parameter* params, const char* name, unsigned int& outValue, unsigned int defaultValue)
+{
+    if (params == nullptr || name == nullptr)
+    {
+        outValue = defaultValue;
+        return false;
+    }
+
+    NVSDK_NGX_Result result = NVSDK_NGX_Parameter_GetUI(params, name, &outValue);
+    if (result != NVSDK_NGX_Result_Success)
+    {
+        outValue = defaultValue;
+        return false;
+    }
+
+    return true;
+}
+
+template<>
+inline bool IFeature::GetParameterSafe<UINT64>(NVSDK_NGX_Parameter* params, const char* name, UINT64& outValue, UINT64 defaultValue)
+{
+    if (params == nullptr || name == nullptr)
+    {
+        outValue = defaultValue;
+        return false;
+    }
+
+    unsigned long long value = 0;
+    NVSDK_NGX_Result result = NVSDK_NGX_Parameter_GetULL(params, name, &value);
+    if (result != NVSDK_NGX_Result_Success)
+    {
+        outValue = defaultValue;
+        return false;
+    }
+
+    outValue = static_cast<UINT64>(value);
+    return true;
+}

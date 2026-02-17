@@ -236,6 +236,11 @@ void IFGFeature_Vk::FlipResource(VkResource* resource)
         if (vkCreateImageView(_device, &viewInfo, nullptr, &resource->copyImageView) != VK_SUCCESS)
         {
             LOG_ERROR("Failed to create flip copy image view");
+            // Clean up resources to prevent leak
+            vkDestroyImage(_device, resource->copyImage, nullptr);
+            vkFreeMemory(_device, resource->copyMemory, nullptr);
+            resource->copyImage = VK_NULL_HANDLE;
+            resource->copyMemory = VK_NULL_HANDLE;
             return;
         }
 
@@ -261,6 +266,7 @@ bool IFGFeature_Vk::InitCopyCmdBuffer()
         if (vkCreateCommandPool(_device, &poolInfo, nullptr, &_copyCommandPool[i]) != VK_SUCCESS)
         {
             LOG_ERROR("Failed to create copy command pool {}", i);
+            DestroyCopyCmdBuffer(); // Clean up on failure
             return false;
         }
 
@@ -273,6 +279,7 @@ bool IFGFeature_Vk::InitCopyCmdBuffer()
         if (vkAllocateCommandBuffers(_device, &allocInfo, &_copyCommandBuffer[i]) != VK_SUCCESS)
         {
             LOG_ERROR("Failed to allocate copy command buffer {}", i);
+            DestroyCopyCmdBuffer(); // Clean up on failure
             return false;
         }
     }

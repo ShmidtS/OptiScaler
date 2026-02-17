@@ -39,10 +39,10 @@ bool XeSSFeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_N
         return false;
     }
 
-    if (!RCAS->IsInit())
+    if (RCAS && !RCAS->IsInit())
         Config::Instance()->RcasEnabled = false;
 
-    if (!OutputScaler->IsInit())
+    if (OutputScaler && !OutputScaler->IsInit())
         Config::Instance()->OutputScalingEnabled = false;
 
     xess_result_t xessResult;
@@ -164,7 +164,7 @@ bool XeSSFeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_N
                             D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         }
 
-        if (useSS)
+        if (useSS && OutputScaler)
         {
             if (OutputScaler->CreateBufferResource(Device, paramOutput, TargetWidth(), TargetHeight(),
                                                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS))
@@ -181,7 +181,7 @@ bool XeSSFeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_N
         if (Config::Instance()->RcasEnabled.value_or(true) &&
             (_sharpness > 0.0f || (Config::Instance()->MotionSharpnessEnabled.value_or(false) &&
                                    Config::Instance()->MotionSharpness.value_or(0.4) > 0.0f)) &&
-            RCAS->IsInit() &&
+            RCAS && RCAS->IsInit() &&
             RCAS->CreateBufferResource(Device, params.pOutputTexture, D3D12_RESOURCE_STATE_UNORDERED_ACCESS))
         {
             RCAS->SetBufferState(InCommandList, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -285,7 +285,7 @@ bool XeSSFeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_N
                                 (D3D12_RESOURCE_STATES) Config::Instance()->MaskResourceBarrier.value(),
                                 D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
-            if (Config::Instance()->DlssReactiveMaskBias.value_or_default() > 0.0f && Bias->IsInit() &&
+            if (Config::Instance()->DlssReactiveMaskBias.value_or_default() > 0.0f && Bias && Bias->IsInit() &&
                 Bias->CreateBufferResource(Device, paramReactiveMask, D3D12_RESOURCE_STATE_UNORDERED_ACCESS) &&
                 Bias->CanRender())
             {
@@ -359,7 +359,7 @@ bool XeSSFeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_N
     if (Config::Instance()->RcasEnabled.value_or(true) &&
         (_sharpness > 0.0f || (Config::Instance()->MotionSharpnessEnabled.value_or(false) &&
                                Config::Instance()->MotionSharpness.value_or(0.4) > 0.0f)) &&
-        RCAS->CanRender())
+        RCAS && RCAS->CanRender())
     {
         if (params.pOutputTexture != RCAS->Buffer())
             ResourceBarrier(InCommandList, params.pOutputTexture, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
@@ -378,7 +378,7 @@ bool XeSSFeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_N
         rcasConstants.RenderHeight = RenderHeight();
         rcasConstants.RenderWidth = RenderWidth();
 
-        if (useSS)
+        if (useSS && OutputScaler)
         {
             if (!RCAS->Dispatch(Device, InCommandList, params.pOutputTexture, params.pVelocityTexture, rcasConstants,
                                 OutputScaler->Buffer()))
@@ -398,7 +398,7 @@ bool XeSSFeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_N
         }
     }
 
-    if (useSS)
+    if (useSS && OutputScaler)
     {
         LOG_DEBUG("scaling output...");
         OutputScaler->SetBufferState(InCommandList, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);

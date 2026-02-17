@@ -850,6 +850,8 @@ HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetMatrixTransform(DXGI_MATRIX
 
 UINT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetCurrentBackBufferIndex(void)
 {
+    if (_real3 == nullptr)
+        return 0;
     auto index = _real3->GetCurrentBackBufferIndex();
     // LOG_TRACE("index: {}", index);
     return index;

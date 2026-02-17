@@ -54,31 +54,14 @@ static bool CheckForFGStatus()
     return true;
 }
 
-HRESULT FGHooks::CreateSwapChain(IDXGIFactory* pFactory, IUnknown* pDevice, DXGI_SWAP_CHAIN_DESC* pDesc,
-                                 IDXGISwapChain** ppSwapChain)
+// Helper: Get or create FG instance, returns true if a new instance was created
+// Returns nullptr on failure, existing or new FG instance on success
+static IFGFeature_Dx12* GetOrCreateFGInstance(bool& outCreatedNew)
 {
-    if (!CheckForFGStatus())
-    {
-        LOG_WARN("Can't init FG Feature or invalid FGOutput setting!");
-        return E_NOINTERFACE;
-    }
-
-    // Check if it's Dx12
-    ID3D12CommandQueue* cq = nullptr;
-    if (pDevice->QueryInterface(IID_PPV_ARGS(&cq)) != S_OK)
-    {
-        LOG_ERROR("FG Feature requires D3D12 Command Queue!");
-        return E_INVALIDARG;
-    }
-
-    cq->Release();
-
-    // Track if we created a new FG instance in this call for cleanup on failure
-    bool createdNewFG = false;
+    outCreatedNew = false;
 
     if (State::Instance().currentFG == nullptr)
     {
-        // FG Init
         if (State::Instance().activeFgOutput == FGOutput::FSRFG)
         {
             State::Instance().currentFG = new FSRFG_Dx12();
@@ -88,11 +71,11 @@ HRESULT FGHooks::CreateSwapChain(IDXGIFactory* pFactory, IUnknown* pDevice, DXGI
             State::Instance().currentFG =
                 new XeFG_Dx12(Config::Instance()->FGXeFGInterpolationCount.value_or_default());
         }
-        createdNewFG = true;
+        outCreatedNew = true;
     }
     else
     {
-        // Check if FG type changed - cleanup old instance to prevent memory leak
+        // Check if FG type changed
         bool typeChanged = false;
         if (State::Instance().activeFgOutput == FGOutput::FSRFG &&
             dynamic_cast<FSRFG_Dx12*>(State::Instance().currentFG) == nullptr)
@@ -104,28 +87,206 @@ HRESULT FGHooks::CreateSwapChain(IDXGIFactory* pFactory, IUnknown* pDevice, DXGI
         if (typeChanged)
         {
             LOG_INFO("FG type changed, cleaning up old instance");
-            // Store old pointer and null-ify first to prevent concurrent access issues
             IFGFeature_Dx12* oldFG = State::Instance().currentFG;
             State::Instance().currentFG = nullptr;
-
             oldFG->Shutdown();
             delete oldFG;
-            oldFG = nullptr;
 
-            // Create new FG instance
             if (State::Instance().activeFgOutput == FGOutput::FSRFG)
                 State::Instance().currentFG = new FSRFG_Dx12();
             else if (State::Instance().activeFgOutput == FGOutput::XeFG)
                 State::Instance().currentFG =
                     new XeFG_Dx12(Config::Instance()->FGXeFGInterpolationCount.value_or_default());
-            createdNewFG = true;
+            outCreatedNew = true;
         }
     }
 
-    // Create FG swapchain
-    auto fg = State::Instance().currentFG;
-    bool scResult = false;
+    return State::Instance().currentFG;
+}
 
+// Helper: Cleanup FG instance on swapchain creation failure
+static void CleanupFGOnFailure(bool wasNewlyCreated)
+{
+    if (wasNewlyCreated && State::Instance().currentFG != nullptr)
+    {
+        LOG_ERROR("Swapchain creation failed, cleaning up FG instance");
+        IFGFeature_Dx12* failedFG = State::Instance().currentFG;
+        State::Instance().currentFG = nullptr;
+        failedFG->Shutdown();
+        delete failedFG;
+    }
+}
+
+// Helper: Fix unsupported swap effects for DX12
+static void FixSwapEffectForDX12(DXGI_SWAP_EFFECT& swapEffect)
+{
+    if (swapEffect == DXGI_SWAP_EFFECT_SEQUENTIAL)
+    {
+        LOG_WARN("DXGI_SWAP_EFFECT_SEQUENTIAL is not supported in DX12, changing to FLIP_SEQUENTIAL");
+        swapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    }
+    else if (swapEffect == DXGI_SWAP_EFFECT_DISCARD)
+    {
+        LOG_WARN("DXGI_SWAP_EFFECT_DISCARD is not supported in DX12, changing to FLIP_DISCARD");
+        swapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    }
+}
+
+// ResizeBuffers parameters for common processing
+struct ResizeBuffersParams
+{
+    UINT BufferCount;
+    UINT Width;
+    UINT Height;
+    DXGI_FORMAT Format;
+    UINT SwapChainFlags;
+};
+
+// Helper: Check if resize can be skipped for XeFG
+static bool CheckSkipResizeForXeFG(IDXGISwapChain* This, ResizeBuffersParams& params)
+{
+    if (State::Instance().activeFgOutput != FGOutput::XeFG || State::Instance().SCExclusiveFullscreen)
+        return false;
+
+    if (!Config::Instance()->FGXeFGSkipResizeBuffers.value_or_default())
+        return false;
+
+    DXGI_SWAP_CHAIN_DESC desc {};
+    if (This->GetDesc(&desc) != S_OK)
+        return false;
+
+    LOG_DEBUG("SC BufferCount: {}, Width: {}, Height: {}, NewFormat:{}, SwapChainFlags: {}",
+              desc.BufferCount, desc.BufferDesc.Width, desc.BufferDesc.Height,
+              (UINT)desc.BufferDesc.Format, State::Instance().SCLastFlags);
+
+    if (params.BufferCount == 0)
+        params.BufferCount = desc.BufferCount;
+
+    if ((desc.BufferDesc.Width == params.Width || params.Width == 0) &&
+        (desc.BufferDesc.Height == params.Height || params.Height == 0) &&
+        (params.Format == desc.BufferDesc.Format || params.Format == 0) &&
+        State::Instance().SCLastFlags == params.SwapChainFlags &&
+        (params.BufferCount == desc.BufferCount || params.BufferCount == 0))
+    {
+        return true;
+    }
+
+    return false;
+}
+
+// Helper: Modify buffer state and swapchain index for XeFG
+static void ModifyBufferStateAndIndex(IDXGISwapChain* This, IFGFeature_Dx12* fg, UINT bufferCount)
+{
+    if (!Config::Instance()->FGXeFGModifyBufferState.value_or_default() &&
+        !Config::Instance()->FGXeFGModifySCIndex.value_or_default())
+        return;
+
+    auto swapchain = reinterpret_cast<IDXGISwapChain3*>(This);
+    auto swapchainIndex = swapchain->GetCurrentBackBufferIndex();
+
+    if (fg != nullptr && Config::Instance()->FGXeFGModifyBufferState.value_or_default())
+    {
+        LOG_INFO("Trying to change backbuffer state to COMMON");
+        auto cmdList = fg->GetUICommandList();
+
+        if (cmdList != nullptr)
+        {
+            for (size_t i = 0; i < bufferCount; i++)
+            {
+                ID3D12Resource* backBuffer = nullptr;
+                if (swapchain->GetBuffer(swapchainIndex, IID_PPV_ARGS(&backBuffer)) == S_OK)
+                {
+                    auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+                        backBuffer, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COMMON);
+                    cmdList->ResourceBarrier(1, &barrier);
+                    backBuffer->Release();
+                }
+            }
+        }
+    }
+
+    if (swapchainIndex != 0 && Config::Instance()->FGXeFGModifySCIndex.value_or_default())
+    {
+        auto presents = bufferCount - swapchainIndex;
+        LOG_DEBUG("Trying to reset backbuffer index: {} with {} present calls", swapchainIndex, presents);
+        for (size_t i = 0; i < presents; i++)
+        {
+            swapchain->Present(0, 0);
+        }
+    }
+}
+
+// Helper: Apply XeFG-specific flag modifications
+static void ApplyXeFGFlagModifications(UINT& SwapChainFlags)
+{
+    if (State::Instance().activeFgOutput != FGOutput::XeFG)
+        return;
+
+    if (Config::Instance()->FGXeFGForceBorderless.value_or_default())
+    {
+        SwapChainFlags &= ~DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+    }
+
+    if (State::Instance().SCLastFlags != SwapChainFlags)
+    {
+        LOG_WARN("SwapChainFlags changed from {} to {}", State::Instance().SCLastFlags, SwapChainFlags);
+        if (State::Instance().activeFgOutput == FGOutput::XeFG)
+        {
+            LOG_WARN("Preventing flag change for XeFG!");
+            SwapChainFlags = State::Instance().SCLastFlags;
+        }
+    }
+}
+
+// Helper: Post-resize window adjustment for borderless mode
+static void ApplyBorderlessResize(HWND hwnd)
+{
+    if (!Config::Instance()->FGXeFGForceBorderless.value_or_default() || !State::Instance().SCExclusiveFullscreen)
+        return;
+
+    SetWindowLongPtr(hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+    SetWindowLongPtr(hwnd, GWL_EXSTYLE, WS_EX_APPWINDOW);
+
+    Util::MonitorInfo info = Util::GetMonitorInfoForWindow(hwnd);
+    LOG_DEBUG("Overriding window size: {}x{}, and pos: {}x{} at monitor: {}",
+              info.width, info.height, info.x, info.y, wstring_to_string(info.name));
+    SetWindowPos(hwnd, HWND_TOP, info.x, info.y, info.width, info.height, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+}
+
+HRESULT FGHooks::CreateSwapChain(IDXGIFactory* pFactory, IUnknown* pDevice, DXGI_SWAP_CHAIN_DESC* pDesc,
+                                 IDXGISwapChain** ppSwapChain)
+{
+    if (!CheckForFGStatus())
+    {
+        LOG_WARN("Can't init FG Feature or invalid FGOutput setting!");
+        return E_NOINTERFACE;
+    }
+
+    if (pDesc == nullptr || ppSwapChain == nullptr)
+    {
+        LOG_ERROR("Invalid parameters: pDesc or ppSwapChain is nullptr");
+        return E_INVALIDARG;
+    }
+
+    // Check if it's Dx12
+    ID3D12CommandQueue* cq = nullptr;
+    if (pDevice->QueryInterface(IID_PPV_ARGS(&cq)) != S_OK)
+    {
+        LOG_ERROR("FG Feature requires D3D12 Command Queue!");
+        return E_INVALIDARG;
+    }
+
+    // Get or create FG instance
+    bool createdNewFG = false;
+    auto fg = GetOrCreateFGInstance(createdNewFG);
+    if (fg == nullptr)
+    {
+        cq->Release();
+        LOG_ERROR("Failed to create FG instance");
+        return E_FAIL;
+    }
+
+    bool scResult = false;
     {
         ScopedSkipDxgiLoadChecks skipDxgiLoadChecks {};
 
@@ -135,17 +296,7 @@ HRESULT FGHooks::CreateSwapChain(IDXGIFactory* pFactory, IUnknown* pDevice, DXGI
         if (State::Instance().activeFgOutput == FGOutput::XeFG && !pDesc->Windowed)
             LOG_WARN("Using exclusive fullscreen with XeFG!!!");
 
-        // These effects are not supported in DX12
-        if (pDesc->SwapEffect == DXGI_SWAP_EFFECT_SEQUENTIAL)
-        {
-            LOG_WARN("DXGI_SWAP_EFFECT_SEQUENTIAL is not supported in DX12, changing to FLIP_SEQUENTIAL");
-            pDesc->SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-        }
-        else if (pDesc->SwapEffect == DXGI_SWAP_EFFECT_DISCARD)
-        {
-            LOG_WARN("DXGI_SWAP_EFFECT_DISCARD is not supported in DX12, changing to FLIP_DISCARD");
-            pDesc->SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-        }
+        FixSwapEffectForDX12(pDesc->SwapEffect);
 
         scResult = fg->CreateSwapchain(pFactory, cq, pDesc, ppSwapChain);
 
@@ -153,28 +304,18 @@ HRESULT FGHooks::CreateSwapChain(IDXGIFactory* pFactory, IUnknown* pDevice, DXGI
             State::Instance().skipHeapCapture = false;
     }
 
-    if (scResult)
+    cq->Release();
+
+    if (scResult && *ppSwapChain != nullptr)
     {
         _hwnd = pDesc->OutputWindow;
         State::Instance().currentFGSwapchain = *ppSwapChain;
-
         HookFGSwapchain(*ppSwapChain);
-
         State::Instance().currentSwapchain = *ppSwapChain;
-
         return S_OK;
     }
 
-    // Swapchain creation failed - cleanup newly created FG instance to prevent memory leak
-    if (createdNewFG && State::Instance().currentFG != nullptr)
-    {
-        LOG_ERROR("Swapchain creation failed, cleaning up FG instance");
-        IFGFeature_Dx12* failedFG = State::Instance().currentFG;
-        State::Instance().currentFG = nullptr;
-        failedFG->Shutdown();
-        delete failedFG;
-    }
-
+    CleanupFGOnFailure(createdNewFG);
     return E_FAIL;
 }
 
@@ -188,6 +329,12 @@ HRESULT FGHooks::CreateSwapChainForHwnd(IDXGIFactory* pFactory, IUnknown* pDevic
         return E_NOINTERFACE;
     }
 
+    if (pDesc == nullptr || ppSwapChain == nullptr)
+    {
+        LOG_ERROR("Invalid parameters: pDesc or ppSwapChain is nullptr");
+        return E_INVALIDARG;
+    }
+
     // Check if it's Dx12
     ID3D12CommandQueue* cq = nullptr;
     if (pDevice->QueryInterface(IID_PPV_ARGS(&cq)) != S_OK)
@@ -196,59 +343,16 @@ HRESULT FGHooks::CreateSwapChainForHwnd(IDXGIFactory* pFactory, IUnknown* pDevic
         return E_INVALIDARG;
     }
 
-    cq->Release();
-
-    // Track if we created a new FG instance in this call for cleanup on failure
+    // Get or create FG instance
     bool createdNewFG = false;
-
-    if (State::Instance().currentFG == nullptr)
+    auto fg = GetOrCreateFGInstance(createdNewFG);
+    if (fg == nullptr)
     {
-        // FG Init
-        if (State::Instance().activeFgOutput == FGOutput::FSRFG)
-        {
-            State::Instance().currentFG = new FSRFG_Dx12();
-        }
-        else if (State::Instance().activeFgOutput == FGOutput::XeFG)
-        {
-            State::Instance().currentFG =
-                new XeFG_Dx12(Config::Instance()->FGXeFGInterpolationCount.value_or_default());
-        }
-        createdNewFG = true;
-    }
-    else
-    {
-        // Check if FG type changed - cleanup old instance to prevent memory leak
-        bool typeChanged = false;
-        if (State::Instance().activeFgOutput == FGOutput::FSRFG &&
-            dynamic_cast<FSRFG_Dx12*>(State::Instance().currentFG) == nullptr)
-            typeChanged = true;
-        else if (State::Instance().activeFgOutput == FGOutput::XeFG &&
-                 dynamic_cast<XeFG_Dx12*>(State::Instance().currentFG) == nullptr)
-            typeChanged = true;
-
-        if (typeChanged)
-        {
-            LOG_INFO("FG type changed, cleaning up old instance");
-            // Store old pointer and null-ify first to prevent concurrent access issues
-            IFGFeature_Dx12* oldFG = State::Instance().currentFG;
-            State::Instance().currentFG = nullptr;
-
-            oldFG->Shutdown();
-            delete oldFG;
-            oldFG = nullptr;
-
-            // Create new FG instance
-            if (State::Instance().activeFgOutput == FGOutput::FSRFG)
-                State::Instance().currentFG = new FSRFG_Dx12();
-            else if (State::Instance().activeFgOutput == FGOutput::XeFG)
-                State::Instance().currentFG =
-                    new XeFG_Dx12(Config::Instance()->FGXeFGInterpolationCount.value_or_default());
-            createdNewFG = true;
-        }
+        cq->Release();
+        LOG_ERROR("Failed to create FG instance");
+        return E_FAIL;
     }
 
-    // Create FG swapchain
-    auto fg = State::Instance().currentFG;
     bool scResult = false;
     {
         ScopedSkipDxgiLoadChecks skipDxgiLoadChecks {};
@@ -260,17 +364,7 @@ HRESULT FGHooks::CreateSwapChainForHwnd(IDXGIFactory* pFactory, IUnknown* pDevic
             !pFullscreenDesc->Windowed)
             LOG_WARN("Using exclusive fullscreen with XeFG!!!");
 
-        // These effects are not supported in DX12
-        if (pDesc->SwapEffect == DXGI_SWAP_EFFECT_SEQUENTIAL)
-        {
-            LOG_WARN("DXGI_SWAP_EFFECT_SEQUENTIAL is not supported in DX12, changing to FLIP_SEQUENTIAL");
-            pDesc->SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-        }
-        else if (pDesc->SwapEffect == DXGI_SWAP_EFFECT_DISCARD)
-        {
-            LOG_WARN("DXGI_SWAP_EFFECT_DISCARD is not supported in DX12, changing to FLIP_DISCARD");
-            pDesc->SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-        }
+        FixSwapEffectForDX12(pDesc->SwapEffect);
 
         scResult = fg->CreateSwapchain1(pFactory, cq, hWnd, pDesc, pFullscreenDesc, ppSwapChain);
 
@@ -278,27 +372,18 @@ HRESULT FGHooks::CreateSwapChainForHwnd(IDXGIFactory* pFactory, IUnknown* pDevic
             State::Instance().skipHeapCapture = false;
     }
 
-    if (scResult)
+    cq->Release();
+
+    if (scResult && *ppSwapChain != nullptr)
     {
         _hwnd = hWnd;
         State::Instance().currentFGSwapchain = *ppSwapChain;
-
         HookFGSwapchain(*ppSwapChain);
         State::Instance().currentSwapchain = *ppSwapChain;
-
         return S_OK;
     }
 
-    // Swapchain creation failed - cleanup newly created FG instance to prevent memory leak
-    if (createdNewFG && State::Instance().currentFG != nullptr)
-    {
-        LOG_ERROR("Swapchain creation failed, cleaning up FG instance");
-        IFGFeature_Dx12* failedFG = State::Instance().currentFG;
-        State::Instance().currentFG = nullptr;
-        failedFG->Shutdown();
-        delete failedFG;
-    }
-
+    CleanupFGOnFailure(createdNewFG);
     return E_FAIL;
 }
 
@@ -482,123 +567,33 @@ HRESULT FGHooks::hkResizeBuffers(IDXGISwapChain* This, UINT BufferCount, UINT Wi
     {
         LOG_DEBUG("XeFG call skipping");
         _skipResize = false;
-
-        IDXGISwapChain* sc = nullptr;
-
-        // if (State::Instance().currentWrappedSwapchain != nullptr)
-        //     sc = State::Instance().currentWrappedSwapchain;
-        // else if (State::Instance().currentSwapchain != nullptr)
-        //     sc = State::Instance().currentSwapchain;
-        // else if (State::Instance().currentRealSwapchain != nullptr)
-        //     sc = State::Instance().currentRealSwapchain;
-
-        if (sc != nullptr)
-        {
-            auto result = sc->ResizeBuffers(BufferCount, Width, Height, NewFormat, SwapChainFlags);
-            LOG_DEBUG("XeFG internal ResizeBuffers result: {:X}", (UINT) result);
-            return result;
-        }
-
         return o_FGSCResizeBuffers(This, BufferCount, Width, Height, NewFormat, SwapChainFlags);
     }
 
-    if (State::Instance().activeFgOutput == FGOutput::XeFG)
-    {
-        if (Config::Instance()->FGXeFGForceBorderless.value_or_default())
-        {
-            SwapChainFlags &= ~DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
-        }
-
-        if (State::Instance().SCLastFlags != SwapChainFlags)
-        {
-            LOG_WARN("SwapChainFlags changed from {} to {}", State::Instance().SCLastFlags, SwapChainFlags);
-
-            if (State::Instance().activeFgOutput == FGOutput::XeFG)
-            {
-                LOG_WARN("Preventing flag change for XeFG!");
-                SwapChainFlags = State::Instance().SCLastFlags;
-            }
-        }
-    }
+    ApplyXeFGFlagModifications(SwapChainFlags);
 
     LOG_DEBUG("BufferCount: {}, Width: {}, Height: {}, NewFormat:{}, SwapChainFlags: {}", BufferCount, Width, Height,
               (UINT) NewFormat, SwapChainFlags);
 
     auto fg = State::Instance().currentFG;
 
+    // Check if resize can be skipped
+    ResizeBuffersParams params { BufferCount, Width, Height, NewFormat, SwapChainFlags };
+    if (CheckSkipResizeForXeFG(This, params))
+    {
+        LOG_DEBUG("Skipping resize");
+        ModifyBufferStateAndIndex(This, fg, params.BufferCount);
+        return S_OK;
+    }
+
+    // Add ALLOW_TEARING for non-exclusive fullscreen XeFG
     if (State::Instance().activeFgOutput == FGOutput::XeFG && !State::Instance().SCExclusiveFullscreen &&
         Config::Instance()->FGXeFGSkipResizeBuffers.value_or_default())
     {
-        DXGI_SWAP_CHAIN_DESC desc {};
-        if (This->GetDesc(&desc) == S_OK)
-        {
-            LOG_DEBUG("SC BufferCount: {}, Width: {}, Height: {}, NewFormat:{}, SwapChainFlags: {}", desc.BufferCount,
-                      desc.BufferDesc.Width, desc.BufferDesc.Height, (UINT) desc.BufferDesc.Format,
-                      State::Instance().SCLastFlags);
-
-            if (BufferCount == 0)
-                BufferCount = desc.BufferCount;
-
-            if ((desc.BufferDesc.Width == Width || Width == 0) && (desc.BufferDesc.Height == Height || Height == 0) &&
-                (NewFormat == desc.BufferDesc.Format || NewFormat == 0) &&
-                State::Instance().SCLastFlags == SwapChainFlags &&
-                (BufferCount == desc.BufferCount || BufferCount == 0))
-            {
-                LOG_DEBUG("Skipping resize");
-
-                if (Config::Instance()->FGXeFGModifyBufferState.value_or_default() ||
-                    Config::Instance()->FGXeFGModifySCIndex.value_or_default())
-                {
-                    auto swapchain = ((IDXGISwapChain3*) This);
-                    auto swapchainIndex = swapchain->GetCurrentBackBufferIndex();
-
-                    if (fg != nullptr && Config::Instance()->FGXeFGModifyBufferState.value_or_default())
-                    {
-                        LOG_INFO("Trying to change backbuffer state to COMMON");
-
-                        auto cmdList = fg->GetUICommandList();
-
-                        if (cmdList != nullptr)
-                        {
-                            for (size_t i = 0; i < desc.BufferCount; i++)
-                            {
-                                ID3D12Resource* backBuffer = nullptr;
-                                if (swapchain->GetBuffer(swapchainIndex, IID_PPV_ARGS(&backBuffer)) == S_OK)
-                                {
-                                    auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-                                        backBuffer, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COMMON);
-
-                                    cmdList->ResourceBarrier(1, &barrier);
-
-                                    backBuffer->Release();
-                                }
-                            }
-                        }
-                    }
-
-                    if (swapchainIndex != 0 && Config ::Instance()->FGXeFGModifySCIndex.value_or_default())
-                    {
-                        auto presents = desc.BufferCount - swapchainIndex;
-
-                        LOG_DEBUG("Trying to reset backbuffer index: {} with {} present calls", swapchainIndex,
-                                  presents);
-
-                        for (size_t i = 0; i < presents; i++)
-                        {
-                            swapchain->Present(0, 0);
-                        }
-                    }
-                }
-
-                return S_OK;
-            }
-        }
-
         SwapChainFlags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
     }
 
     State::Instance().SCAllowTearing = (SwapChainFlags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING) > 0;
-
     State::Instance().SCLastFlags = SwapChainFlags;
 
     if (fg != nullptr && fg->IsActive())
@@ -622,29 +617,13 @@ HRESULT FGHooks::hkResizeBuffers(IDXGISwapChain* This, UINT BufferCount, UINT Wi
 
     if (result == S_OK)
     {
-        auto fg = State::Instance().currentFG;
         if (fg != nullptr)
         {
             State::Instance().FGchanged = true;
             fg->Deactivate();
             fg->UpdateTarget();
         }
-    }
-
-    // Resize window to cover the screen
-    if (result == S_OK && Config::Instance()->FGXeFGForceBorderless.value_or_default() &&
-        State::Instance().SCExclusiveFullscreen)
-    {
-        SetWindowLongPtr(_hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
-        SetWindowLongPtr(_hwnd, GWL_EXSTYLE, WS_EX_APPWINDOW);
-
-        Util::MonitorInfo info;
-        info = Util::GetMonitorInfoForWindow(_hwnd);
-
-        LOG_DEBUG("Overriding window size: {}x{}, and pos: {}x{} at monitor: {}", info.width, info.height, info.x,
-                  info.y, wstring_to_string(info.name));
-
-        SetWindowPos(_hwnd, HWND_TOP, info.x, info.y, info.width, info.height, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+        ApplyBorderlessResize(_hwnd);
     }
 
     return result;
@@ -677,124 +656,34 @@ HRESULT FGHooks::hkResizeBuffers1(IDXGISwapChain* This, UINT BufferCount, UINT W
     {
         LOG_DEBUG("XeFG call skipping");
         _skipResize1 = false;
-
-        IDXGISwapChain3* sc = nullptr;
-
-        // if (State::Instance().currentWrappedSwapchain != nullptr)
-        //     sc = (IDXGISwapChain3*) State::Instance().currentWrappedSwapchain;
-        // else if (State::Instance().currentSwapchain != nullptr)
-        //     sc = (IDXGISwapChain3*) State::Instance().currentSwapchain;
-        // else if (State::Instance().currentRealSwapchain != nullptr)
-        //     sc = (IDXGISwapChain3*) State::Instance().currentRealSwapchain;
-
-        if (sc != nullptr)
-        {
-            auto result = sc->ResizeBuffers1(BufferCount, Width, Height, Format, SwapChainFlags, pCreationNodeMask,
-                                             ppPresentQueue);
-
-            LOG_DEBUG("XeFG internal ResizeBuffers1 result: {:X}", (UINT) result);
-            return result;
-        }
-
         return o_FGSCResizeBuffers1(This, BufferCount, Width, Height, Format, SwapChainFlags, pCreationNodeMask,
                                     ppPresentQueue);
     }
 
-    if (State::Instance().activeFgOutput == FGOutput::XeFG)
-    {
-        if (Config::Instance()->FGXeFGForceBorderless.value_or_default())
-        {
-            SwapChainFlags &= ~DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
-        }
-
-        if (State::Instance().SCLastFlags != SwapChainFlags)
-        {
-            LOG_WARN("SwapChainFlags changed from {} to {}", State::Instance().SCLastFlags, SwapChainFlags);
-
-            if (State::Instance().activeFgOutput == FGOutput::XeFG)
-            {
-                LOG_WARN("Preventing flag change for XeFG!");
-                SwapChainFlags = State::Instance().SCLastFlags;
-            }
-        }
-    }
+    ApplyXeFGFlagModifications(SwapChainFlags);
 
     LOG_DEBUG("BufferCount: {}, Width: {}, Height: {}, NewFormat:{}, SwapChainFlags: {}, Caller: {}", BufferCount,
               Width, Height, (UINT) Format, SwapChainFlags, Util::WhoIsTheCaller(_ReturnAddress()));
 
     auto fg = State::Instance().currentFG;
 
-    if (State::Instance().activeFgOutput == FGOutput::XeFG && !State::Instance().SCExclusiveFullscreen)
+    // Check if resize can be skipped
+    ResizeBuffersParams params { BufferCount, Width, Height, Format, SwapChainFlags };
+    if (CheckSkipResizeForXeFG(This, params))
     {
-        DXGI_SWAP_CHAIN_DESC desc {};
-        if (This->GetDesc(&desc) == S_OK)
-        {
-            LOG_DEBUG("SC BufferCount: {}, Width: {}, Height: {}, NewFormat:{}, SwapChainFlags: {}", desc.BufferCount,
-                      desc.BufferDesc.Width, desc.BufferDesc.Height, (UINT) desc.BufferDesc.Format,
-                      State::Instance().SCLastFlags);
+        LOG_DEBUG("Skipping resize");
+        ModifyBufferStateAndIndex(This, fg, params.BufferCount);
+        return S_OK;
+    }
 
-            if (BufferCount == 0)
-                BufferCount = desc.BufferCount;
-
-            if ((desc.BufferDesc.Width == Width || Width == 0) && (desc.BufferDesc.Height == Height || Height == 0) &&
-                (Format == desc.BufferDesc.Format || Format == 0) && State::Instance().SCLastFlags == SwapChainFlags &&
-                (BufferCount == desc.BufferCount || BufferCount == 0))
-            {
-                LOG_DEBUG("Skipping resize");
-
-                if (Config::Instance()->FGXeFGModifyBufferState.value_or_default() ||
-                    Config::Instance()->FGXeFGModifySCIndex.value_or_default())
-                {
-                    auto swapchain = ((IDXGISwapChain3*) This);
-                    auto swapchainIndex = swapchain->GetCurrentBackBufferIndex();
-
-                    if (fg != nullptr && Config::Instance()->FGXeFGModifyBufferState.value_or_default())
-                    {
-                        LOG_INFO("Trying to change backbuffer state to COMMON");
-
-                        auto cmdList = fg->GetUICommandList();
-
-                        if (cmdList != nullptr)
-                        {
-                            for (size_t i = 0; i < desc.BufferCount; i++)
-                            {
-                                ID3D12Resource* backBuffer = nullptr;
-                                if (swapchain->GetBuffer(swapchainIndex, IID_PPV_ARGS(&backBuffer)) == S_OK)
-                                {
-                                    auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-                                        backBuffer, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COMMON);
-
-                                    cmdList->ResourceBarrier(1, &barrier);
-
-                                    backBuffer->Release();
-                                }
-                            }
-                        }
-                    }
-
-                    if (swapchainIndex != 0 && Config ::Instance()->FGXeFGModifySCIndex.value_or_default())
-                    {
-                        auto presents = desc.BufferCount - swapchainIndex;
-
-                        LOG_DEBUG("Trying to reset backbuffer index: {} with {} present calls", swapchainIndex,
-                                  presents);
-
-                        for (size_t i = 0; i < presents; i++)
-                        {
-                            swapchain->Present(0, 0);
-                        }
-                    }
-                }
-
-                return S_OK;
-            }
-        }
-
+    // Add ALLOW_TEARING for non-exclusive fullscreen XeFG
+    if (State::Instance().activeFgOutput == FGOutput::XeFG && !State::Instance().SCExclusiveFullscreen &&
+        Config::Instance()->FGXeFGSkipResizeBuffers.value_or_default())
+    {
         SwapChainFlags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
     }
 
     State::Instance().SCAllowTearing = (SwapChainFlags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING) > 0;
-
     State::Instance().SCLastFlags = SwapChainFlags;
 
     if (fg != nullptr && fg->IsActive())
@@ -808,10 +697,8 @@ HRESULT FGHooks::hkResizeBuffers1(IDXGISwapChain* This, UINT BufferCount, UINT W
     {
         ScopedSkipSpoofing skipSpoofing {};
         _skipResize = true;
-
         result = o_FGSCResizeBuffers1(This, BufferCount, Width, Height, Format, SwapChainFlags, pCreationNodeMask,
                                       ppPresentQueue);
-
         _skipResize = false;
     }
 
@@ -819,29 +706,13 @@ HRESULT FGHooks::hkResizeBuffers1(IDXGISwapChain* This, UINT BufferCount, UINT W
 
     if (result == S_OK)
     {
-        auto fg = State::Instance().currentFG;
         if (fg != nullptr)
         {
             State::Instance().FGchanged = true;
             fg->Deactivate();
             fg->UpdateTarget();
         }
-    }
-
-    // Resize window to cover the screen
-    if (result == S_OK && Config::Instance()->FGXeFGForceBorderless.value_or_default() &&
-        State::Instance().SCExclusiveFullscreen)
-    {
-        SetWindowLongPtr(_hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
-        SetWindowLongPtr(_hwnd, GWL_EXSTYLE, WS_EX_APPWINDOW);
-
-        Util::MonitorInfo info;
-        info = Util::GetMonitorInfoForWindow(_hwnd);
-
-        LOG_DEBUG("Overriding window size: {}x{}, and pos: {}x{} at monitor: {}", info.width, info.height, info.x,
-                  info.y, wstring_to_string(info.name));
-
-        SetWindowPos(_hwnd, HWND_TOP, info.x, info.y, info.width, info.height, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+        ApplyBorderlessResize(_hwnd);
     }
 
     return result;

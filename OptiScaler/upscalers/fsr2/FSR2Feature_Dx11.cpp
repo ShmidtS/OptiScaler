@@ -3,6 +3,7 @@
 #include <Util.h>
 
 #include "FSR2Feature_Dx11.h"
+#include <resource_tracking/D3D11ShaderResourceBackup.h>
 
 #define ASSIGN_DESC(dest, src)                                                                                         \
     dest.Width = src.Width;                                                                                            \
@@ -48,13 +49,22 @@ bool FSR2FeatureDx11::Init(ID3D11Device* InDevice, ID3D11DeviceContext* InContex
 bool FSR2FeatureDx11::CopyTexture(ID3D11Resource* InResource, D3D11_TEXTURE2D_RESOURCE_C* OutTextureRes, UINT bindFlags,
                                   bool InCopy)
 {
+    if (InResource == nullptr || OutTextureRes == nullptr)
+    {
+        LOG_ERROR("CopyTexture: null input parameters!");
+        return false;
+    }
+
     ID3D11Texture2D* originalTexture = nullptr;
     D3D11_TEXTURE2D_DESC desc {};
 
     auto result = InResource->QueryInterface(IID_PPV_ARGS(&originalTexture));
 
-    if (result != S_OK)
+    if (result != S_OK || originalTexture == nullptr)
+    {
+        LOG_ERROR("CopyTexture: QueryInterface failed with result: {0:x}", result);
         return false;
+    }
 
     originalTexture->GetDesc(&desc);
 
@@ -94,7 +104,14 @@ bool FSR2FeatureDx11::CopyTexture(ID3D11Resource* InResource, D3D11_TEXTURE2D_RE
     }
 
     if (InCopy)
+    {
+        if (DeviceContext == nullptr || OutTextureRes->Texture == nullptr)
+        {
+            LOG_ERROR("CopyTexture: DeviceContext or Texture is null during copy!");
+            return false;
+        }
         DeviceContext->CopyResource(OutTextureRes->Texture, InResource);
+    }
 
     return true;
 }
@@ -126,6 +143,12 @@ bool FSR2FeatureDx11::InitFSR2(const NVSDK_NGX_Parameter* InParameters)
         const size_t scratchBufferSize = ffxFsr2GetScratchMemorySizeDX11();
         void* scratchBuffer = calloc(scratchBufferSize, 1);
 
+        if (scratchBuffer == nullptr)
+        {
+            LOG_ERROR("Failed to allocate scratch buffer for FSR2!");
+            return false;
+        }
+
         auto errorCode = ffxFsr2GetInterfaceDX11(&_contextDesc.callbacks, Device, scratchBuffer, scratchBufferSize);
 
         if (errorCode != FFX_OK)
@@ -136,6 +159,12 @@ bool FSR2FeatureDx11::InitFSR2(const NVSDK_NGX_Parameter* InParameters)
         }
 
         _contextDesc.device = ffxGetDeviceDX11(Device);
+        if (_contextDesc.device == nullptr)
+        {
+            LOG_ERROR("ffxGetDeviceDX11 returned nullptr!");
+            free(scratchBuffer);
+            return false;
+        }
         _contextDesc.flags = 0;
 
         if (DepthInverted())
@@ -247,39 +276,9 @@ bool FSR2FeatureDx11::Evaluate(ID3D11DeviceContext* InContext, NVSDK_NGX_Paramet
     if (!RCAS->IsInit())
         Config::Instance()->RcasEnabled.set_volatile_value(false);
 
-    ID3D11ShaderResourceView* restoreSRVs[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
-    ID3D11SamplerState* restoreSamplerStates[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT] = {};
-    ID3D11Buffer* restoreCBVs[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT] = {};
-    ID3D11UnorderedAccessView* restoreUAVs[D3D11_1_UAV_SLOT_COUNT] = {};
-    ID3D11RenderTargetView* restoreRTVs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
-    ID3D11DepthStencilView* restoreDSV = nullptr;
-
-    // backup compute shader resources
-    for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
-    {
-        restoreSRVs[i] = nullptr;
-        InContext->CSGetShaderResources(i, 1, &restoreSRVs[i]);
-    }
-
-    for (UINT i = 0; i < D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT; i++)
-    {
-        restoreSamplerStates[i] = nullptr;
-        InContext->CSGetSamplers(i, 1, &restoreSamplerStates[i]);
-    }
-
-    for (UINT i = 0; i < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT; i++)
-    {
-        restoreCBVs[i] = nullptr;
-        InContext->CSGetConstantBuffers(i, 1, &restoreCBVs[i]);
-    }
-
-    for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
-    {
-        restoreUAVs[i] = nullptr;
-        InContext->CSGetUnorderedAccessViews(i, 1, &restoreUAVs[i]);
-    }
-
-    DeviceContext->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, restoreRTVs, &restoreDSV);
+    // Backup current shader resources
+    D3D11ShaderResourceBackup resourceBackup;
+    resourceBackup.Backup(InContext);
 
     // Unbind RenderTargets
     ID3D11RenderTargetView* nullRTVs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
@@ -607,31 +606,7 @@ bool FSR2FeatureDx11::Evaluate(ID3D11DeviceContext* InContext, NVSDK_NGX_Paramet
     }
 
     // restore compute shader resources
-    for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
-    {
-        if (restoreSRVs[i] != nullptr)
-            InContext->CSSetShaderResources(i, 1, &restoreSRVs[i]);
-    }
-
-    for (UINT i = 0; i < D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT; i++)
-    {
-        if (restoreSamplerStates[i] != nullptr)
-            InContext->CSSetSamplers(i, 1, &restoreSamplerStates[i]);
-    }
-
-    for (UINT i = 0; i < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT; i++)
-    {
-        if (restoreCBVs[i] != nullptr)
-            InContext->CSSetConstantBuffers(i, 1, &restoreCBVs[i]);
-    }
-
-    for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
-    {
-        if (restoreUAVs[i] != nullptr)
-            InContext->CSSetUnorderedAccessViews(i, 1, &restoreUAVs[i], 0);
-    }
-
-    DeviceContext->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, restoreRTVs, restoreDSV);
+    resourceBackup.Restore(InContext);
 
     _frameCount++;
 

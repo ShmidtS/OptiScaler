@@ -370,6 +370,9 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D11_GetScratchBufferSize(NVSDK_NGX_Fe
                                                                     const NVSDK_NGX_Parameter* InParameters,
                                                                     size_t* OutSizeInBytes)
 {
+    if (OutSizeInBytes == nullptr)
+        return NVSDK_NGX_Result_FAIL_InvalidParameter;
+
     LOG_WARN("-> 52428800");
     *OutSizeInBytes = 52428800;
     return NVSDK_NGX_Result_Success;
@@ -530,11 +533,11 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D11_GetFeatureRequirements(
 {
     LOG_FUNC();
 
+    if (OutSupported == nullptr)
+        return NVSDK_NGX_Result_FAIL_InvalidParameter;
+
     if (FeatureDiscoveryInfo->FeatureID == NVSDK_NGX_Feature_SuperSampling)
     {
-        if (OutSupported == nullptr)
-            OutSupported = new NVSDK_NGX_FeatureRequirement();
-
         OutSupported->FeatureSupported = NVSDK_NGX_FeatureSupportResult_Supported;
         OutSupported->MinHWArchitecture = 0;
 
