@@ -17,6 +17,7 @@
 
 #include <unordered_map>
 #include <mutex>
+#include <inputs/FG/Streamline_Inputs_Vk.h>
 
 sl::RenderAPI StreamlineHooks::renderApi = sl::RenderAPI::eCount;
 std::mutex StreamlineHooks::setConstantsMutex {};
@@ -161,9 +162,41 @@ sl::Result StreamlineHooks::hkslInit(sl::Preferences* pref, uint64_t sdkVersion)
 sl::Result StreamlineHooks::hkslSetTag(sl::ViewportHandle& viewport, sl::ResourceTag* tags, uint32_t numTags,
                                        sl::CommandBuffer* cmdBuffer)
 {
-    if (renderApi == sl::RenderAPI::eD3D11 || renderApi == sl::RenderAPI::eVulkan)
+    // D3D11 is not supported
+    if (renderApi == sl::RenderAPI::eD3D11)
     {
-        LOG_ERROR("hkslSetTag only supports DX12");
+        LOG_ERROR("hkslSetTag does not support D3D11");
+        return o_slSetTag(viewport, tags, numTags, cmdBuffer);
+    }
+
+    // Handle Vulkan separately
+    if (renderApi == sl::RenderAPI::eVulkan)
+    {
+        if (tags == nullptr)
+        {
+            LOG_WARN("Vulkan: Game trying to remove a tag");
+            return o_slSetTag(viewport, tags, numTags, cmdBuffer);
+        }
+
+        for (uint32_t i = 0; i < numTags; i++)
+        {
+            if (tags[i].resource == nullptr || tags[i].resource->native == nullptr)
+            {
+                LOG_TRACE("Vulkan: Resource of type: {} is null, continuing", tags[i].type);
+                continue;
+            }
+
+            // Capture resources for Vulkan FG
+            if (State::Instance().activeFgInput == FGInput::DLSSG &&
+                (tags[i].type == sl::kBufferTypeHUDLessColor || tags[i].type == sl::kBufferTypeDepth ||
+                 tags[i].type == sl::kBufferTypeHiResDepth || tags[i].type == sl::kBufferTypeLinearDepth ||
+                 tags[i].type == sl::kBufferTypeMotionVectors || tags[i].type == sl::kBufferTypeUIColorAndAlpha ||
+                 tags[i].type == sl::kBufferTypeBidirectionalDistortionField))
+            {
+                State::Instance().slFGInputsVk.reportResource(tags[i], (VkCommandBuffer) cmdBuffer, 0);
+            }
+        }
+
         return o_slSetTag(viewport, tags, numTags, cmdBuffer);
     }
 
@@ -216,9 +249,44 @@ sl::Result StreamlineHooks::hkslSetTagForFrame(const sl::FrameToken& frame, cons
                                                const sl::ResourceTag* resources, uint32_t numResources,
                                                sl::CommandBuffer* cmdBuffer)
 {
-    if (renderApi == sl::RenderAPI::eD3D11 || renderApi == sl::RenderAPI::eVulkan)
+    // D3D11 is not supported
+    if (renderApi == sl::RenderAPI::eD3D11)
     {
-        LOG_ERROR("hkslSetTagForFrame only supports DX12");
+        LOG_ERROR("hkslSetTagForFrame does not support D3D11");
+        return o_slSetTagForFrame(frame, viewport, resources, numResources, cmdBuffer);
+    }
+
+    // Handle Vulkan separately
+    if (renderApi == sl::RenderAPI::eVulkan)
+    {
+        if (resources == nullptr)
+        {
+            LOG_WARN("Vulkan: Game trying to remove a tag");
+            return o_slSetTagForFrame(frame, viewport, resources, numResources, cmdBuffer);
+        }
+
+        LOG_DEBUG("Vulkan frameIndex: {}", static_cast<uint32_t>(frame));
+
+        for (uint32_t i = 0; i < numResources; i++)
+        {
+            if (resources[i].resource == nullptr || resources[i].resource->native == nullptr)
+            {
+                LOG_TRACE("Vulkan: Resource of type: {} is null, continuing", resources[i].type);
+                continue;
+            }
+
+            // Capture resources for Vulkan FG
+            if (State::Instance().activeFgInput == FGInput::DLSSG &&
+                (resources[i].type == sl::kBufferTypeHUDLessColor || resources[i].type == sl::kBufferTypeDepth ||
+                 resources[i].type == sl::kBufferTypeHiResDepth || resources[i].type == sl::kBufferTypeLinearDepth ||
+                 resources[i].type == sl::kBufferTypeMotionVectors || resources[i].type == sl::kBufferTypeUIColorAndAlpha ||
+                 resources[i].type == sl::kBufferTypeBidirectionalDistortionField))
+            {
+                State::Instance().slFGInputsVk.reportResource(resources[i], (VkCommandBuffer) cmdBuffer,
+                                                              (uint32_t) frame);
+            }
+        }
+
         return o_slSetTagForFrame(frame, viewport, resources, numResources, cmdBuffer);
     }
 
@@ -264,7 +332,7 @@ sl::Result StreamlineHooks::hkslEvaluateFeature(sl::Feature feature, const sl::F
                                                 const sl::BaseStructure** inputs, uint32_t numInputs,
                                                 sl::CommandBuffer* cmdBuffer)
 {
-    LOG_DEBUG("frameIndex: {}", static_cast<uint32_t>(frame));
+    LOG_DEBUG("frameIndex: {} renderApi: {}", static_cast<uint32_t>(frame), static_cast<int>(renderApi));
 
     if (State::Instance().activeFgInput == FGInput::DLSSG && numInputs > 0 && inputs != nullptr)
     {
@@ -282,8 +350,17 @@ sl::Result StreamlineHooks::hkslEvaluateFeature(sl::Feature feature, const sl::F
                     tag->type == sl::kBufferTypeMotionVectors || tag->type == sl::kBufferTypeUIColorAndAlpha ||
                     tag->type == sl::kBufferTypeBidirectionalDistortionField)
                 {
-                    State::Instance().slFGInputs.reportResource(*tag, (ID3D12GraphicsCommandList*) cmdBuffer,
-                                                                (uint32_t) frame);
+                    // Handle Vulkan separately
+                    if (renderApi == sl::RenderAPI::eVulkan)
+                    {
+                        State::Instance().slFGInputsVk.reportResource(*tag, (VkCommandBuffer) cmdBuffer,
+                                                                       (uint32_t) frame);
+                    }
+                    else
+                    {
+                        State::Instance().slFGInputs.reportResource(*tag, (ID3D12GraphicsCommandList*) cmdBuffer,
+                                                                     (uint32_t) frame);
+                    }
                 }
             }
         }

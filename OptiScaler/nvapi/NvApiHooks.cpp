@@ -152,23 +152,70 @@ void NvApiHooks::Hook(HMODULE nvapiModule)
         LOG_INFO("NvAPI_QueryInterface found, hooking!");
         fakenvapi::Init(o_NvAPI_QueryInterface);
 
-        DetourTransactionBegin();
-        DetourUpdateThread(GetCurrentThread());
-        DetourAttach(&(PVOID&) o_NvAPI_QueryInterface, hkNvAPI_QueryInterface);
-        DetourTransactionCommit();
+        LONG detourError = DetourTransactionBegin();
+        if (detourError != NO_ERROR)
+        {
+            LOG_ERROR("DetourTransactionBegin failed: {}", detourError);
+            return;
+        }
+
+        detourError = DetourUpdateThread(GetCurrentThread());
+        if (detourError != NO_ERROR)
+        {
+            LOG_ERROR("DetourUpdateThread failed: {}", detourError);
+            DetourTransactionAbort();
+            return;
+        }
+
+        detourError = DetourAttach(&(PVOID&) o_NvAPI_QueryInterface, hkNvAPI_QueryInterface);
+        if (detourError != NO_ERROR)
+        {
+            LOG_ERROR("DetourAttach failed: {}", detourError);
+            DetourTransactionAbort();
+            return;
+        }
+
+        detourError = DetourTransactionCommit();
+        if (detourError != NO_ERROR)
+        {
+            LOG_ERROR("DetourTransactionCommit failed: {}", detourError);
+            return;
+        }
+
+        LOG_INFO("NvAPI_QueryInterface hooked successfully");
     }
 }
 
 void NvApiHooks::Unhook()
 {
-    DetourTransactionBegin();
-    DetourUpdateThread(GetCurrentThread());
+    LONG detourError = DetourTransactionBegin();
+    if (detourError != NO_ERROR)
+    {
+        LOG_ERROR("Unhook: DetourTransactionBegin failed: {}", detourError);
+        return;
+    }
+
+    detourError = DetourUpdateThread(GetCurrentThread());
+    if (detourError != NO_ERROR)
+    {
+        LOG_ERROR("Unhook: DetourUpdateThread failed: {}", detourError);
+        DetourTransactionAbort();
+        return;
+    }
 
     if (o_NvAPI_QueryInterface != nullptr)
     {
-        DetourDetach(&(PVOID&) o_NvAPI_QueryInterface, hkNvAPI_QueryInterface);
+        detourError = DetourDetach(&(PVOID&) o_NvAPI_QueryInterface, hkNvAPI_QueryInterface);
+        if (detourError != NO_ERROR)
+        {
+            LOG_ERROR("Unhook: DetourDetach failed: {}", detourError);
+        }
         o_NvAPI_QueryInterface = nullptr;
     }
 
-    DetourTransactionCommit();
+    detourError = DetourTransactionCommit();
+    if (detourError != NO_ERROR)
+    {
+        LOG_ERROR("Unhook: DetourTransactionCommit failed: {}", detourError);
+    }
 }

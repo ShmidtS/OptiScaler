@@ -81,7 +81,7 @@ bool XeSSFeature_Dx11::Init(ID3D11Device* InDevice, ID3D11DeviceContext* InConte
 
         if (ret != XESS_RESULT_SUCCESS)
         {
-            LOG_ERROR("xessD3D12CreateContext error: {0}", ResultToString(ret));
+            LOG_ERROR("xessD3D11CreateContext error: {0}", ResultToString(ret));
             return false;
         }
 
@@ -222,7 +222,7 @@ bool XeSSFeature_Dx11::Init(ID3D11Device* InDevice, ID3D11DeviceContext* InConte
 
         if (ret != XESS_RESULT_SUCCESS)
         {
-            LOG_ERROR("xessD3D12Init error: {0}", ResultToString(ret));
+            LOG_ERROR("xessD3D11Init error: {0}", ResultToString(ret));
             return false;
         }
     }
@@ -347,10 +347,18 @@ bool XeSSFeature_Dx11::Evaluate(ID3D11DeviceContext* DeviceContext, NVSDK_NGX_Pa
         if (Config::Instance()->RcasEnabled.value_or(true) &&
             (_sharpness > 0.0f || (Config::Instance()->MotionSharpnessEnabled.value_or(false) &&
                                    Config::Instance()->MotionSharpness.value_or(0.4) > 0.0f)) &&
-            RCAS != nullptr && RCAS.get() != nullptr && RCAS->IsInit() &&
-            RCAS->CreateBufferResource(Device, (ID3D11Texture2D*) params.pOutputTexture))
+            RCAS != nullptr && RCAS.get() != nullptr && RCAS->IsInit())
         {
-            params.pOutputTexture = RCAS->Buffer();
+            ID3D11Texture2D* outputTexture2D = nullptr;
+            if (params.pOutputTexture && SUCCEEDED(params.pOutputTexture->QueryInterface(IID_PPV_ARGS(&outputTexture2D))))
+            {
+                bool bufferCreated = RCAS->CreateBufferResource(Device, outputTexture2D);
+                outputTexture2D->Release();
+                if (bufferCreated)
+                {
+                    params.pOutputTexture = RCAS->Buffer();
+                }
+            }
         }
     }
     else
@@ -421,7 +429,8 @@ bool XeSSFeature_Dx11::Evaluate(ID3D11DeviceContext* DeviceContext, NVSDK_NGX_Pa
     {
         LOG_WARN("Bias mask not exist and its enabled in config, it may cause problems!!");
         Config::Instance()->DisableReactiveMask = true;
-        State::Instance().changeBackend[_handle->Id] = true;
+        if (_handle)
+            State::Instance().changeBackend[_handle->Id] = true;
         return true;
     }
 

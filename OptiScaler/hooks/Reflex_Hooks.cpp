@@ -275,10 +275,12 @@ void* ReflexHooks::getHookedReflex(unsigned int InterfaceId)
     {                                                                                                                  \
         double name##Pos = (double) (frameReport.name##StartTime - start) / rangeNs;                                   \
         double name##Length = (double) (frameReport.name##EndTime - frameReport.name##StartTime) / rangeNs;            \
+        std::lock_guard<std::mutex> lock(_timingDataMutex);                                                            \
         timingData[TimingType::type] = TimingEntry { .position = name##Pos, .length = name##Length };                  \
     }                                                                                                                  \
     else                                                                                                               \
     {                                                                                                                  \
+        std::lock_guard<std::mutex> lock(_timingDataMutex);                                                            \
         timingData[TimingType::type].reset();                                                                          \
     }
 
@@ -322,7 +324,10 @@ bool ReflexHooks::updateTimingData()
 
     double rangeNs = static_cast<double>(end - start);
 
-    timingData[TimingType::TimeRange] = TimingEntry { .position = 0, .length = rangeNs };
+    {
+        std::lock_guard<std::mutex> lock(_timingDataMutex);
+        timingData[TimingType::TimeRange] = TimingEntry { .position = 0, .length = rangeNs };
+    }
     UPDATE_TIMING_ENTRY(sim, Simulation)
     UPDATE_TIMING_ENTRY(renderSubmit, RenderSubmit)
     UPDATE_TIMING_ENTRY(present, Present)

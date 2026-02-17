@@ -51,9 +51,8 @@ bool OS_Dx12::Dispatch(ID3D12Device* InDevice, ID3D12GraphicsCommandList* InCmdL
 
     LOG_DEBUG("[{0}] Start!", _name);
 
-    _counter++;
-    _counter = _counter % OS_NUM_OF_HEAPS;
-    FrameDescriptorHeap& currentHeap = _frameHeaps[_counter];
+    uint32_t heapIndex = _counter.fetch_add(1, std::memory_order_relaxed) % OS_NUM_OF_HEAPS;
+    FrameDescriptorHeap& currentHeap = _frameHeaps[heapIndex];
 
     auto inDesc = InResource->GetDesc();
     auto outDesc = OutResource->GetDesc();

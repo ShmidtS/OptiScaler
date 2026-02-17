@@ -18,6 +18,12 @@
 
 #include <d3d12.h>
 
+// Thread-local skip flags for recursive call protection
+thread_local bool FGHooks::_skipResize = false;
+thread_local bool FGHooks::_skipResize1 = false;
+thread_local bool FGHooks::_skipPresent = false;
+thread_local bool FGHooks::_skipPresent1 = false;
+
 static bool CheckForFGStatus()
 {
     // Need to check overlay menu parameter, goes to places it shouldn't go
@@ -991,7 +997,7 @@ HRESULT FGHooks::hkFGRelease(IDXGISwapChain* This)
     if (refCount == 1)
     {
         LOG_INFO("Preserving FG Swapchain from release");
-        return 0;  // Return 0 to indicate preserved state
+        return refCount;  // Return actual refcount to indicate preserved state
     }
 
     return refCount;  // Return actual refcount

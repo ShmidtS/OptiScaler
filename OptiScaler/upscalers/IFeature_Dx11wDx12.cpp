@@ -566,11 +566,21 @@ HRESULT IFeature_Dx11wDx12::CreateDx12Device(D3D_FEATURE_LEVEL InFeatureLevel)
 
 bool IFeature_Dx11wDx12::ProcessDx11Textures(const NVSDK_NGX_Parameter* InParameters)
 {
-    // Wait for last frame
+    // Wait for last frame with timeout protection
     if (Dx12Fence->GetCompletedValue() < _frameCount)
     {
         Dx12Fence->SetEventOnCompletion(_frameCount, Dx12FenceEvent);
-        WaitForSingleObject(Dx12FenceEvent, INFINITE);
+        DWORD waitResult = WaitForSingleObject(Dx12FenceEvent, 5000); // 5 second timeout
+        if (waitResult == WAIT_TIMEOUT)
+        {
+            LOG_ERROR("GPU fence timeout - possible device lost or GPU hang");
+            return false;
+        }
+        else if (waitResult == WAIT_FAILED)
+        {
+            LOG_ERROR("WaitForSingleObject failed: {}", GetLastError());
+            return false;
+        }
     }
 
     auto frame = _frameCount % 2;

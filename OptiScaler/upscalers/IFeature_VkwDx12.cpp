@@ -1003,7 +1003,17 @@ bool IFeature_VkwDx12::ProcessVulkanTextures(VkCommandBuffer InCmdList, const NV
     {
         // Only wait for N-1 frame, not current frame
         Dx12Fence->SetEventOnCompletion(lastFrameToWaitFor, Dx12FenceEvent);
-        WaitForSingleObject(Dx12FenceEvent, INFINITE);
+        DWORD waitResult = WaitForSingleObject(Dx12FenceEvent, 5000); // 5 second timeout
+        if (waitResult == WAIT_TIMEOUT)
+        {
+            LOG_ERROR("GPU fence timeout - possible device lost or GPU hang");
+            return false;
+        }
+        else if (waitResult == WAIT_FAILED)
+        {
+            LOG_ERROR("WaitForSingleObject failed: {}", GetLastError());
+            return false;
+        }
     }
 
     Dx12CommandAllocator[frame]->Reset();

@@ -4,39 +4,46 @@
 
 void fakenvapi::Init(PFN_NvApi_QueryInterface& queryInterface)
 {
-    // Use atomic load to check if already initialized
+    // Use atomic load for fast path check
     if (_inited.load())
         return;
 
-    LOG_DEBUG("Trying to get fakenvapi-specific functions");
+    // Use call_once for thread-safe initialization
+    std::call_once(_initOnce, [&queryInterface]() {
+        // Double-check after acquiring synchronization
+        if (_inited.load())
+            return;
 
-    Fake_InformFGState = static_cast<decltype(Fake_InformFGState)>(queryInterface(GET_ID(Fake_InformFGState)));
-    Fake_InformPresentFG = static_cast<decltype(Fake_InformPresentFG)>(queryInterface(GET_ID(Fake_InformPresentFG)));
-    Fake_GetAntiLagCtx = static_cast<decltype(Fake_GetAntiLagCtx)>(queryInterface(GET_ID(Fake_GetAntiLagCtx)));
-    Fake_GetLowLatencyCtx = static_cast<decltype(Fake_GetLowLatencyCtx)>(queryInterface(GET_ID(Fake_GetLowLatencyCtx)));
-    Fake_SetLowLatencyCtx = static_cast<decltype(Fake_SetLowLatencyCtx)>(queryInterface(GET_ID(Fake_SetLowLatencyCtx)));
+        LOG_DEBUG("Trying to get fakenvapi-specific functions");
 
-    if (Fake_InformFGState != nullptr)
-        LOG_DEBUG("Got InformFGState");
+        Fake_InformFGState = static_cast<decltype(Fake_InformFGState)>(queryInterface(GET_ID(Fake_InformFGState)));
+        Fake_InformPresentFG = static_cast<decltype(Fake_InformPresentFG)>(queryInterface(GET_ID(Fake_InformPresentFG)));
+        Fake_GetAntiLagCtx = static_cast<decltype(Fake_GetAntiLagCtx)>(queryInterface(GET_ID(Fake_GetAntiLagCtx)));
+        Fake_GetLowLatencyCtx = static_cast<decltype(Fake_GetLowLatencyCtx)>(queryInterface(GET_ID(Fake_GetLowLatencyCtx)));
+        Fake_SetLowLatencyCtx = static_cast<decltype(Fake_SetLowLatencyCtx)>(queryInterface(GET_ID(Fake_SetLowLatencyCtx)));
 
-    if (Fake_InformPresentFG != nullptr)
-        LOG_DEBUG("Got InformPresentFG");
+        if (Fake_InformFGState != nullptr)
+            LOG_DEBUG("Got InformFGState");
 
-    if (Fake_GetAntiLagCtx != nullptr)
-        LOG_DEBUG("Got GetAntiLagCtx");
+        if (Fake_InformPresentFG != nullptr)
+            LOG_DEBUG("Got InformPresentFG");
 
-    if (Fake_GetLowLatencyCtx != nullptr)
-        LOG_DEBUG("Got GetLowLatencyCtx");
+        if (Fake_GetAntiLagCtx != nullptr)
+            LOG_DEBUG("Got GetAntiLagCtx");
 
-    if (Fake_SetLowLatencyCtx != nullptr)
-        LOG_DEBUG("Got SetLowLatencyCtx");
+        if (Fake_GetLowLatencyCtx != nullptr)
+            LOG_DEBUG("Got GetLowLatencyCtx");
 
-    setInited(Fake_InformFGState || Fake_InformPresentFG);
+        if (Fake_SetLowLatencyCtx != nullptr)
+            LOG_DEBUG("Got SetLowLatencyCtx");
 
-    if (_inited.load())
-        LOG_INFO("fakenvapi initialized successfully");
-    else
-        LOG_INFO("Failed to initialize fakenvapi");
+        setInited(Fake_InformFGState || Fake_InformPresentFG);
+
+        if (_inited.load())
+            LOG_INFO("fakenvapi initialized successfully");
+        else
+            LOG_INFO("Failed to initialize fakenvapi");
+    });
 }
 
 // Inform AntiLag 2 when present of interpolated frames starts
@@ -190,6 +197,7 @@ bool fakenvapi::loadForNvidia()
 
     if (queryInterface == nullptr)
     {
+        FreeLibrary(_dllForNvidia);
         _dllForNvidia = nullptr;
         return false;
     }

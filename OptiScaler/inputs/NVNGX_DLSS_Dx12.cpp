@@ -23,6 +23,7 @@
 #include <ankerl/unordered_dense.h>
 
 static ankerl::unordered_dense::map<unsigned int, ContextData<IFeature_Dx12>> Dx12Contexts;
+static std::shared_mutex dx12ContextsMutex;
 
 static ankerl::unordered_dense::map<ID3D12GraphicsCommandList*, ID3D12RootSignature*> computeSignatures;
 static ankerl::unordered_dense::map<ID3D12GraphicsCommandList*, ID3D12RootSignature*> graphicSignatures;
@@ -601,28 +602,37 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_CreateFeature(ID3D12GraphicsComma
 
         LOG_INFO("Creating new {} upscaler", upscalerChoice);
 
-        Dx12Contexts[handleId] = {};
-
-        if (!FeatureProvider_Dx12::GetFeature(upscalerChoice, handleId, InParameters, &Dx12Contexts[handleId].feature))
         {
-            LOG_ERROR("Upscaler can't created");
-            return NVSDK_NGX_Result_Fail;
+            std::unique_lock<std::shared_mutex> lock(dx12ContextsMutex);
+            Dx12Contexts[handleId] = {};
+
+            if (!FeatureProvider_Dx12::GetFeature(upscalerChoice, handleId, InParameters, &Dx12Contexts[handleId].feature))
+            {
+                LOG_ERROR("Upscaler can't created");
+                return NVSDK_NGX_Result_Fail;
+            }
         }
     }
     else if (InFeatureID == NVSDK_NGX_Feature_RayReconstruction)
     {
         LOG_INFO("creating new DLSSD feature");
 
-        Dx12Contexts[handleId] = {};
-
-        if (!FeatureProvider_Dx12::GetFeature("dlssd", handleId, InParameters, &Dx12Contexts[handleId].feature))
         {
-            LOG_ERROR("DLSSD can't created");
-            return NVSDK_NGX_Result_Fail;
+            std::unique_lock<std::shared_mutex> lock(dx12ContextsMutex);
+            Dx12Contexts[handleId] = {};
+
+            if (!FeatureProvider_Dx12::GetFeature("dlssd", handleId, InParameters, &Dx12Contexts[handleId].feature))
+            {
+                LOG_ERROR("DLSSD can't created");
+                return NVSDK_NGX_Result_Fail;
+            }
         }
     }
 
-    auto deviceContext = Dx12Contexts[handleId].feature.get();
+    auto deviceContext = [&]() -> IFeature_Dx12* {
+        std::shared_lock<std::shared_mutex> lock(dx12ContextsMutex);
+        return Dx12Contexts[handleId].feature.get();
+    }();
 
     if (*OutHandle == nullptr)
         *OutHandle = new NVSDK_NGX_Handle { handleId };
@@ -742,21 +752,27 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_ReleaseFeature(NVSDK_NGX_Handle* 
         return DLSSGMod::D3D12_ReleaseFeature(InHandle);
     }
 
-    if (auto deviceContext = Dx12Contexts[handleId].feature.get(); deviceContext != nullptr)
     {
-        if (deviceContext == State::Instance().currentFeature)
-            State::Instance().currentFeature = nullptr;
+        std::unique_lock<std::shared_mutex> lock(dx12ContextsMutex);
+        if (auto deviceContext = Dx12Contexts[handleId].feature.get(); deviceContext != nullptr)
+        {
+            if (deviceContext == State::Instance().currentFeature)
+                State::Instance().currentFeature = nullptr;
 
-        Dx12Contexts[handleId].feature.reset();
-        auto it = std::find_if(Dx12Contexts.begin(), Dx12Contexts.end(),
-                               [&handleId](const auto& p) { return p.first == handleId; });
-        Dx12Contexts.erase(it);
+            Dx12Contexts[handleId].feature.reset();
+            auto it = std::find_if(Dx12Contexts.begin(), Dx12Contexts.end(),
+                                   [&handleId](const auto& p) { return p.first == handleId; });
+            Dx12Contexts.erase(it);
+        }
+        else
+        {
+            if (!shutdown)
+                LOG_ERROR("can't release feature with id {0}!", handleId);
+        }
     }
-    else
-    {
-        if (!shutdown)
-            LOG_ERROR("can't release feature with id {0}!", handleId);
-    }
+
+    // Free the handle to prevent memory leak
+    delete InHandle;
 
     return NVSDK_NGX_Result_Success;
 }
@@ -847,10 +863,17 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
         return DLSSGMod::D3D12_EvaluateFeature(InCmdList, InFeatureHandle, InParameters, InCallback);
     }
 
-    if (!Dx12Contexts.contains(handleId))
-        return NVSDK_NGX_Result_FAIL_FeatureNotFound;
+    {
+        std::shared_lock<std::shared_mutex> lock(dx12ContextsMutex);
+        if (!Dx12Contexts.contains(handleId))
+            return NVSDK_NGX_Result_FAIL_FeatureNotFound;
+    }
 
-    auto deviceContext = &Dx12Contexts[handleId];
+    // Access the context under lock and get the feature pointer
+    auto deviceContext = [&]() -> ContextData<IFeature_Dx12>* {
+        std::shared_lock<std::shared_mutex> lock(dx12ContextsMutex);
+        return &Dx12Contexts[handleId];
+    }();
 
     if (deviceContext->feature == nullptr) // prevent source api name flicker when dlssg is active
         State::Instance().setInputApiName = State::Instance().currentInputApiName;

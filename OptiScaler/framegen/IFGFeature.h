@@ -3,6 +3,7 @@
 #include <OwnedMutex.h>
 #include <dxgi1_6.h>
 #include <flag-set-cpp/flag_set.hpp>
+#include <optional>
 
 enum class FG_Flags : uint64_t
 {
@@ -87,7 +88,7 @@ class IFGFeature
     bool _noDistortionField[BUFFER_COUNT] = { true, true, true, true };
     bool _waitingExecute[BUFFER_COUNT] {};
 
-    IID streamlineRiid {};
+    std::optional<IID> streamlineRiid;
 
     bool CheckForRealObject(std::string functionName, IUnknown* pObject, IUnknown** ppRealObject);
     int GetDispatchIndex(UINT64& willDispatchFrame);

@@ -16,6 +16,9 @@ static int const SRV_HEAP_SIZE = 64;
 static bool _dx11Device = false;
 static bool _dx12Device = false;
 
+// Mutex for protecting static globals
+static std::mutex _dxOverlayMutex;
+
 // for dx11
 static ID3D11Device* g_pd3dDevice = nullptr;
 static ID3D11DeviceContext* g_pd3dDeviceContext = nullptr;
@@ -539,6 +542,8 @@ void MenuOverlayDx::CleanupRenderTarget(bool clearQueue, HWND hWnd)
 {
     LOG_FUNC();
 
+    std::lock_guard<std::mutex> lock(_dxOverlayMutex);
+
     auto fg = State::Instance().currentFG;
     if (fg != nullptr && fg->FrameGenerationContext() != nullptr && fg->IsActive())
     {
@@ -560,6 +565,8 @@ void MenuOverlayDx::Present(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
         return;
 
     LOG_DEBUG("");
+
+    std::lock_guard<std::mutex> lock(_dxOverlayMutex);
 
     ID3D12CommandQueue* cq = nullptr;
     ID3D11Device* device = nullptr;

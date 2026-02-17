@@ -717,7 +717,12 @@ void FG_VkDx12_ResourceSharing::ReleaseSyncPrimitives()
     // Wait for any pending Vulkan operations before destroying
     if (_copyFence != VK_NULL_HANDLE && _vkDevice != VK_NULL_HANDLE)
     {
-        vkWaitForFences(_vkDevice, 1, &_copyFence, VK_TRUE, UINT64_MAX);
+        // Use a reasonable timeout (5 seconds) during cleanup to avoid infinite hang
+        auto result = vkWaitForFences(_vkDevice, 1, &_copyFence, VK_TRUE, 5000000000ULL);
+        if (result != VK_SUCCESS)
+        {
+            LOG_WARN("Timeout or error waiting for Vulkan fence during cleanup: {}", (UINT)result);
+        }
         vkDestroyFence(_vkDevice, _copyFence, nullptr);
         _copyFence = VK_NULL_HANDLE;
     }

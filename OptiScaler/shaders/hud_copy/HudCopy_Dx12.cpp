@@ -28,9 +28,8 @@ bool HudCopy_Dx12::Dispatch(ID3D12Device* InDevice, ID3D12GraphicsCommandList* c
     if (!_init || InDevice == nullptr || hudless == nullptr || present == nullptr || cmdList == nullptr)
         return false;
 
-    _counter++;
-    _counter = _counter % HudCopy_NUM_OF_HEAPS;
-    FrameDescriptorHeap& currentHeap = _frameHeaps[_counter];
+    uint32_t heapIndex = _counter.fetch_add(1, std::memory_order_relaxed) % HudCopy_NUM_OF_HEAPS;
+    FrameDescriptorHeap& currentHeap = _frameHeaps[heapIndex];
 
     auto hudlessDesc = hudless->GetDesc();
     auto presentDesc = present->GetDesc();

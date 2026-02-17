@@ -437,7 +437,7 @@ void MenuOverlayVk::DestroyVulkanObjects(bool shutdown)
     if (!shutdown)
         LOG_FUNC();
 
-    _vkCleanMutex.lock();
+    std::lock_guard<std::mutex> lock(_vkCleanMutex);
 
     auto result = vkDeviceWaitIdle(_ImVulkan_Info.Device);
     if (result != VK_SUCCESS && !shutdown)
@@ -507,8 +507,6 @@ void MenuOverlayVk::DestroyVulkanObjects(bool shutdown)
     }
 
     _ImVulkan_Info = {};
-
-    _vkCleanMutex.unlock();
 }
 
 bool MenuOverlayVk::QueuePresent(VkQueue queue, VkPresentInfoKHR* pPresentInfo)
@@ -546,6 +544,12 @@ bool MenuOverlayVk::QueuePresent(VkQueue queue, VkPresentInfoKHR* pPresentInfo)
             if (State::Instance().delayMenuRenderBy == 0)
             {
                 uint32_t idx = pPresentInfo->pImageIndices[0];
+                // Bounds check to prevent array overflow
+                if (idx >= _scImageCount)
+                {
+                    LOG_ERROR("Invalid image index {} (scImageCount={})", idx, _scImageCount);
+                    return false;
+                }
                 ImGui_ImplVulkanH_Frame* fd = &_ImVulkan_Frames[idx];
 
                 vkWaitForFences(_ImVulkan_Info.Device, 1, &fd->Fence, VK_TRUE, UINT64_MAX);

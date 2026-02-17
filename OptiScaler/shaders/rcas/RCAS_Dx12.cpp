@@ -35,9 +35,8 @@ bool RCAS_Dx12::Dispatch(ID3D12Device* InDevice, ID3D12GraphicsCommandList* InCm
 
     LOG_DEBUG("[{0}] Start!", _name);
 
-    _counter++;
-    _counter = _counter % RCAS_NUM_OF_HEAPS;
-    FrameDescriptorHeap& currentHeap = _frameHeaps[_counter];
+    uint32_t heapIndex = _counter.fetch_add(1, std::memory_order_relaxed) % RCAS_NUM_OF_HEAPS;
+    FrameDescriptorHeap& currentHeap = _frameHeaps[heapIndex];
 
     auto inDesc = InResource->GetDesc();
     auto mvDesc = InMotionVectors->GetDesc();

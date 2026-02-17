@@ -188,8 +188,6 @@ void DxgiFactoryHooks::HookToFactory(IDXGIFactory* pFactory)
 HRESULT DxgiFactoryHooks::CreateSwapChain(IDXGIFactory* realFactory, IUnknown* pDevice, DXGI_SWAP_CHAIN_DESC* pDesc,
                                           IDXGISwapChain** ppSwapChain)
 {
-    *ppSwapChain = nullptr;
-
     if (State::Instance().vulkanCreatingSC.load())
     {
         LOG_WARN("Vulkan is creating swapchain!");
@@ -202,9 +200,12 @@ HRESULT DxgiFactoryHooks::CreateSwapChain(IDXGIFactory* realFactory, IUnknown* p
         ScopedSkipDxgiLoadChecks skipDxgiLoadChecks {};
         ScopedSkipParentWrapping skipParentWrapping {};
 
+        *ppSwapChain = nullptr;
         auto res = o_CreateSwapChain(realFactory, pDevice, pDesc, ppSwapChain);
         return res;
     }
+
+    *ppSwapChain = nullptr;
 
     if (pDevice == nullptr || pDesc == nullptr)
     {
@@ -423,8 +424,8 @@ HRESULT DxgiFactoryHooks::CreateSwapChainForHwnd(IDXGIFactory2* realFactory, IUn
 {
     *ppSwapChain = nullptr;
 
-    static bool firstCall = static_cast<bool>(State::Instance().gameQuirks & GameQuirk::NoFSRFGFirstSwapchain);
-    if (firstCall)
+    static std::atomic<bool> firstCall { static_cast<bool>(State::Instance().gameQuirks & GameQuirk::NoFSRFGFirstSwapchain) };
+    if (firstCall.load())
     {
         LOG_DEBUG("Skipping FG swapchain creation");
         _skipFGSwapChainCreation = true;
@@ -443,7 +444,7 @@ HRESULT DxgiFactoryHooks::CreateSwapChainForHwnd(IDXGIFactory2* realFactory, IUn
                                               ppSwapChain);
         }
 
-        if (firstCall)
+        if (firstCall.load())
             _skipFGSwapChainCreation = false;
 
         return result;
@@ -461,7 +462,7 @@ HRESULT DxgiFactoryHooks::CreateSwapChainForHwnd(IDXGIFactory2* realFactory, IUn
                                               ppSwapChain);
         }
 
-        if (firstCall)
+        if (firstCall.load())
             _skipFGSwapChainCreation = false;
 
         return result;
@@ -479,7 +480,7 @@ HRESULT DxgiFactoryHooks::CreateSwapChainForHwnd(IDXGIFactory2* realFactory, IUn
                                               ppSwapChain);
         }
 
-        if (firstCall)
+        if (firstCall.load())
             _skipFGSwapChainCreation = false;
 
         return result;
@@ -670,11 +671,11 @@ HRESULT DxgiFactoryHooks::CreateSwapChainForHwnd(IDXGIFactory2* realFactory, IUn
         }
     }
 
-    if (firstCall)
+    if (firstCall.load())
     {
         LOG_DEBUG("Unsetting skip FG swapchain creation");
         _skipFGSwapChainCreation = false;
-        firstCall = false;
+        firstCall.store(false);
     }
 
     return result;

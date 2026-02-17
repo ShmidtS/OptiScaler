@@ -237,29 +237,28 @@ bool HC_Dx12::Dispatch(IDXGISwapChain3* sc, ID3D12GraphicsCommandList* cmdList, 
         return false;
     }
 
-    _counter++;
-    _counter = _counter % HC_NUM_OF_HEAPS;
+    uint32_t heapIndex = _counter.fetch_add(1, std::memory_order_relaxed) % HC_NUM_OF_HEAPS;
 
     // Check existing buffer
     D3D12_RESOURCE_DESC bufferDesc {};
-    if (_buffer[_counter] != nullptr)
-        bufferDesc = _buffer[_counter]->GetDesc();
+    if (_buffer[heapIndex] != nullptr)
+        bufferDesc = _buffer[heapIndex]->GetDesc();
 
-    if (!CreateBufferResource(_counter, _device, scBuffer, D3D12_RESOURCE_STATE_COPY_DEST))
+    if (!CreateBufferResource(heapIndex, _device, scBuffer, D3D12_RESOURCE_STATE_COPY_DEST))
     {
         LOG_ERROR("CreateBufferResource error!");
         return false;
     }
 
     // Copy Swapchain Buffer to read buffer
-    SetBufferState(_counter, cmdList, D3D12_RESOURCE_STATE_COPY_DEST);
+    SetBufferState(heapIndex, cmdList, D3D12_RESOURCE_STATE_COPY_DEST);
     ResourceBarrier(cmdList, scBuffer, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_SOURCE);
 
-    if (_buffer != nullptr && _buffer[_counter] != nullptr)
-        cmdList->CopyResource(_buffer[_counter], scBuffer);
+    if (_buffer != nullptr && _buffer[heapIndex] != nullptr)
+        cmdList->CopyResource(_buffer[heapIndex], scBuffer);
 
     ResourceBarrier(cmdList, scBuffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-    SetBufferState(_counter, cmdList, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    SetBufferState(heapIndex, cmdList, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 
     if (state != D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
         ResourceBarrier(cmdList, hudless, state, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
@@ -268,7 +267,7 @@ bool HC_Dx12::Dispatch(IDXGISwapChain3* sc, ID3D12GraphicsCommandList* cmdList, 
     UINT outWidth = scDesc.BufferDesc.Width;
     UINT outHeight = scDesc.BufferDesc.Height;
 
-    FrameDescriptorHeap& currentHeap = _frameHeaps[_counter];
+    FrameDescriptorHeap& currentHeap = _frameHeaps[heapIndex];
 
     // Create views
     {
@@ -286,7 +285,7 @@ bool HC_Dx12::Dispatch(IDXGISwapChain3* sc, ID3D12GraphicsCommandList* cmdList, 
         srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         srv.Texture2D.MipLevels = 1;
         srv.Format = Shader_Dx12::TranslateTypelessFormats(scDesc.BufferDesc.Format);
-        _device->CreateShaderResourceView(_buffer[_counter], &srv, currentHeap.GetSrvCPU(1));
+        _device->CreateShaderResourceView(_buffer[heapIndex], &srv, currentHeap.GetSrvCPU(1));
     }
 
     {

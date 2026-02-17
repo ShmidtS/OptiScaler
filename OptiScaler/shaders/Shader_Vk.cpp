@@ -14,6 +14,18 @@ Shader_Vk::~Shader_Vk()
         vkDestroyPipeline(_device, _pipeline, nullptr);
         _pipeline = VK_NULL_HANDLE;
     }
+
+    if (_pipelineLayout != VK_NULL_HANDLE)
+    {
+        vkDestroyPipelineLayout(_device, _pipelineLayout, nullptr);
+        _pipelineLayout = VK_NULL_HANDLE;
+    }
+
+    if (_descriptorSetLayout != VK_NULL_HANDLE)
+    {
+        vkDestroyDescriptorSetLayout(_device, _descriptorSetLayout, nullptr);
+        _descriptorSetLayout = VK_NULL_HANDLE;
+    }
 }
 
 uint32_t Shader_Vk::FindMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter,
@@ -31,7 +43,7 @@ uint32_t Shader_Vk::FindMemoryType(VkPhysicalDevice physicalDevice, uint32_t typ
     }
 
     LOG_ERROR("Failed to find suitable memory type!");
-    return -1;
+    return UINT32_MAX;
 }
 
 bool Shader_Vk::CreateComputePipeline(VkDevice device, VkPipelineLayout pipelineLayout, VkPipeline* pipeline,

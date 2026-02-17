@@ -1,6 +1,7 @@
 #pragma once
 #include <d3d12.h>
 #include <nvapi/NvApiTypes.h>
+#include <mutex>
 
 enum TimingType : uint32_t
 {
@@ -36,6 +37,8 @@ class ReflexHooks
     inline static HANDLE _lastVkSleepDev = nullptr;
 
     inline static std::thread::id _lastSetSleepThread {};
+
+    inline static std::mutex _timingDataMutex {};
 
     // D3D
     inline static decltype(&NvAPI_D3D_SetSleepMode) o_NvAPI_D3D_SetSleepMode = nullptr;

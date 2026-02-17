@@ -57,6 +57,13 @@ bool IFGFeature_Vk::HasResource(FG_ResourceType type, int index)
     if (index < 0)
         index = GetIndex();
 
+    // Bounds check to prevent buffer overflow
+    if (index < 0 || index >= BUFFER_COUNT)
+    {
+        LOG_ERROR("Invalid index {} for HasResource (BUFFER_COUNT={})", index, BUFFER_COUNT);
+        return false;
+    }
+
     return _frameResources[index].contains(type);
 }
 
@@ -155,9 +162,38 @@ void IFGFeature_Vk::FlipResource(VkResource* resource)
     if (resource == nullptr || resource->image == VK_NULL_HANDLE)
         return;
 
+    if (_device == VK_NULL_HANDLE)
+        return;
+
+    // Check if existing copy resources need to be recreated due to size change
+    if (resource->copyImage != VK_NULL_HANDLE)
+    {
+        // Get current copy image requirements to check if size matches
+        VkMemoryRequirements memRequirements;
+        vkGetImageMemoryRequirements(_device, resource->copyImage, &memRequirements);
+
+        // If size has changed significantly, destroy old resources
+        // Using approximate check based on memory size difference
+        if (memRequirements.size < resource->width * resource->height * 4)
+        {
+            LOG_DEBUG("Recreating flip copy resources due to size change");
+            vkDestroyImageView(_device, resource->copyImageView, nullptr);
+            vkDestroyImage(_device, resource->copyImage, nullptr);
+            vkFreeMemory(_device, resource->copyMemory, nullptr);
+            resource->copyImage = VK_NULL_HANDLE;
+            resource->copyImageView = VK_NULL_HANDLE;
+            resource->copyMemory = VK_NULL_HANDLE;
+        }
+        else
+        {
+            // Resources exist and size matches, nothing to do
+            return;
+        }
+    }
+
     // Resource flip implementation for Vulkan FG
     // Creates a copy of the resource for frame generation to use
-    if (resource->copyImage == VK_NULL_HANDLE && _device != VK_NULL_HANDLE)
+    if (resource->copyImage == VK_NULL_HANDLE)
     {
         // Create copy resources if they don't exist
         VkImageCreateInfo imageInfo {};

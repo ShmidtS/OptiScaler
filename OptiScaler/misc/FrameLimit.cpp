@@ -2,7 +2,20 @@
 #include "FrameLimit.h"
 
 #include "Config.h"
+#include <atomic>
+#include <memory>
 // #include "hooks/D3D11Hooks.h"
+
+namespace {
+    struct HandleDeleter {
+        void operator()(HANDLE h) const noexcept {
+            if (h && h != INVALID_HANDLE_VALUE) {
+                CloseHandle(h);
+            }
+        }
+    };
+    using ScopedHandle = std::unique_ptr<void, HandleDeleter>;
+}
 
 inline uint64_t FrameLimit::get_timestamp()
 {
@@ -17,7 +30,7 @@ inline uint64_t FrameLimit::get_timestamp()
 // https://learn.microsoft.com/en-us/windows/win32/sync/using-waitable-timer-objects
 inline int FrameLimit::timer_sleep(int64_t hundred_ns)
 {
-    static HANDLE timer = CreateWaitableTimerExW(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    static ScopedHandle timer(CreateWaitableTimerExW(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS));
     LARGE_INTEGER due_time;
 
     due_time.QuadPart = -hundred_ns;
@@ -25,10 +38,10 @@ inline int FrameLimit::timer_sleep(int64_t hundred_ns)
     if (!timer)
         return 1;
 
-    if (!SetWaitableTimerEx(timer, &due_time, 0, NULL, NULL, NULL, 0))
+    if (!SetWaitableTimerEx(timer.get(), &due_time, 0, NULL, NULL, NULL, 0))
         return 2;
 
-    if (WaitForSingleObject(timer, INFINITE) != WAIT_OBJECT_0)
+    if (WaitForSingleObject(timer.get(), INFINITE) != WAIT_OBJECT_0)
         return 3;
 
     return 0;
@@ -70,14 +83,14 @@ void FrameLimit::sleep(bool fgActive)
         if (fgActive)
             min_interval_us *= 2;
 
-        static uint64_t previous_frame_time = 0;
+        static std::atomic<uint64_t> previous_frame_time{0};
         uint64_t current_time = get_timestamp();
-        uint64_t frame_time = current_time - previous_frame_time;
+        uint64_t frame_time = current_time - previous_frame_time.load(std::memory_order_relaxed);
         if (frame_time < 1000 * min_interval_us)
         {
             if (auto res = combined_sleep(min_interval_us * 1000 - frame_time); res)
                 LOG_ERROR("Sleep command failed: {}", res);
         }
-        previous_frame_time = get_timestamp();
+        previous_frame_time.store(get_timestamp(), std::memory_order_relaxed);
     }
 }

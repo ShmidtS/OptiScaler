@@ -17,6 +17,7 @@
 #include "framegen/IFGFeature_Dx12.h"
 #include "framegen/IFGFeature_Vk.h"
 #include <inputs/FG/Streamline_Inputs_Dx12.h>
+#include <inputs/FG/Streamline_Inputs_Vk.h>
 #include "misc/Quirks.h"
 
 #include <set>
@@ -113,6 +114,7 @@ class State
 
     // Streamline FG inputs
     Sl_Inputs_Dx12 slFGInputs = {};
+    Sl_Inputs_Vk slFGInputsVk = {};
 
     // OptiFG
     bool FGPresentIsCalled = false;

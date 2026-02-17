@@ -142,20 +142,24 @@ bool IFGFeature::IsUsingHudlessAny()
 
 bool IFGFeature::CheckForRealObject(std::string functionName, IUnknown* pObject, IUnknown** ppRealObject)
 {
-    if (streamlineRiid.Data1 == 0)
+    if (!streamlineRiid.has_value())
     {
-        auto iidResult = IIDFromString(L"{ADEC44E2-61F0-45C3-AD9F-1B37379284FF}", &streamlineRiid);
+        IID iid = {};
+        auto iidResult = IIDFromString(L"{ADEC44E2-61F0-45C3-AD9F-1B37379284FF}", &iid);
 
         if (iidResult != S_OK)
             return false;
+
+        streamlineRiid = iid;
     }
 
-    auto qResult = pObject->QueryInterface(streamlineRiid, (void**) ppRealObject);
+    auto qResult = pObject->QueryInterface(streamlineRiid.value(), (void**) ppRealObject);
 
     if (qResult == S_OK && *ppRealObject != nullptr)
     {
         LOG_INFO("{} Streamline proxy found!", functionName);
-        (*ppRealObject)->Release();
+        // Do not Release here - the caller is responsible for managing the returned object
+        // The QueryInterface added a reference that the caller now owns
         return true;
     }
 

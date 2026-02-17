@@ -18,6 +18,7 @@ bool DepthTransfer_Dx11::CreateBufferResource(ID3D11Device* InDevice, ID3D11Reso
 
     D3D11_TEXTURE2D_DESC texDesc;
     originalTexture->GetDesc(&texDesc);
+    originalTexture->Release();
 
     texDesc.Format = DXGI_FORMAT_R32_FLOAT;
     texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;

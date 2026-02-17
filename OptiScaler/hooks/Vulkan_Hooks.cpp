@@ -103,7 +103,11 @@ static void GetHardwareAdapter(IDXGIFactory1* pFactory, IDXGIAdapter** ppAdapter
             adapter->GetDesc1(&desc);
 
             if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
+            {
+                adapter->Release();
+                adapter = nullptr;
                 continue;
+            }
 
             *ppAdapter = adapter;
             break;
@@ -118,7 +122,11 @@ static void GetHardwareAdapter(IDXGIFactory1* pFactory, IDXGIAdapter** ppAdapter
             adapter->GetDesc1(&desc);
 
             if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
+            {
+                adapter->Release();
+                adapter = nullptr;
                 continue;
+            }
 
             *ppAdapter = adapter;
             break;
@@ -530,17 +538,21 @@ static VkResult hkvkQueuePresentKHR(VkQueue queue, VkPresentInfoKHR* pPresentInf
                         {
                             vkEndCommandBuffer(copyCmd);
 
-                            // Submit copy command to queue
-                            VkSubmitInfo submitInfo = {};
-                            submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-                            submitInfo.commandBufferCount = 1;
-                            submitInfo.pCommandBuffers = &copyCmd;
+                            // Set queue for resource sharing (needed for submit)
+                            _vkDx12ResourceSharing.SetQueue(queue, 0); // queueFamilyIndex will be set properly elsewhere
 
-                            if (vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE) == VK_SUCCESS)
+                            // Submit copy command with fence for proper synchronization with timeout
+                            if (_vkDx12ResourceSharing.SubmitCopyCommand(copyCmd))
                             {
-                                // Wait for copy to complete
-                                vkQueueWaitIdle(queue);
-                                LOG_DEBUG("DX12 interop FG: Copied Vulkan resources to D3D12");
+                                // Wait for copy to complete with timeout (uses vkWaitForFences with 1s timeout)
+                                if (_vkDx12ResourceSharing.SynchronizeWithD3D12())
+                                {
+                                    LOG_DEBUG("DX12 interop FG: Copied Vulkan resources to D3D12");
+                                }
+                                else
+                                {
+                                    LOG_ERROR("DX12 interop FG: Synchronization timeout or error");
+                                }
                             }
                             else
                             {
@@ -1027,6 +1039,28 @@ void VulkanHooks::Unhook()
     {
         delete State::Instance().currentFGVk;
         State::Instance().currentFGVk = nullptr;
+    }
+
+    // Cleanup DX12 interop resources
+    if (_vkDx12Swapchain != nullptr)
+    {
+        _vkDx12Swapchain->Release();
+        _vkDx12Swapchain = nullptr;
+    }
+    if (_vkDx12CommandQueue != nullptr)
+    {
+        _vkDx12CommandQueue->Release();
+        _vkDx12CommandQueue = nullptr;
+    }
+    if (_vkDx12Device != nullptr)
+    {
+        _vkDx12Device->Release();
+        _vkDx12Device = nullptr;
+    }
+    if (_vkDx12HiddenHwnd != nullptr)
+    {
+        DestroyWindow(_vkDx12HiddenHwnd);
+        _vkDx12HiddenHwnd = nullptr;
     }
 
     DetourTransactionBegin();

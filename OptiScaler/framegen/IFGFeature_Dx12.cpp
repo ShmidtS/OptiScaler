@@ -43,6 +43,13 @@ bool IFGFeature_Dx12::HasResource(FG_ResourceType type, int index)
     if (index < 0)
         index = GetIndex();
 
+    // Bounds check to prevent buffer overflow
+    if (index < 0 || index >= BUFFER_COUNT)
+    {
+        LOG_ERROR("Invalid index {} for HasResource (BUFFER_COUNT={})", index, BUFFER_COUNT);
+        return false;
+    }
+
     return _frameResources[index].contains(type);
 }
 
@@ -112,6 +119,13 @@ Dx12Resource* IFGFeature_Dx12::GetResource(FG_ResourceType type, int index)
 {
     if (index < 0)
         index = GetIndex();
+
+    // Bounds check to prevent buffer overflow
+    if (index < 0 || index >= BUFFER_COUNT)
+    {
+        LOG_ERROR("Invalid index {} for GetResource (BUFFER_COUNT={})", index, BUFFER_COUNT);
+        return nullptr;
+    }
 
     std::shared_lock<std::shared_mutex> lock(_resourceMutex[index]);
 

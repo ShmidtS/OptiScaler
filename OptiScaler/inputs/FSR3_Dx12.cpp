@@ -47,6 +47,7 @@ static PFN_ffxFSR3GetInterfaceDX12 o_ffxFSR3GetInterfaceDX12 = nullptr;
 static std::unordered_map<Fsr3::FfxFsr3UpscalerContext*, Fsr3::FfxFsr3UpscalerContextDescription> _initParams;
 static std::unordered_map<Fsr3::FfxFsr3UpscalerContext*, NVSDK_NGX_Parameter*> _nvParams;
 static std::unordered_map<Fsr3::FfxFsr3UpscalerContext*, NVSDK_NGX_Handle*> _contexts;
+static std::mutex _fsr3MapsMutex;
 static ID3D12Device* _d3d12Device = nullptr;
 static bool _nvnxgInited = false;
 static bool _skipCreate = false;
@@ -88,12 +89,20 @@ static bool CreateDLSSContext(Fsr3::FfxFsr3UpscalerContext* handle,
 {
     LOG_DEBUG("");
 
-    if (!_nvParams.contains(handle))
-        return false;
+    {
+        std::lock_guard<std::mutex> lock(_fsr3MapsMutex);
+        if (!_nvParams.contains(handle))
+            return false;
+    }
 
     NVSDK_NGX_Handle* nvHandle = nullptr;
-    auto params = _nvParams[handle];
-    auto initParams = &_initParams[handle];
+    NVSDK_NGX_Parameter* params;
+    Fsr3::FfxFsr3UpscalerContextDescription* initParams;
+    {
+        std::lock_guard<std::mutex> lock(_fsr3MapsMutex);
+        params = _nvParams[handle];
+        initParams = &_initParams[handle];
+    }
     auto commandList = (ID3D12GraphicsCommandList*) pExecParams->commandList;
 
     UINT initFlags = 0;
@@ -139,7 +148,10 @@ static bool CreateDLSSContext(Fsr3::FfxFsr3UpscalerContext* handle,
         NVSDK_NGX_Result_Success)
         return false;
 
-    _contexts[handle] = nvHandle;
+    {
+        std::lock_guard<std::mutex> lock(_fsr3MapsMutex);
+        _contexts[handle] = nvHandle;
+    }
 
     return true;
 }
@@ -313,14 +325,17 @@ static Fsr3::FfxErrorCode ffxFsr3ContextCreate_Dx12(Fsr3::FfxFsr3UpscalerContext
     if (NVSDK_NGX_D3D12_GetCapabilityParameters(&params) != NVSDK_NGX_Result_Success)
         return Fsr3::FFX_ERROR_BACKEND_API_ERROR;
 
-    _nvParams[pContext] = params;
+    {
+        std::lock_guard<std::mutex> lock(_fsr3MapsMutex);
+        _nvParams[pContext] = params;
 
-    Fsr3::FfxFsr3UpscalerContextDescription ccd {};
-    ccd.flags = pContextDescription->flags;
-    ccd.maxRenderSize = pContextDescription->maxRenderSize;
-    ccd.displaySize = pContextDescription->displaySize;
-    ccd.backendInterface.device = pContextDescription->backendInterface.device;
-    _initParams[pContext] = ccd;
+        Fsr3::FfxFsr3UpscalerContextDescription ccd {};
+        ccd.flags = pContextDescription->flags;
+        ccd.maxRenderSize = pContextDescription->maxRenderSize;
+        ccd.displaySize = pContextDescription->displaySize;
+        ccd.backendInterface.device = pContextDescription->backendInterface.device;
+        _initParams[pContext] = ccd;
+    }
 
     LOG_INFO("context created: {:X}", (size_t) pContext);
 
@@ -351,12 +366,20 @@ static Fsr3::FfxErrorCode ffxFsr3ContextDispatch_Dx12(Fsr3::FfxFsr3UpscalerConte
         return Fsr3::FFX_ERROR_BACKEND_API_ERROR;
 
     // If not in contexts list create and add context
-    if (!_contexts.contains(pContext) && _initParams.contains(pContext) &&
-        !CreateDLSSContext(pContext, pDispatchDescription))
-        return Fsr3::FFX_ERROR_INVALID_ARGUMENT;
+    {
+        std::lock_guard<std::mutex> lock(_fsr3MapsMutex);
+        if (!_contexts.contains(pContext) && _initParams.contains(pContext) &&
+            !CreateDLSSContext(pContext, pDispatchDescription))
+            return Fsr3::FFX_ERROR_INVALID_ARGUMENT;
+    }
 
-    NVSDK_NGX_Parameter* params = _nvParams[pContext];
-    NVSDK_NGX_Handle* handle = _contexts[pContext];
+    NVSDK_NGX_Parameter* params;
+    NVSDK_NGX_Handle* handle;
+    {
+        std::lock_guard<std::mutex> lock(_fsr3MapsMutex);
+        params = _nvParams[pContext];
+        handle = _contexts[pContext];
+    }
 
     params->Set(NVSDK_NGX_Parameter_Jitter_Offset_X, pDispatchDescription->jitterOffset.x);
     params->Set(NVSDK_NGX_Parameter_Jitter_Offset_Y, pDispatchDescription->jitterOffset.y);
@@ -426,12 +449,15 @@ static Fsr3::FfxErrorCode ffxFsr3ContextDestroy_Dx12(Fsr3::FfxFsr3UpscalerContex
 
     LOG_DEBUG("context: {:X}", (size_t) pContext);
 
-    if (_contexts.contains(pContext))
-        NVSDK_NGX_D3D12_ReleaseFeature(_contexts[pContext]);
+    {
+        std::lock_guard<std::mutex> lock(_fsr3MapsMutex);
+        if (_contexts.contains(pContext))
+            NVSDK_NGX_D3D12_ReleaseFeature(_contexts[pContext]);
 
-    _contexts.erase(pContext);
-    _nvParams.erase(pContext);
-    _initParams.erase(pContext);
+        _contexts.erase(pContext);
+        _nvParams.erase(pContext);
+        _initParams.erase(pContext);
+    }
 
     _skipDestroy = true;
     auto cdResult = o_ffxFsr3UpscalerContextDestroy_Dx12(pContext);
@@ -550,14 +576,17 @@ ffxFsr3ContextCreate_Pattern_Dx12(Fsr3::FfxFsr3UpscalerContext* pContext,
     if (NVSDK_NGX_D3D12_GetCapabilityParameters(&params) != NVSDK_NGX_Result_Success)
         return Fsr3::FFX_ERROR_BACKEND_API_ERROR;
 
-    _nvParams[pContext] = params;
+    {
+        std::lock_guard<std::mutex> lock(_fsr3MapsMutex);
+        _nvParams[pContext] = params;
 
-    Fsr3::FfxFsr3UpscalerContextDescription ccd {};
-    ccd.flags = pContextDescription->flags;
-    ccd.maxRenderSize = pContextDescription->maxRenderSize;
-    ccd.displaySize = pContextDescription->displaySize;
-    ccd.backendInterface.device = pContextDescription->backendInterface.device;
-    _initParams[pContext] = ccd;
+        Fsr3::FfxFsr3UpscalerContextDescription ccd {};
+        ccd.flags = pContextDescription->flags;
+        ccd.maxRenderSize = pContextDescription->maxRenderSize;
+        ccd.displaySize = pContextDescription->displaySize;
+        ccd.backendInterface.device = pContextDescription->backendInterface.device;
+        _initParams[pContext] = ccd;
+    }
 
     LOG_INFO("context created: {:X}", (size_t) pContext);
 
@@ -579,12 +608,20 @@ ffxFsr3ContextDispatch_Pattern_Dx12(Fsr3::FfxFsr3UpscalerContext* pContext,
         return Fsr3::FFX_ERROR_BACKEND_API_ERROR;
 
     // If not in contexts list create and add context
-    if (!_contexts.contains(pContext) && _initParams.contains(pContext) &&
-        !CreateDLSSContext(pContext, pDispatchDescription))
-        return Fsr3::FFX_ERROR_INVALID_ARGUMENT;
+    {
+        std::lock_guard<std::mutex> lock(_fsr3MapsMutex);
+        if (!_contexts.contains(pContext) && _initParams.contains(pContext) &&
+            !CreateDLSSContext(pContext, pDispatchDescription))
+            return Fsr3::FFX_ERROR_INVALID_ARGUMENT;
+    }
 
-    NVSDK_NGX_Parameter* params = _nvParams[pContext];
-    NVSDK_NGX_Handle* handle = _contexts[pContext];
+    NVSDK_NGX_Parameter* params;
+    NVSDK_NGX_Handle* handle;
+    {
+        std::lock_guard<std::mutex> lock(_fsr3MapsMutex);
+        params = _nvParams[pContext];
+        handle = _contexts[pContext];
+    }
 
     params->Set(NVSDK_NGX_Parameter_Jitter_Offset_X, pDispatchDescription->jitterOffset.x);
     params->Set(NVSDK_NGX_Parameter_Jitter_Offset_Y, pDispatchDescription->jitterOffset.y);
@@ -654,12 +691,15 @@ static Fsr3::FfxErrorCode ffxFsr3ContextDestroy_Pattern_Dx12(Fsr3::FfxFsr3Upscal
 
     LOG_DEBUG("context: {:X}", (size_t) pContext);
 
-    if (_contexts.contains(pContext))
-        NVSDK_NGX_D3D12_ReleaseFeature(_contexts[pContext]);
+    {
+        std::lock_guard<std::mutex> lock(_fsr3MapsMutex);
+        if (_contexts.contains(pContext))
+            NVSDK_NGX_D3D12_ReleaseFeature(_contexts[pContext]);
 
-    _contexts.erase(pContext);
-    _nvParams.erase(pContext);
-    _initParams.erase(pContext);
+        _contexts.erase(pContext);
+        _nvParams.erase(pContext);
+        _initParams.erase(pContext);
+    }
 
     auto cdResult = o_ffxFsr3UpscalerContextDestroy_Dx12(pContext);
     LOG_INFO("result: {:X}", (UINT) cdResult);

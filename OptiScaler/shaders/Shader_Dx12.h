@@ -1,12 +1,13 @@
 #pragma once
 #include <d3d12.h>
+#include <atomic>
 
 class Shader_Dx12
 {
   protected:
     std::string _name = "";
     bool _init = false;
-    int _counter = 0;
+    std::atomic<uint32_t> _counter{0};
 
     ID3D12RootSignature* _rootSignature = nullptr;
     ID3D12PipelineState* _pipelineState = nullptr;

@@ -6,6 +6,7 @@
 #include "NvApiTypes.h"
 #include <mutex>
 #include <atomic>
+#include <memory>
 
 class fakenvapi
 {
@@ -28,6 +29,7 @@ class fakenvapi
     inline static std::mutex _lowLatencyMutex;
     inline static HMODULE _dllForNvidia = nullptr;
     inline static std::mutex _dllMutex;
+    inline static std::once_flag _initOnce;
 
   public:
     inline static const GUID IID_IFfxAntiLag2Data = {

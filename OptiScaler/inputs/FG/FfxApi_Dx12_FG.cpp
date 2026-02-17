@@ -57,6 +57,9 @@ static ID3D12Resource* _interpolation[BUFFER_COUNT] = {};
 static Dx12Resource _uiRes[BUFFER_COUNT] = {};
 static bool _uiIndex[BUFFER_COUNT] = {};
 
+// Mutex for protecting static globals
+static std::mutex _fgGlobalsMutex;
+
 // #define PASSTHRU
 
 std::mutex _frameBoundaryMutex;
@@ -231,7 +234,10 @@ ffxReturnCode_t ffxCreateContext_Dx12FG(ffxContext* context, ffxCreateContextDes
             if (next->type == FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12)
             {
                 auto cbDesc = (ffxCreateBackendDX12Desc*) next;
-                _device = cbDesc->device;
+                {
+                    std::lock_guard<std::mutex> lock(_fgGlobalsMutex);
+                    _device = cbDesc->device;
+                }
                 LOG_DEBUG("Device found: {:X}", (size_t) _device);
                 break;
             }
@@ -249,28 +255,31 @@ ffxReturnCode_t ffxCreateContext_Dx12FG(ffxContext* context, ffxCreateContextDes
 
             auto ccDesc = (ffxCreateContextDescFrameGeneration*) desc;
 
-            _fgConst = {};
+            {
+                std::lock_guard<std::mutex> lock(_fgGlobalsMutex);
+                _fgConst = {};
 
-            _fgConst.displayHeight = ccDesc->displaySize.height;
-            _fgConst.displayWidth = ccDesc->displaySize.width;
+                _fgConst.displayHeight = ccDesc->displaySize.height;
+                _fgConst.displayWidth = ccDesc->displaySize.width;
 
-            if ((ccDesc->flags & FFX_FRAMEGENERATION_ENABLE_ASYNC_WORKLOAD_SUPPORT) > 0)
-                _fgConst.flags |= FG_Flags::Async;
+                if ((ccDesc->flags & FFX_FRAMEGENERATION_ENABLE_ASYNC_WORKLOAD_SUPPORT) > 0)
+                    _fgConst.flags |= FG_Flags::Async;
 
-            if ((ccDesc->flags & FFX_FRAMEGENERATION_ENABLE_DISPLAY_RESOLUTION_MOTION_VECTORS) > 0)
-                _fgConst.flags |= FG_Flags::DisplayResolutionMVs;
+                if ((ccDesc->flags & FFX_FRAMEGENERATION_ENABLE_DISPLAY_RESOLUTION_MOTION_VECTORS) > 0)
+                    _fgConst.flags |= FG_Flags::DisplayResolutionMVs;
 
-            if ((ccDesc->flags & FFX_FRAMEGENERATION_ENABLE_MOTION_VECTORS_JITTER_CANCELLATION) > 0)
-                _fgConst.flags |= FG_Flags::JitteredMVs;
+                if ((ccDesc->flags & FFX_FRAMEGENERATION_ENABLE_MOTION_VECTORS_JITTER_CANCELLATION) > 0)
+                    _fgConst.flags |= FG_Flags::JitteredMVs;
 
-            if ((ccDesc->flags & FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED) > 0)
-                _fgConst.flags |= FG_Flags::InvertedDepth;
+                if ((ccDesc->flags & FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED) > 0)
+                    _fgConst.flags |= FG_Flags::InvertedDepth;
 
-            if ((ccDesc->flags & FFX_FRAMEGENERATION_ENABLE_DEPTH_INFINITE) > 0)
-                _fgConst.flags |= FG_Flags::InfiniteDepth;
+                if ((ccDesc->flags & FFX_FRAMEGENERATION_ENABLE_DEPTH_INFINITE) > 0)
+                    _fgConst.flags |= FG_Flags::InfiniteDepth;
 
-            if ((ccDesc->flags & FFX_FRAMEGENERATION_ENABLE_HIGH_DYNAMIC_RANGE) > 0)
-                _fgConst.flags |= FG_Flags::Hdr;
+                if ((ccDesc->flags & FFX_FRAMEGENERATION_ENABLE_HIGH_DYNAMIC_RANGE) > 0)
+                    _fgConst.flags |= FG_Flags::Hdr;
+            }
 
             Config::Instance()->FGXeFGDepthInverted = _fgConst.flags[FG_Flags::InvertedDepth];
             Config::Instance()->FGXeFGJitteredMV = _fgConst.flags[FG_Flags::JitteredMVs];

@@ -542,7 +542,7 @@ bool FSRFG_Dx12::Dispatch()
 
 ffxReturnCode_t FSRFG_Dx12::DispatchCallback(ffxDispatchDescFrameGeneration* params)
 {
-    const int fIndex = params->frameID % BUFFER_COUNT;
+    const size_t fIndex = static_cast<size_t>(params->frameID % BUFFER_COUNT);
 
     auto& state = State::Instance();
 
@@ -563,7 +563,7 @@ ffxReturnCode_t FSRFG_Dx12::DispatchCallback(ffxDispatchDescFrameGeneration* par
 
     // If fg is active but upscaling paused
     if ((state.currentFeature == nullptr && state.activeFgInput == FGInput::Upscaler) || state.FGchanged ||
-        fIndex < 0 || !IsActive() || (state.currentFeature && state.currentFeature->FrameCount() == 0))
+        !IsActive() || (state.currentFeature && state.currentFeature->FrameCount() == 0))
     {
         LOG_WARN("Upscaling paused! frameID: {}", params->frameID);
         params->numGeneratedFrames = 0;
