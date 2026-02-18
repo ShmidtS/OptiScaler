@@ -314,8 +314,8 @@ class State
         {
             // Successfully acquired the lock
             _skipChecks = true;
-            auto* ptr = new std::string(std::move(dllName));
-            delete _skipDllName.exchange(ptr);
+            std::lock_guard<std::mutex> lock(_skipDllNameMutex);
+            _skipDllName = std::move(dllName);
         }
         // If another thread already owns the lock, do nothing - they already set the skip
     };
@@ -327,8 +327,8 @@ class State
         {
             // Successfully released the lock
             _skipChecks = false;
-            auto* ptr = _skipDllName.exchange(nullptr);
-            delete ptr;
+            std::lock_guard<std::mutex> lock(_skipDllNameMutex);
+            _skipDllName.clear();
         }
         // If compare_exchange failed, either another owner or already 0
     };
@@ -340,34 +340,31 @@ class State
         {
             _serveOriginal = false;
         }
-        else if (_serveOwner == owner)
-        {
-            _serveOriginal = false;
-            _serveOwner = 0;
-        }
+        // If already owned by this owner or someone else, do nothing
     };
 
     static void EnableServeOriginal(UINT owner)
     {
-        UINT expected = 0;
-        if (_serveOwner.compare_exchange_strong(expected, owner))
+        UINT expected = owner;
+        if (_serveOwner.compare_exchange_strong(expected, 0))
         {
             _serveOriginal = true;
         }
-        // If already owned by someone else, do nothing
+        // If owned by someone else, do nothing
     };
 
     static bool SkipDllChecks() { return _skipChecks; }
     static std::string SkipDllName()
     {
-        auto* ptr = _skipDllName.load();
-        return ptr ? *ptr : "";
+        std::lock_guard<std::mutex> lock(_skipDllNameMutex);
+        return _skipDllName;
     }
     static bool ServeOriginal() { return _serveOriginal; }
 
   private:
     inline static std::atomic<bool> _skipChecks{false};
-    inline static std::atomic<std::string*> _skipDllName{nullptr};
+    inline static std::string _skipDllName;
+    inline static std::mutex _skipDllNameMutex;
     inline static std::atomic<UINT> _skipOwner{0};
 
     inline static std::atomic<bool> _serveOriginal{false};

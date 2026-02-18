@@ -21,6 +21,7 @@ inline static PfnFfxConfigure _D3D12_Configure = nullptr;
 inline static PfnFfxQuery _D3D12_Query = nullptr;
 inline static PfnFfxDispatch _D3D12_Dispatch = nullptr;
 
+static std::mutex _contextMutex;
 static std::unordered_map<ffxContext, ffxCreateContextDescUpscale> _initParams;
 static std::unordered_map<ffxContext, NVSDK_NGX_Parameter*> _nvParams;
 static std::unordered_map<ffxContext, NVSDK_NGX_Handle*> _contexts;
@@ -28,7 +29,8 @@ static ID3D12Device* _d3d12Device = nullptr;
 static bool _nvnxgInited = false;
 static float qualityRatios[] = { 1.0f, 1.5f, 1.7f, 2.0f, 3.0f };
 
-static bool CreateDLSSContext(ffxContext handle, const ffxDispatchDescUpscale* pExecParams)
+// Internal version - caller must hold _contextMutex
+static bool CreateDLSSContext_Internal(ffxContext handle, const ffxDispatchDescUpscale* pExecParams)
 {
     LOG_DEBUG("context: {:X}", (size_t) handle);
 
@@ -256,13 +258,16 @@ static ffxReturnCode_t ffxCreateContext_Dx12(ffxContext* context, ffxCreateConte
     if (NVSDK_NGX_D3D12_GetCapabilityParameters(&params) != NVSDK_NGX_Result_Success)
         return FFX_API_RETURN_ERROR_RUNTIME_ERROR;
 
-    _nvParams[*context] = params;
+    {
+        std::lock_guard<std::mutex> lock(_contextMutex);
+        _nvParams[*context] = params;
 
-    ffxCreateContextDescUpscale ccd {};
-    ccd.flags = createDesc->flags;
-    ccd.maxRenderSize = createDesc->maxRenderSize;
-    ccd.maxUpscaleSize = createDesc->maxUpscaleSize;
-    _initParams[*context] = ccd;
+        ffxCreateContextDescUpscale ccd {};
+        ccd.flags = createDesc->flags;
+        ccd.maxRenderSize = createDesc->maxRenderSize;
+        ccd.maxUpscaleSize = createDesc->maxUpscaleSize;
+        _initParams[*context] = ccd;
+    }
 
     LOG_INFO("context created: {:X}", (size_t) *context);
 
@@ -279,12 +284,15 @@ static ffxReturnCode_t ffxDestroyContext_Dx12(ffxContext* context, const ffxAllo
     auto cdResult = _D3D12_DestroyContext(context, memCb);
     LOG_INFO("result: {:X}", (UINT) cdResult);
 
-    if (_contexts.contains(*context))
-        NVSDK_NGX_D3D12_ReleaseFeature(_contexts[*context]);
+    {
+        std::lock_guard<std::mutex> lock(_contextMutex);
+        if (_contexts.contains(*context))
+            NVSDK_NGX_D3D12_ReleaseFeature(_contexts[*context]);
 
-    _contexts.erase(*context);
-    _nvParams.erase(*context);
-    _initParams.erase(*context);
+        _contexts.erase(*context);
+        _nvParams.erase(*context);
+        _initParams.erase(*context);
+    }
 
     return FFX_API_RETURN_OK;
 }
@@ -353,10 +361,13 @@ static ffxReturnCode_t ffxDispatch_Dx12(ffxContext* context, ffxDispatchDescHead
 
     LOG_DEBUG("context: {:X}, type: {:X}", (size_t) *context, desc->type);
 
-    if (context == nullptr || !_initParams.contains(*context))
     {
-        LOG_INFO("Not in _contexts, desc type: {:X}", desc->type);
-        return _D3D12_Dispatch(context, desc);
+        std::lock_guard<std::mutex> lock(_contextMutex);
+        if (context == nullptr || !_initParams.contains(*context))
+        {
+            LOG_INFO("Not in _contexts, desc type: {:X}", desc->type);
+            return _D3D12_Dispatch(context, desc);
+        }
     }
 
     ffxApiHeader* header = desc;
@@ -383,11 +394,16 @@ static ffxReturnCode_t ffxDispatch_Dx12(ffxContext* context, ffxDispatchDescHead
 
     // If not in contexts list create and add context
     auto contextId = (size_t) *context;
-    if (!_contexts.contains(*context) && _initParams.contains(*context) && !CreateDLSSContext(*context, dispatchDesc))
-        return FFX_API_RETURN_ERROR_RUNTIME_ERROR;
+    NVSDK_NGX_Parameter* params = nullptr;
+    NVSDK_NGX_Handle* handle = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(_contextMutex);
+        if (!_contexts.contains(*context) && _initParams.contains(*context) && !CreateDLSSContext_Internal(*context, dispatchDesc))
+            return FFX_API_RETURN_ERROR_RUNTIME_ERROR;
 
-    NVSDK_NGX_Parameter* params = _nvParams[*context];
-    NVSDK_NGX_Handle* handle = _contexts[*context];
+        params = _nvParams[*context];
+        handle = _contexts[*context];
+    }
 
     params->Set(NVSDK_NGX_Parameter_Jitter_Offset_X, dispatchDesc->jitterOffset.x);
     params->Set(NVSDK_NGX_Parameter_Jitter_Offset_Y, dispatchDesc->jitterOffset.y);

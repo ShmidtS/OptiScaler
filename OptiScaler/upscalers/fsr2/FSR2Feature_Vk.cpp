@@ -122,6 +122,7 @@ bool FSR2FeatureVk::InitFSR2(const NVSDK_NGX_Parameter* InParameters)
         if (ret != FFX_OK)
         {
             LOG_ERROR("ffxFsr2ContextCreate error: {0}", ResultToString(ret));
+            free(_contextDesc.callbacks.scratchBuffer);
             return false;
         }
     }

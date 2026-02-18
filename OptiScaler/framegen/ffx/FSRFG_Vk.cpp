@@ -308,6 +308,7 @@ bool FSRFG_Vk::CreateContext(VkDevice device, VkPhysicalDevice physicalDevice,
     if (result != FFX_API_RETURN_OK)
     {
         LOG_ERROR("Failed to create FG context: {:X}", (UINT) result);
+        g_currentFgInstance.store(nullptr, std::memory_order_release);
         return false;
     }
 

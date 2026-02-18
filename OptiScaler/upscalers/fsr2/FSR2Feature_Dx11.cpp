@@ -252,6 +252,7 @@ bool FSR2FeatureDx11::InitFSR2(const NVSDK_NGX_Parameter* InParameters)
         if (errorCode != FFX_OK)
         {
             LOG_ERROR("ffxFsr2ContextCreate error: {0}", ResultToString(errorCode));
+            free(_contextDesc.callbacks.scratchBuffer);
             return false;
         }
     }

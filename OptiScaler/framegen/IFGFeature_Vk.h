@@ -42,6 +42,7 @@ class IFGFeature_Vk : public virtual IFGFeature
 
     bool InitCopyCmdBuffer();
     void DestroyCopyCmdBuffer();
+    void DestroyFrameResources();
 
   protected:
     VkDevice _device = VK_NULL_HANDLE;
@@ -110,5 +111,9 @@ class IFGFeature_Vk : public virtual IFGFeature
     bool HasResource(FG_ResourceType type, int index = -1) override final;
 
     IFGFeature_Vk() = default;
-    virtual ~IFGFeature_Vk() { DestroyCopyCmdBuffer(); }
+    virtual ~IFGFeature_Vk()
+    {
+        DestroyFrameResources();
+        DestroyCopyCmdBuffer();
+    }
 };

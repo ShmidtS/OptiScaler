@@ -160,8 +160,8 @@ DS_Dx12::DS_Dx12(std::string InName, ID3D12Device* InDevice) : Shader_Dx12(InNam
         return;
     }
 
-    ID3DBlob* errorBlob;
-    ID3DBlob* signatureBlob;
+    ID3DBlob* errorBlob = nullptr;
+    ID3DBlob* signatureBlob = nullptr;
 
     do
     {

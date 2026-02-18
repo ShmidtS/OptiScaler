@@ -343,6 +343,35 @@ void IFGFeature_Vk::DestroyCopyCmdBuffer()
     }
 }
 
+void IFGFeature_Vk::DestroyFrameResources()
+{
+    if (_device == VK_NULL_HANDLE)
+        return;
+
+    for (size_t i = 0; i < BUFFER_COUNT; i++)
+    {
+        for (auto& [type, resource] : _frameResources[i])
+        {
+            if (resource.copyImage != VK_NULL_HANDLE)
+            {
+                vkDestroyImage(_device, resource.copyImage, nullptr);
+                resource.copyImage = VK_NULL_HANDLE;
+            }
+            if (resource.copyImageView != VK_NULL_HANDLE)
+            {
+                vkDestroyImageView(_device, resource.copyImageView, nullptr);
+                resource.copyImageView = VK_NULL_HANDLE;
+            }
+            if (resource.copyMemory != VK_NULL_HANDLE)
+            {
+                vkFreeMemory(_device, resource.copyMemory, nullptr);
+                resource.copyMemory = VK_NULL_HANDLE;
+            }
+        }
+        _frameResources[i].clear();
+    }
+}
+
 bool IFGFeature_Vk::CreateBufferResource(VkDevice device, VkImage source, VkImageLayout layout, VkFormat format,
                                           uint32_t width, uint32_t height, VkImage* outImage, VkImageView* outImageView,
                                           VkDeviceMemory* outMemory, bool UAV, bool depth)

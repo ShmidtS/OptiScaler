@@ -58,6 +58,7 @@ bool OS_Dx11::CreateBufferResource(ID3D11Device* InDevice, ID3D11Resource* InRes
 
     D3D11_TEXTURE2D_DESC texDesc;
     originalTexture->GetDesc(&texDesc);
+    originalTexture->Release();
     auto targetWidth = texDesc.Width > InWidth ? texDesc.Width : InWidth;
     auto targetHeight = texDesc.Height > InHeight ? texDesc.Height : InHeight;
 

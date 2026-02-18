@@ -17,6 +17,7 @@ void Menu_Dx11::CreateRenderTarget(ID3D11Resource* out)
 
     D3D11_TEXTURE2D_DESC outDesc {};
     outTexture2D->GetDesc(&outDesc);
+    outTexture2D->Release();
 
     if (_renderTargetTexture != nullptr)
     {
