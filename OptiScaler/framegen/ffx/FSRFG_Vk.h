@@ -80,10 +80,11 @@ class FSRFG_Vk : public virtual IFGFeature_Vk
 
     bool SetResource(VkResource* inputResource) override final;
     void SetQueue(FG_ResourceType type, VkQueue queue, uint32_t familyIndex) override final;
+    bool SetInterpolatedFrameCount(UINT interpolatedFrameCount) override;
 
     ffxReturnCode_t DispatchCallback(ffxDispatchDescFrameGeneration* params);
 
-    FSRFG_Vk() : IFGFeature_Vk(), IFGFeature()
+    FSRFG_Vk(UINT framesToInterpolate = 1) : IFGFeature_Vk(), IFGFeature(framesToInterpolate)
     {
         //
     }

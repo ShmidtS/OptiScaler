@@ -532,3 +532,8 @@ FSRFG_Vk::~FSRFG_Vk()
 {
     Shutdown();
 }
+
+bool FSRFG_Vk::SetInterpolatedFrameCount(UINT interpolatedFrameCount)
+{
+    return true;
+}
