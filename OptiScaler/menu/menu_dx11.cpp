@@ -8,6 +8,9 @@
 
 void Menu_Dx11::CreateRenderTarget(ID3D11Resource* out)
 {
+    if (out == nullptr || _device == nullptr)
+        return;
+
     ID3D11Texture2D* outTexture2D = nullptr;
 
     if (out->QueryInterface(IID_PPV_ARGS(&outTexture2D)) != S_OK)
@@ -28,6 +31,13 @@ void Menu_Dx11::CreateRenderTarget(ID3D11Resource* out)
         {
             _renderTargetTexture->Release();
             _renderTargetTexture = nullptr;
+
+            // Also release the old render target view to prevent memory leak
+            if (_renderTargetView != nullptr)
+            {
+                _renderTargetView->Release();
+                _renderTargetView = nullptr;
+            }
         }
         else
             return;
@@ -41,7 +51,11 @@ void Menu_Dx11::CreateRenderTarget(ID3D11Resource* out)
         rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
         rtvDesc.Texture2D.MipSlice = 0;
 
-        _device->CreateRenderTargetView(out, &rtvDesc, &_renderTargetView);
+        HRESULT hr = _device->CreateRenderTargetView(out, &rtvDesc, &_renderTargetView);
+        if (FAILED(hr))
+        {
+            LOG_ERROR("CreateRenderTargetView failed: {:X}", (unsigned long)hr);
+        }
     }
     else
     {
@@ -79,7 +93,7 @@ bool Menu_Dx11::Render(ID3D11DeviceContext* pCmdList, ID3D11Resource* outTexture
     if (Config::Instance()->OverlayMenu.value_or_default())
         return false;
 
-    if (pCmdList == nullptr || outTexture == nullptr)
+    if (pCmdList == nullptr || outTexture == nullptr || _device == nullptr)
         return false;
 
     frameCounter++;

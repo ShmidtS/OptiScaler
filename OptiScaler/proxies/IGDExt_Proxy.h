@@ -177,45 +177,52 @@ class IGDExtProxy
         uint32_t extensionsVersionCount = 0;
 
         bool foundRequestedVersion = false;
-
-        if (_INTC_D3D12_GetSupportedVersions(device, nullptr, &extensionsVersionCount) == S_OK)
-        {
-            extensionsVersions = new INTCExtensionVersion[extensionsVersionCount] {};
-        }
-
         INTCExtensionInfo extInfo {};
 
-        if (extensionsVersions != nullptr &&
-            _INTC_D3D12_GetSupportedVersions(device, extensionsVersions, &extensionsVersionCount) == S_OK &&
-            extensionsVersionCount > 0)
-        {
-            for (uint32_t i = 0; i < extensionsVersionCount; i++)
+        // Use RAII-style cleanup with helper lambda
+        auto cleanupVersions = [&extensionsVersions]() {
+            if (extensionsVersions != nullptr)
             {
-                if ((extensionsVersions[i].HWFeatureLevel >= atomicVersion.HWFeatureLevel) &&
-                    (extensionsVersions[i].APIVersion >= atomicVersion.APIVersion) &&
-                    (extensionsVersions[i].Revision >= atomicVersion.Revision))
-                {
-                    LOG_DEBUG("Intel Extensions loaded requested version: {}.{}.{}",
-                              extensionsVersions[i].HWFeatureLevel, extensionsVersions[i].APIVersion,
-                              extensionsVersions[i].Revision);
+                delete[] extensionsVersions;
+                extensionsVersions = nullptr;
+            }
+        };
 
-                    foundRequestedVersion = true;
-                    extInfo.RequestedExtensionVersion = extensionsVersions[i];
-                    break;
+        if (_INTC_D3D12_GetSupportedVersions(device, nullptr, &extensionsVersionCount) == S_OK && extensionsVersionCount > 0)
+        {
+            extensionsVersions = new INTCExtensionVersion[extensionsVersionCount] {};
+
+            if (_INTC_D3D12_GetSupportedVersions(device, extensionsVersions, &extensionsVersionCount) == S_OK)
+            {
+                for (uint32_t i = 0; i < extensionsVersionCount; i++)
+                {
+                    if ((extensionsVersions[i].HWFeatureLevel >= atomicVersion.HWFeatureLevel) &&
+                        (extensionsVersions[i].APIVersion >= atomicVersion.APIVersion) &&
+                        (extensionsVersions[i].Revision >= atomicVersion.Revision))
+                    {
+                        LOG_DEBUG("Intel Extensions loaded requested version: {}.{}.{}",
+                                  extensionsVersions[i].HWFeatureLevel, extensionsVersions[i].APIVersion,
+                                  extensionsVersions[i].Revision);
+
+                        foundRequestedVersion = true;
+                        extInfo.RequestedExtensionVersion = extensionsVersions[i];
+                        break;
+                    }
                 }
             }
         }
 
         if (!foundRequestedVersion)
+        {
+            cleanupVersions();
             return false;
+        }
 
         INTCExtensionAppInfo1 appInfo {};
 
-        appInfo.pApplicationName = string_to_wstring(State::Instance().GameName.empty() ? State::Instance().GameExe
-                                                                                        : State::Instance().GameName)
-                                       .c_str();
-
-        appInfo.pApplicationName = L"Unreal Engine";
+        // Use static wstring to avoid dangling pointer from temporary
+        static std::wstring appName = L"Unreal Engine";
+        appInfo.pApplicationName = appName.c_str();
         appInfo.EngineVersion = { 5, 2, 0, 0 };
 
         const HRESULT result = _INTC_D3D12_CreateDeviceExtensionContext1(device, &_context, &extInfo, &appInfo);
@@ -232,10 +239,9 @@ class IGDExtProxy
                 DestroyContext();
         }
 
-        if (extensionsVersions != nullptr)
-            delete[] extensionsVersions;
+        cleanupVersions();
 
-        return true;
+        return result == S_OK;
     }
 
     static bool EnableAtomic64Support()

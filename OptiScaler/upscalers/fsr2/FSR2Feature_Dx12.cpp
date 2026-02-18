@@ -76,6 +76,12 @@ bool FSR2FeatureDx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_N
 
     params.commandList = ffxGetCommandListDX12(InCommandList);
 
+    if (params.commandList == nullptr)
+    {
+        LOG_ERROR("ffxGetCommandListDX12 returned nullptr!");
+        return false;
+    }
+
     ID3D12Resource* paramColor;
     if (InParameters->Get(NVSDK_NGX_Parameter_Color, &paramColor) != NVSDK_NGX_Result_Success)
         InParameters->Get(NVSDK_NGX_Parameter_Color, (void**) &paramColor);
@@ -484,6 +490,12 @@ bool FSR2FeatureDx12::InitFSR2(const NVSDK_NGX_Parameter* InParameters)
 
         const size_t scratchBufferSize = ffxFsr2GetScratchMemorySizeDX12();
         void* scratchBuffer = calloc(scratchBufferSize, 1);
+
+        if (scratchBuffer == nullptr)
+        {
+            LOG_ERROR("Failed to allocate scratch buffer for FSR2, size: {0}", scratchBufferSize);
+            return false;
+        }
 
         auto errorCode = ffxFsr2GetInterfaceDX12(&_contextDesc.callbacks, Device, scratchBuffer, scratchBufferSize);
 

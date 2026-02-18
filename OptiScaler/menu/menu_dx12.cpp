@@ -8,7 +8,6 @@
 #include <imgui/imgui_impl_dx12.h>
 #include <imgui/imgui_impl_win32.h>
 
-long frameCounter = 0;
 static int const SRV_HEAP_SIZE = 64;
 
 struct ImGui_ImplDX12_Texture

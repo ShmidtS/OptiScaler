@@ -153,7 +153,7 @@ bool FSR2FeatureDx11::InitFSR2(const NVSDK_NGX_Parameter* InParameters)
 
         if (errorCode != FFX_OK)
         {
-            LOG_ERROR("ffxGetInterfaceDX12 error: {0}", ResultToString(errorCode));
+            LOG_ERROR("ffxGetInterfaceDX11 error: {0}", ResultToString(errorCode));
             free(scratchBuffer);
             return false;
         }

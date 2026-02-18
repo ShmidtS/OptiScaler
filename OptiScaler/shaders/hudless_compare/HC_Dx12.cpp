@@ -226,7 +226,9 @@ bool HC_Dx12::Dispatch(IDXGISwapChain3* sc, ID3D12GraphicsCommandList* cmdList, 
         return false;
     }
 
-    scBuffer->Release();
+    // Note: scBuffer must NOT be released here - it's used later for CreateBufferResource,
+    // ResourceBarrier, CopyResource, and CreateRenderTargetView.
+    // Release will be done at the end of this function.
 
     // Check Hudless Buffer
     D3D12_RESOURCE_DESC hudlessDesc = hudless->GetDesc();
@@ -234,6 +236,7 @@ bool HC_Dx12::Dispatch(IDXGISwapChain3* sc, ID3D12GraphicsCommandList* cmdList, 
     if (/*hudlessDesc.Format != scDesc.BufferDesc.Format ||*/ hudlessDesc.Width != scDesc.BufferDesc.Width ||
         hudlessDesc.Height != scDesc.BufferDesc.Height)
     {
+        scBuffer->Release();
         return false;
     }
 
@@ -357,6 +360,9 @@ bool HC_Dx12::Dispatch(IDXGISwapChain3* sc, ID3D12GraphicsCommandList* cmdList, 
 
     if (state != D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
         ResourceBarrier(cmdList, hudless, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, state);
+
+    // Release the swapchain buffer now that we're done with it
+    scBuffer->Release();
 
     return true;
 }

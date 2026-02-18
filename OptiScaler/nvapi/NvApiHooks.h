@@ -4,10 +4,17 @@
 
 #include "NvApiTypes.h"
 #include "fakenvapi.h"
+#include <mutex>
+#include <atomic>
 
 class NvApiHooks
 {
+  private:
+    inline static std::mutex _hookMutex;
+    inline static std::atomic<bool> _isHooked{false};
+
   public:
+    // Note: These cannot be atomic as DetourAttach/DetourDetach require PVOID& reference
     inline static PFN_NvApi_QueryInterface o_NvAPI_QueryInterface = nullptr;
     inline static decltype(&NvAPI_GPU_GetArchInfo) o_NvAPI_GPU_GetArchInfo = nullptr;
     inline static decltype(&NvAPI_DRS_GetSetting) o_NvAPI_DRS_GetSetting = nullptr;

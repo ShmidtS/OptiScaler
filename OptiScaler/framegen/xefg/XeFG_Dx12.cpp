@@ -53,7 +53,7 @@ bool XeFG_Dx12::CreateSwapchainContext(ID3D12Device* device)
         if (result != XEFG_SWAPCHAIN_RESULT_SUCCESS)
         {
             LOG_ERROR("D3D12CreateContext error: {} ({})", magic_enum::enum_name(result), (UINT) result);
-            return result;
+            return false;
         }
 
         LOG_INFO("XeFG context created");
@@ -79,7 +79,7 @@ bool XeFG_Dx12::CreateSwapchainContext(ID3D12Device* device)
             if (xellResult != XELL_RESULT_SUCCESS)
             {
                 LOG_ERROR("SetSleepMode error: {} ({})", magic_enum::enum_name(xellResult), (UINT) xellResult);
-                return result;
+                return false;
             }
 
             auto fnaResult = fakenvapi::setModeAndContext(XeLLProxy::Context(), Mode::XeLL);
@@ -90,7 +90,7 @@ bool XeFG_Dx12::CreateSwapchainContext(ID3D12Device* device)
             if (result != XEFG_SWAPCHAIN_RESULT_SUCCESS)
             {
                 LOG_ERROR("SetLatencyReduction error: {} ({})", magic_enum::enum_name(result), (UINT) result);
-                return result;
+                return false;
             }
         };
 
@@ -312,7 +312,7 @@ bool XeFG_Dx12::CreateSwapchain(IDXGIFactory* factory, ID3D12CommandQueue* cmdQu
 
     auto intTarget = _framesToInterpolate;
 
-    if (intTarget < 1 || intTarget > State::Instance().xefgMaxInterpolationCount)
+    if (intTarget < 1 || static_cast<size_t>(intTarget) > State::Instance().xefgMaxInterpolationCount)
     {
         LOG_WARN("Invalid XeFG interpolation count: {}, max count: {}", intTarget,
                  State::Instance().xefgMaxInterpolationCount);
@@ -438,7 +438,7 @@ bool XeFG_Dx12::CreateSwapchain1(IDXGIFactory* factory, ID3D12CommandQueue* cmdQ
 
     auto intTarget = _framesToInterpolate;
 
-    if (intTarget < 1 || intTarget > State::Instance().xefgMaxInterpolationCount)
+    if (intTarget < 1 || static_cast<size_t>(intTarget) > State::Instance().xefgMaxInterpolationCount)
     {
         LOG_WARN("Invalid XeFG interpolation count: {}, max count: {}", intTarget,
                  State::Instance().xefgMaxInterpolationCount);
@@ -564,7 +564,7 @@ void XeFG_Dx12::Deactivate()
         if (_uiCommandListResetted[fIndex])
         {
             LOG_DEBUG("Executing _uiCommandList[fIndex][{}]: {:X}", fIndex, (size_t) _uiCommandList[fIndex]);
-            auto closeResult = _uiCommandList[fIndex]->Close();
+            HRESULT closeResult = _uiCommandList[fIndex]->Close();
 
             if (closeResult == S_OK)
                 _gameCommandQueue->ExecuteCommandLists(1, (ID3D12CommandList**) &_uiCommandList[fIndex]);
@@ -730,12 +730,12 @@ bool XeFG_Dx12::Dispatch()
         memcpy(constData.viewMatrix, view.r, sizeof(view));
     }
 
-    if (Config::Instance()->FGXeFGDepthInverted.value_or_default())
-        std::swap(_cameraNear[fIndex], _cameraFar[fIndex]);
-
-    // Use local variables to avoid repeated swap issues
+    // Use local variables for near/far planes to avoid modifying member variables
     float nearPlane = _cameraNear[fIndex];
     float farPlane = _cameraFar[fIndex];
+
+    if (Config::Instance()->FGXeFGDepthInverted.value_or_default())
+        std::swap(nearPlane, farPlane);
 
     if (_infiniteDepth && farPlane > nearPlane)
         farPlane = std::numeric_limits<float>::infinity();
@@ -1038,7 +1038,7 @@ bool XeFG_Dx12::Present()
         if (_uiCommandListResetted[fIndex])
         {
             LOG_DEBUG("Executing _uiCommandList[{}]: {:X}", fIndex, (size_t) _uiCommandList[fIndex]);
-            auto closeResult = _uiCommandList[fIndex]->Close();
+            HRESULT closeResult = _uiCommandList[fIndex]->Close();
 
             if (closeResult == S_OK)
                 _gameCommandQueue->ExecuteCommandLists(1, (ID3D12CommandList**) &_uiCommandList[fIndex]);

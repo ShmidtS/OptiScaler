@@ -94,6 +94,13 @@ static void CreateVulkanObjects(VkDevice device, VkPhysicalDevice pd, VkInstance
         return;
     }
 
+    // Validate image count to prevent array overflow
+    if (_scImageCount > 8)
+    {
+        LOG_ERROR("Swapchain image count {0} exceeds maximum 8", _scImageCount);
+        return;
+    }
+
     VkImage images[8];
     result = vkGetSwapchainImagesKHR(device, *pSwapchain, &_scImageCount, images);
     if (result != VK_SUCCESS)

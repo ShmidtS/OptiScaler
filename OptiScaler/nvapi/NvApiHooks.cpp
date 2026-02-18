@@ -131,7 +131,10 @@ void* __stdcall NvApiHooks::hkNvAPI_QueryInterface(unsigned int InterfaceId)
 // Requires HMODULE to make sure nvapi is loaded before calling this function
 void NvApiHooks::Hook(HMODULE nvapiModule)
 {
-    if (o_NvAPI_QueryInterface != nullptr)
+    // Use mutex for thread-safe hook installation
+    std::lock_guard<std::mutex> lock(_hookMutex);
+
+    if (_isHooked.load() || o_NvAPI_QueryInterface != nullptr)
         return;
 
     if (nvapiModule == nullptr)
@@ -182,12 +185,18 @@ void NvApiHooks::Hook(HMODULE nvapiModule)
             return;
         }
 
+        _isHooked.store(true);
         LOG_INFO("NvAPI_QueryInterface hooked successfully");
     }
 }
 
 void NvApiHooks::Unhook()
 {
+    std::lock_guard<std::mutex> lock(_hookMutex);
+
+    if (!_isHooked.load())
+        return;
+
     LONG detourError = DetourTransactionBegin();
     if (detourError != NO_ERROR)
     {
@@ -217,5 +226,10 @@ void NvApiHooks::Unhook()
     if (detourError != NO_ERROR)
     {
         LOG_ERROR("Unhook: DetourTransactionCommit failed: {}", detourError);
+        return;
     }
+
+    _isHooked.store(false);
+    o_NvAPI_GPU_GetArchInfo = nullptr;
+    o_NvAPI_DRS_GetSetting = nullptr;
 }

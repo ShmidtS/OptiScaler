@@ -17,12 +17,10 @@ void ResourceBarrierManager::AddTransitionBarrier(ID3D12Resource* resource, D3D1
     if (before == after)
         return;
 
-    // Check if we need to auto-flush
-    if (m_autoFlush && m_barriers.size() >= MAX_BARRIER_BATCH_SIZE)
+    // If batch is full, expand capacity (auto-flush without command list is not possible)
+    if (m_barriers.size() >= m_barriers.capacity())
     {
-        // Cannot auto-flush without command list, so just skip adding
-        // The caller should flush manually when appropriate
-        return;
+        m_barriers.reserve(m_barriers.capacity() + MAX_BARRIER_BATCH_SIZE);
     }
 
     // Create the barrier
@@ -39,10 +37,10 @@ void ResourceBarrierManager::AddTransitionBarrier(ID3D12Resource* resource, D3D1
 
 void ResourceBarrierManager::AddUAVBarrier(ID3D12Resource* resource)
 {
-    // Check if we need to auto-flush
-    if (m_autoFlush && m_barriers.size() >= MAX_BARRIER_BATCH_SIZE)
+    // If batch is full, expand capacity
+    if (m_barriers.size() >= m_barriers.capacity())
     {
-        return;
+        m_barriers.reserve(m_barriers.capacity() + MAX_BARRIER_BATCH_SIZE);
     }
 
     D3D12_RESOURCE_BARRIER barrier = {};
@@ -55,10 +53,10 @@ void ResourceBarrierManager::AddUAVBarrier(ID3D12Resource* resource)
 
 void ResourceBarrierManager::AddAliasingBarrier(ID3D12Resource* resourceBefore, ID3D12Resource* resourceAfter)
 {
-    // Check if we need to auto-flush
-    if (m_autoFlush && m_barriers.size() >= MAX_BARRIER_BATCH_SIZE)
+    // If batch is full, expand capacity
+    if (m_barriers.size() >= m_barriers.capacity())
     {
-        return;
+        m_barriers.reserve(m_barriers.capacity() + MAX_BARRIER_BATCH_SIZE);
     }
 
     D3D12_RESOURCE_BARRIER barrier = {};

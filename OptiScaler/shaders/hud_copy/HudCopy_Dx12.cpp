@@ -44,10 +44,14 @@ bool HudCopy_Dx12::Dispatch(ID3D12Device* InDevice, ID3D12GraphicsCommandList* c
         auto result = Shader_Dx12::CreateBufferResource(InDevice, present, D3D12_RESOURCE_STATE_COPY_DEST, &_buffer,
                                                         resourceFlags);
 
-        if (result)
-            _buffer->SetName(L"HudCopy_Buffer");
+        if (!result)
+        {
+            LOG_ERROR("[{0}] Failed to create buffer!", _name);
+            return false;
+        }
 
-        return result;
+        _buffer->SetName(L"HudCopy_Buffer");
+        // Continue to dispatch after buffer creation, don't return early
     }
 
     ResourceBarrier(cmdList, present, presentState, D3D12_RESOURCE_STATE_COPY_SOURCE);

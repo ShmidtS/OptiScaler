@@ -1570,11 +1570,11 @@ bool MenuCommon::RenderMenu()
         if (inputMenu)
         {
             inputMenu = false;
-            _isVisible = !_isVisible;
+            bool isVisible = !_isVisible.exchange(!_isVisible);
 
-            LOG_DEBUG("Menu key pressed, {0}", _isVisible ? "opening ImGui" : "closing ImGui");
+            LOG_DEBUG("Menu key pressed, {0}", isVisible ? "opening ImGui" : "closing ImGui");
 
-            if (_isVisible)
+            if (isVisible)
             {
                 refreshRate = Util::GetActiveRefreshRate(_handle);
                 config->ReloadFakenvapi();
@@ -1600,9 +1600,9 @@ bool MenuCommon::RenderMenu()
                 _showHudlessWindow = false;
             }
 
-            io.MouseDrawCursor = _isVisible;
-            io.WantCaptureKeyboard = _isVisible;
-            io.WantCaptureMouse = _isVisible;
+            io.MouseDrawCursor = isVisible;
+            io.WantCaptureKeyboard = isVisible;
+            io.WantCaptureMouse = isVisible;
         }
 
         inputFpsCycle = false;

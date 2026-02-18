@@ -243,6 +243,13 @@ bool ResTrack_Dx12::CreateBufferResource(ID3D12Device* InDevice, ResourceInfo* I
 void ResTrack_Dx12::ResourceBarrier(ID3D12GraphicsCommandList* InCommandList, ID3D12Resource* InResource,
                                     D3D12_RESOURCE_STATES InBeforeState, D3D12_RESOURCE_STATES InAfterState)
 {
+    if (InCommandList == nullptr || InResource == nullptr)
+        return;
+
+    // Skip no-op barriers
+    if (InBeforeState == InAfterState)
+        return;
+
     D3D12_RESOURCE_BARRIER barrier = {};
     barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
     barrier.Transition.pResource = InResource;

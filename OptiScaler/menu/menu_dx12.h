@@ -2,6 +2,7 @@
 
 #include "menu_dx_base.h"
 #include <d3d12.h>
+#include <atomic>
 
 class Menu_Dx12 : public MenuDxBase
 {
@@ -14,6 +15,8 @@ class Menu_Dx12 : public MenuDxBase
     ID3D12DescriptorHeap* _rtvDescHeap = nullptr;
     ID3D12DescriptorHeap* _srvDescHeap = nullptr;
     D3D12_CPU_DESCRIPTOR_HANDLE _renderTargetDescriptor[2] = {};
+
+    std::atomic<long> _frameCounter{0};
 
     void CreateRenderTarget(const D3D12_RESOURCE_DESC& InDesc);
 

@@ -30,6 +30,10 @@
 static HMODULE moduleAmdxc64 = nullptr;
 static HMODULE fsr4Module = nullptr;
 
+// Thread safety and state tracking
+static std::mutex g_fsr4Mutex;
+static std::atomic<bool> g_gpuCheckDone{false};
+
 static AmdExtD3DDevice8* amdExtD3DDevice8 = nullptr;
 static AmdExtD3DShaderIntrinsics* amdExtD3DShaderIntrinsics = nullptr;
 static AmdExtD3DFactory* amdExtD3DFactory = nullptr;
@@ -486,6 +490,8 @@ struct AmdExtD3DFactory : public IAmdExtD3DFactory
 
 void InitFSR4Update()
 {
+    std::lock_guard<std::mutex> lock(g_fsr4Mutex);
+
     if (Config::Instance()->Fsr4Update.has_value() && !Config::Instance()->Fsr4Update.value())
         return;
 
@@ -514,11 +520,28 @@ void InitFSR4Update()
             if (detourResult != 0)
             {
                 LOG_ERROR("DetourAttach failed for AmdExtD3DCreateInterface: {}", detourResult);
+                o_AmdExtD3DCreateInterface = nullptr;
+                return;
             }
-            if (DetourTransactionCommit() != 0)
+
+            LONG commitResult = DetourTransactionCommit();
+            if (commitResult != 0)
             {
-                LOG_ERROR("DetourTransactionCommit failed for AmdExtD3DCreateInterface hook");
+                LOG_ERROR("DetourTransactionCommit failed for AmdExtD3DCreateInterface hook: {}", commitResult);
+                // Try to detach on failure
+                DetourTransactionBegin();
+                DetourUpdateThread(GetCurrentThread());
+                DetourDetach(&(PVOID&) o_AmdExtD3DCreateInterface, hkAmdExtD3DCreateInterface);
+                DetourTransactionCommit();
+                o_AmdExtD3DCreateInterface = nullptr;
+                return;
             }
+
+            LOG_INFO("Successfully hooked AmdExtD3DCreateInterface");
+        }
+        else
+        {
+            LOG_ERROR("Failed to get AmdExtD3DCreateInterface address from amdxc64.dll");
         }
     }
     else
@@ -579,6 +602,8 @@ HRESULT STDMETHODCALLTYPE hkAmdExtD3DCreateInterface(IUnknown* pOuter, REFIID ri
 
 void CleanupFSR4Update()
 {
+    std::lock_guard<std::mutex> lock(g_fsr4Mutex);
+
     // Clean up static objects to prevent memory leaks
     if (amdExtD3DShaderIntrinsics != nullptr)
     {
@@ -605,14 +630,25 @@ void CleanupFSR4Update()
     }
 
     // Note: o_amdExtD3DFactory is not owned by us, don't delete it
+    o_amdExtD3DFactory = nullptr;
 
     // Detach the hook to prevent dangling pointer
     if (o_AmdExtD3DCreateInterface != nullptr)
     {
         DetourTransactionBegin();
         DetourUpdateThread(GetCurrentThread());
-        DetourDetach(&(PVOID&)o_AmdExtD3DCreateInterface, hkAmdExtD3DCreateInterface);
-        DetourTransactionCommit();
+        LONG detachResult = DetourDetach(&(PVOID&)o_AmdExtD3DCreateInterface, hkAmdExtD3DCreateInterface);
+        if (detachResult != 0)
+        {
+            LOG_ERROR("DetourDetach failed for AmdExtD3DCreateInterface: {}", detachResult);
+        }
+
+        LONG commitResult = DetourTransactionCommit();
+        if (commitResult != 0)
+        {
+            LOG_ERROR("DetourTransactionCommit failed during cleanup: {}", commitResult);
+        }
+
         o_AmdExtD3DCreateInterface = nullptr;
     }
 
@@ -628,6 +664,9 @@ void CleanupFSR4Update()
         NtdllProxy::FreeLibrary_Ldr(moduleAmdxc64);
         moduleAmdxc64 = nullptr;
     }
+
+    // Reset the GPU check flag for potential re-initialization
+    g_gpuCheckDone.store(false);
 
     LOG_INFO("FSR4 update objects cleaned up");
 }

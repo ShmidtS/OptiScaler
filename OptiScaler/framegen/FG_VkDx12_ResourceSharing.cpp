@@ -934,9 +934,11 @@ bool FG_VkDx12_ResourceSharing::SynchronizeWithD3D12()
     // Signal D3D12 fence to indicate Vulkan work is complete
     if (_d3d12Fence != nullptr)
     {
-        _fenceValue++;
-        _d3d12Fence->Signal(_fenceValue);
-        _lastCompletedFenceValue = _fenceValue;
+        // Use atomic operations for thread-safety
+        uint64_t newFenceValue = _fenceValue + 1;
+        _fenceValue = newFenceValue;
+        _d3d12Fence->Signal(newFenceValue);
+        _lastCompletedFenceValue = newFenceValue;
     }
 
     return true;

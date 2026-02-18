@@ -880,6 +880,7 @@ static HRESULT hkD3D12GetInterface(REFCLSID rclsid, REFIID riid, void** ppvDebug
                 if (detourResult != NO_ERROR)
                 {
                     LOG_ERROR("DetourTransactionCommit failed for CreateDevice: {}", detourResult);
+                    o_CreateDevice = nullptr;
                 }
             }
         }

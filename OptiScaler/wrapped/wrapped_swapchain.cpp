@@ -794,31 +794,43 @@ HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::Present1(UINT SyncInterval, UI
 
 BOOL STDMETHODCALLTYPE WrappedIDXGISwapChain4::IsTemporaryMonoSupported(void)
 {
+    if (_real1 == nullptr)
+        return FALSE;
     return _real1->IsTemporaryMonoSupported();
 }
 
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetRestrictToOutput(IDXGIOutput** ppRestrictToOutput)
 {
+    if (_real1 == nullptr)
+        return DXGI_ERROR_DEVICE_REMOVED;
     return _real1->GetRestrictToOutput(ppRestrictToOutput);
 }
 
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::SetBackgroundColor(const DXGI_RGBA* pColor)
 {
+    if (_real1 == nullptr)
+        return DXGI_ERROR_DEVICE_REMOVED;
     return _real1->SetBackgroundColor(pColor);
 }
 
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetBackgroundColor(DXGI_RGBA* pColor)
 {
+    if (_real1 == nullptr)
+        return DXGI_ERROR_DEVICE_REMOVED;
     return _real1->GetBackgroundColor(pColor);
 }
 
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::SetRotation(DXGI_MODE_ROTATION Rotation)
 {
+    if (_real1 == nullptr)
+        return DXGI_ERROR_DEVICE_REMOVED;
     return _real1->SetRotation(Rotation);
 }
 
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetRotation(DXGI_MODE_ROTATION* pRotation)
 {
+    if (_real1 == nullptr)
+        return DXGI_ERROR_DEVICE_REMOVED;
     return _real1->GetRotation(pRotation);
 }
 
@@ -889,6 +901,9 @@ HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::ResizeBuffers1(UINT BufferCoun
                                                                  IUnknown* const* ppPresentQueue)
 {
     LOG_DEBUG("");
+
+    if (_real == nullptr || _real3 == nullptr)
+        return DXGI_ERROR_DEVICE_REMOVED;
 
 #ifdef USE_LOCAL_MUTEX
     // dlssg calls this from present it seems

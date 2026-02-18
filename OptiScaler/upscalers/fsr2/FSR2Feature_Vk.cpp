@@ -184,6 +184,12 @@ bool FSR2FeatureVk::Evaluate(VkCommandBuffer InCmdBuffer, NVSDK_NGX_Parameter* I
 
     params.commandList = ffxGetCommandListVK(InCmdBuffer);
 
+    if (params.commandList == nullptr)
+    {
+        LOG_ERROR("ffxGetCommandListVK returned nullptr!");
+        return false;
+    }
+
     void* paramColor;
     InParameters->Get(NVSDK_NGX_Parameter_Color, &paramColor);
 

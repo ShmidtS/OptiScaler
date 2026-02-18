@@ -26,7 +26,12 @@ RCAS_Vk::RCAS_Vk(std::string InName, VkDevice InDevice, VkPhysicalDevice InPhysi
     samplerInfo.minFilter = VK_FILTER_NEAREST;
     samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    vkCreateSampler(_device, &samplerInfo, nullptr, &_nearestSampler);
+    if (vkCreateSampler(_device, &samplerInfo, nullptr, &_nearestSampler) != VK_SUCCESS)
+    {
+        LOG_ERROR("Failed to create sampler for RCAS_Vk");
+        _init = false;
+        return;
+    }
 
     std::vector<char> shaderCode(rcas_spv, rcas_spv + sizeof(rcas_spv));
     if (!CreateComputePipeline(_device, _pipelineLayout, &_pipeline, shaderCode))

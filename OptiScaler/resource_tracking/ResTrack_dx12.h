@@ -232,7 +232,11 @@ struct alignas(CACHE_LINE_SIZE) CommandListShard
                                  ankerl::unordered_dense::map<ID3D12Resource*, ResourceInfo>>
         map;
 
-    char padding[CACHE_LINE_SIZE - (sizeof(SpinLock) + sizeof(void*) % CACHE_LINE_SIZE)] = {};
+    // Calculate padding to fill remaining space in cache line
+    // Note: This is a best-effort padding; actual size may exceed CACHE_LINE_SIZE due to map internals
+    static constexpr size_t USED_SIZE = sizeof(SpinLock) + sizeof(void*);
+    static constexpr size_t PADDING_SIZE = (USED_SIZE < CACHE_LINE_SIZE) ? (CACHE_LINE_SIZE - USED_SIZE) : 0;
+    char padding[PADDING_SIZE] = {};
 };
 
 class ResTrack_Dx12

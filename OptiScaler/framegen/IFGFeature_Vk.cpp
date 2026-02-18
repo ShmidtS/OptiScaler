@@ -127,6 +127,10 @@ VkResource* IFGFeature_Vk::GetResource(FG_ResourceType type, int index)
     if (index < 0)
         index = GetIndex();
 
+    // Bounds check to prevent buffer overflow
+    if (index < 0 || index >= BUFFER_COUNT)
+        return nullptr;
+
     if (!_frameResources[index].contains(type))
         return nullptr;
 

@@ -63,15 +63,14 @@ static void AttachToAdapter(IDXGIAdapter* adapter)
     }
 }
 
-static UINT fCount = 0;
+static std::atomic<UINT> fCount{0};
 
 WrappedIDXGIFactory7::WrappedIDXGIFactory7(IDXGIFactory* real)
 {
     if (real == nullptr)
         return;
 
-    fCount++;
-    _id = fCount;
+    _id = ++fCount;
 
     LOG_WARN("{}", _id);
 

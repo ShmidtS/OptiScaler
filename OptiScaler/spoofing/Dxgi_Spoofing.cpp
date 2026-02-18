@@ -303,13 +303,19 @@ HRESULT DxgiSpoofing::hkGetDesc(IDXGIAdapter* This, DXGI_ADAPTER_DESC* pDesc)
 
 void DxgiSpoofing::AttachToAdapter(IUnknown* unkAdapter)
 {
-    static bool logAdded = false;
+    static std::atomic<bool> logAdded{false};
+    if (unkAdapter == nullptr)
+    {
+        LOG_WARN("AttachToAdapter: unkAdapter is nullptr");
+        return;
+    }
+
     if (!Config::Instance()->DxgiSpoofing.value_or_default() && !Config::Instance()->DxgiVRAM.has_value())
     {
-        if (!logAdded)
+        if (!logAdded.load())
         {
             LOG_WARN("DxgiSpoofing and DxgiVRAM is disabled, skipping hooking");
-            logAdded = true;
+            logAdded.store(true);
         }
 
         return;

@@ -15,6 +15,7 @@
 
 static std::map<std::string, bool> vkDeviceExtensions;
 static std::map<std::string, bool> vkInstanceExtensions;
+static std::mutex vkExtensionsMutex;
 
 typedef struct VkDummyProps
 {
@@ -633,15 +634,19 @@ inline static VkResult hkvkEnumerateDeviceExtensionProperties(VkPhysicalDevice p
 
     if (!vkEnumerateDeviceExtensionPropertiesListed && count != 0)
     {
-        vkEnumerateDeviceExtensionPropertiesListed = true;
-
-        LOG_DEBUG("Extensions returned:");
-        for (uint32_t i = 0; i < *pPropertyCount; i++)
+        std::lock_guard<std::mutex> lock(vkExtensionsMutex);
+        if (!vkEnumerateDeviceExtensionPropertiesListed)
         {
-            LOG_DEBUG("  {}", pProperties[i].extensionName);
+            vkEnumerateDeviceExtensionPropertiesListed = true;
 
-            if (i < (*pPropertyCount - 5))
-                vkDeviceExtensions.insert_or_assign(std::string(pProperties[i].extensionName), true);
+            LOG_DEBUG("Extensions returned:");
+            for (uint32_t i = 0; i < *pPropertyCount; i++)
+            {
+                LOG_DEBUG("  {}", pProperties[i].extensionName);
+
+                if (i < (*pPropertyCount - 5))
+                    vkDeviceExtensions.insert_or_assign(std::string(pProperties[i].extensionName), true);
+            }
         }
     }
 
@@ -685,6 +690,7 @@ inline static VkResult hkvkEnumerateInstanceExtensionProperties(const char* pLay
 
     if (pPropertyCount != nullptr && pProperties != nullptr && count != 0)
     {
+        std::lock_guard<std::mutex> lock(vkExtensionsMutex);
         if (!vkEnumerateInstanceExtensionPropertiesListed)
         {
             vkEnumerateInstanceExtensionPropertiesListed = true;
