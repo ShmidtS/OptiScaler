@@ -1,6 +1,7 @@
 #pragma once
 #include "SysUtils.h"
 #include <dxgi1_6.h>
+#include <atomic>
 
 class FGHooks
 {
@@ -42,8 +43,9 @@ class FGHooks
     static thread_local bool _skipResize1;
     static thread_local bool _skipPresent;
     static thread_local bool _skipPresent1;
-    inline static UINT _lastPresentFlags = 0;
-    inline static double _lastFGFrameTime = 0.0;
+    // Using atomic for thread safety - accessed from multiple threads
+    inline static std::atomic<UINT> _lastPresentFlags{0};
+    inline static std::atomic<double> _lastFGFrameTime{0.0};
 
     static void HookFGSwapchain(IDXGISwapChain* pSwapChain);
 

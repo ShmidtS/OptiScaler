@@ -1289,8 +1289,22 @@ bool isNvidia()
 
     if (!nvapiModule)
     {
-        nvapiModule = NtdllProxy::LoadLibraryExW_Ldr(L"nvapi64.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
-        loadedHere = true;
+        // Check if a custom nvapi path is configured (like fakenvapi.dll)
+        if (Config::Instance()->OverrideNvapiDll.value_or_default() && Config::Instance()->NvapiDllPath.has_value())
+        {
+            nvapiModule = NtdllProxy::LoadLibraryExW_Ldr(Config::Instance()->NvapiDllPath.value().c_str(), NULL, 0);
+            if (nvapiModule)
+            {
+                LOG_INFO("Loaded custom nvapi from: {}", wstring_to_string(Config::Instance()->NvapiDllPath.value()));
+            }
+            loadedHere = true;
+        }
+
+        if (!nvapiModule)
+        {
+            nvapiModule = NtdllProxy::LoadLibraryExW_Ldr(L"nvapi64.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
+            loadedHere = true;
+        }
     }
 
     // No nvapi, should not be nvidia

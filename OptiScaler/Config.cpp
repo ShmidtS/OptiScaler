@@ -1285,8 +1285,10 @@ void Config::CheckUpscalerFiles()
 
         if (State::Instance().nvngxExists)
             LOG_INFO("nvngx.dll found in memory");
-        else
+        else if (State::Instance().isRunningOnNvidia || Config::Instance()->DLSSEnabled.value_or_default())
             LOG_WARN("nvngx.dll not found!");
+        else
+            LOG_INFO("nvngx.dll not found (expected for non-Nvidia systems)");
     }
     else
     {

@@ -195,7 +195,7 @@ HRESULT DxgiFactoryHooks::CreateSwapChain(IDXGIFactory* realFactory, IUnknown* p
         if (pDesc != nullptr)
             LOG_DEBUG("Width: {}, Height: {}, Format: {}, Count: {}, Hwnd: {:X}, Windowed: {}, SkipWrapping: {}",
                       pDesc->BufferDesc.Width, pDesc->BufferDesc.Height, (UINT) pDesc->BufferDesc.Format,
-                      pDesc->BufferCount, (SIZE_T) pDesc->OutputWindow, pDesc->Windowed, _skipFGSwapChainCreation);
+                      pDesc->BufferCount, (SIZE_T) pDesc->OutputWindow, pDesc->Windowed, _skipFGSwapChainCreation.load());
 
         ScopedSkipDxgiLoadChecks skipDxgiLoadChecks {};
         ScopedSkipParentWrapping skipParentWrapping {};
@@ -231,7 +231,7 @@ HRESULT DxgiFactoryHooks::CreateSwapChain(IDXGIFactory* realFactory, IUnknown* p
 
     LOG_DEBUG("Width: {}, Height: {}, Format: {}, Count: {}, Flags: {:X}, Hwnd: {:X}, Windowed: {}, SkipWrapping: {}",
               pDesc->BufferDesc.Width, pDesc->BufferDesc.Height, (UINT) pDesc->BufferDesc.Format, pDesc->BufferCount,
-              pDesc->Flags, (SIZE_T) pDesc->OutputWindow, pDesc->Windowed, _skipFGSwapChainCreation);
+              pDesc->Flags, (SIZE_T) pDesc->OutputWindow, pDesc->Windowed, _skipFGSwapChainCreation.load());
 
     LOG_DEBUG("pDesc->BufferCount: {}", pDesc->BufferCount);
     LOG_DEBUG("pDesc->BufferDesc.Width: {}", pDesc->BufferDesc.Width);
@@ -488,7 +488,7 @@ HRESULT DxgiFactoryHooks::CreateSwapChainForHwnd(IDXGIFactory2* realFactory, IUn
 
     LOG_DEBUG("Width: {}, Height: {}, Format: {}, Count: {}, Flags: {:X}, Hwnd: {:X}, SkipWrapping: {}", pDesc->Width,
               pDesc->Height, (UINT) pDesc->Format, pDesc->BufferCount, pDesc->Flags, (size_t) hWnd,
-              _skipFGSwapChainCreation);
+              _skipFGSwapChainCreation.load());
 
     if (pFullscreenDesc != nullptr)
         State::Instance().realExclusiveFullscreen = !pFullscreenDesc->Windowed;
@@ -691,7 +691,7 @@ HRESULT DxgiFactoryHooks::CreateSwapChainForCoreWindow(IDXGIFactory2* realFactor
 
         if (pDesc != nullptr)
             LOG_DEBUG("Width: {}, Height: {}, Format: {}, Flags: {:X}, Count: {}, SkipWrapping: {}", pDesc->Width,
-                      pDesc->Height, (UINT) pDesc->Format, pDesc->Flags, pDesc->BufferCount, _skipFGSwapChainCreation);
+                      pDesc->Height, (UINT) pDesc->Format, pDesc->Flags, pDesc->BufferCount, _skipFGSwapChainCreation.load());
 
         ScopedSkipDxgiLoadChecks skipDxgiLoadChecks {};
         return realFactory->CreateSwapChainForCoreWindow(pDevice, pWindow, pDesc, pRestrictToOutput, ppSwapChain);
@@ -712,7 +712,7 @@ HRESULT DxgiFactoryHooks::CreateSwapChainForCoreWindow(IDXGIFactory2* realFactor
     }
 
     LOG_DEBUG("Width: {}, Height: {}, Format: {}, Count: {}, SkipWrapping: {}", pDesc->Width, pDesc->Height,
-              (UINT) pDesc->Format, pDesc->BufferCount, _skipFGSwapChainCreation);
+              (UINT) pDesc->Format, pDesc->BufferCount, _skipFGSwapChainCreation.load());
 
     // For vsync override
     if (Config::Instance()->OverrideVsync.value_or_default())

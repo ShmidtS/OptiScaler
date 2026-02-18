@@ -41,8 +41,9 @@ UINT64 IFGFeature::StartNewFrame()
     _frameCount++;
 
     // Use signed arithmetic to handle potential wrap-around correctly
+    // Only warn if we've actually dispatched frames before and there's a real issue
     INT64 diff = static_cast<INT64>(_frameCount) - static_cast<INT64>(_lastDispatchedFrame);
-    if (_lastDispatchedFrame == 0 || diff > 2 || diff < 0)
+    if (_lastDispatchedFrame > 0 && (diff > static_cast<INT64>(Config::Instance()->FGAllowedFrameAhead.value_or_default()) || diff < 0))
     {
         LOG_WARN("Frame count jumped too much! _frameCount: {}, _lastDispatchedFrame: {}", _frameCount,
                  _lastDispatchedFrame);
@@ -55,6 +56,7 @@ UINT64 IFGFeature::StartNewFrame()
 
     _resourceReady[fIndex].clear();
     _waitingExecute[fIndex] = false;
+    _cameraDataValid[fIndex] = false;  // Reset camera data validity for new frame
 
     _noUi[fIndex] = true;
     _noDistortionField[fIndex] = true;
@@ -265,6 +267,9 @@ void IFGFeature::SetCameraData(float cameraPosition[3], float cameraUp[3], float
     std::memcpy(_cameraUp[index], cameraUp, 3 * sizeof(float));
     std::memcpy(_cameraRight[index], cameraRight, 3 * sizeof(float));
     std::memcpy(_cameraForward[index], cameraForward, 3 * sizeof(float));
+
+    // Mark camera data as valid for this buffer index
+    _cameraDataValid[index] = true;
 }
 
 void IFGFeature::SetFrameTimeDelta(double delta, int index)

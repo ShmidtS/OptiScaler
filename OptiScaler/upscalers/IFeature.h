@@ -79,6 +79,10 @@ class IFeature
     bool _featureFrozen = false;
     bool _moduleLoaded = false;
 
+    // Member variables for TickFrozenCheck (previously static, causing thread safety issues)
+    long _lastTickFrameCount = 0;
+    long _updatesWithoutFramecountChange = 0;
+
     void SetHandle(unsigned int InHandleId);
     bool SetInitParameters(NVSDK_NGX_Parameter* InParameters);
     void GetRenderResolution(NVSDK_NGX_Parameter* InParameters, unsigned int* OutWidth, unsigned int* OutHeight);

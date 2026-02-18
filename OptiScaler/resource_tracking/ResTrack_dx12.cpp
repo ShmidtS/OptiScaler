@@ -774,9 +774,9 @@ void ResTrack_Dx12::hkExecuteCommandLists(ID3D12CommandQueue* This, UINT NumComm
                     }
                 }
 
-                for (size_t i = 0; i < found.size(); i++)
+                for (size_t j = 0; j < found.size(); j++)
                 {
-                    _resCmdList[fIndex].erase(found[i]);
+                    _resCmdList[fIndex].erase(found[j]);
                 }
 
                 if (_resCmdList[fIndex].empty())

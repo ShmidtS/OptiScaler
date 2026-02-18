@@ -14,7 +14,8 @@ class FSRFG_Dx12 : public virtual IFGFeature_Dx12
     ffxContext _fgContext = nullptr;
     FfxApiSurfaceFormat _lastHudlessFormat = FFX_API_SURFACE_FORMAT_UNKNOWN;
     FfxApiSurfaceFormat _usingHudlessFormat = FFX_API_SURFACE_FORMAT_UNKNOWN;
-    UINT64 _lastFrameId = 0;  // Moved from static to member variable
+    FfxApiSurfaceFormat _prevHudlessFormat = FFX_API_SURFACE_FORMAT_UNKNOWN;  // For format change detection
+    UINT64 _lastFrameId = UINT64_MAX;  // Initialize to UINT64_MAX to avoid false positive on first frame
     feature_version _version { 0, 0, 0 };
 
     uint32_t _maxRenderWidth = 0;

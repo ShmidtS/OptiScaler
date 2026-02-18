@@ -2,6 +2,7 @@
 #include "SysUtils.h"
 #include "FG_Hooks.h"
 #include <dxgi1_6.h>
+#include <atomic>
 
 class DxgiFactoryHooks
 {
@@ -50,8 +51,9 @@ class DxgiFactoryHooks
                                               DXGI_GPU_PREFERENCE GpuPreference, REFIID riid, void** ppvAdapter);
 
     // To prevent recursive FG swapchain creation
-    inline static bool _skipFGSwapChainCreation = false;
-    inline static bool _skipHighPerfCheck = false;
+    // Using atomic for thread safety - these are accessed from multiple threads
+    inline static std::atomic<bool> _skipFGSwapChainCreation{false};
+    inline static std::atomic<bool> _skipHighPerfCheck{false};
 
     static void CheckAdapter(IUnknown* unkAdapter);
 
@@ -63,10 +65,13 @@ class DxgiFactoryHooks
       public:
         ScopedSkipFGSCCreation()
         {
-            previousState = DxgiFactoryHooks::_skipFGSwapChainCreation;
-            DxgiFactoryHooks::_skipFGSwapChainCreation = true;
+            previousState = DxgiFactoryHooks::_skipFGSwapChainCreation.load(std::memory_order_relaxed);
+            DxgiFactoryHooks::_skipFGSwapChainCreation.store(true, std::memory_order_relaxed);
         }
-        ~ScopedSkipFGSCCreation() { DxgiFactoryHooks::_skipFGSwapChainCreation = previousState; }
+        ~ScopedSkipFGSCCreation()
+        {
+            DxgiFactoryHooks::_skipFGSwapChainCreation.store(previousState, std::memory_order_relaxed);
+        }
     };
 
     class ScopedSkipHighPerfCheck
@@ -77,9 +82,12 @@ class DxgiFactoryHooks
       public:
         ScopedSkipHighPerfCheck()
         {
-            previousState = DxgiFactoryHooks::_skipHighPerfCheck;
-            DxgiFactoryHooks::_skipHighPerfCheck = true;
+            previousState = DxgiFactoryHooks::_skipHighPerfCheck.load(std::memory_order_relaxed);
+            DxgiFactoryHooks::_skipHighPerfCheck.store(true, std::memory_order_relaxed);
         }
-        ~ScopedSkipHighPerfCheck() { DxgiFactoryHooks::_skipHighPerfCheck = previousState; }
+        ~ScopedSkipHighPerfCheck()
+        {
+            DxgiFactoryHooks::_skipHighPerfCheck.store(previousState, std::memory_order_relaxed);
+        }
     };
 };

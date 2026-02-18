@@ -181,6 +181,12 @@ void IFGFeature_Dx12::FlipResource(Dx12Resource* resource)
         return;
     }
 
+    // Release old resource before assigning new one to prevent memory leak
+    if (_resourceCopy[fIndex][type] != nullptr && _resourceCopy[fIndex][type] != flipOutput)
+    {
+        _resourceCopy[fIndex][type]->Release();
+    }
+
     _resourceCopy[fIndex][type] = flipOutput;
 
     if (type == FG_ResourceType::Depth)

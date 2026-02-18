@@ -263,20 +263,18 @@ float IFeature::GetSharpness(const NVSDK_NGX_Parameter* InParameters)
 
 void IFeature::TickFrozenCheck()
 {
-    static long updatesWithoutFramecountChange = 0;
-
+    // Use member variables instead of static to avoid data corruption
+    // when multiple IFeature instances exist
     if (_isInited)
     {
-        static auto lastFrameCount = _frameCount;
-
-        if (_frameCount == lastFrameCount)
-            updatesWithoutFramecountChange++;
+        if (_frameCount == _lastTickFrameCount)
+            _updatesWithoutFramecountChange++;
         else
-            updatesWithoutFramecountChange = 0;
+            _updatesWithoutFramecountChange = 0;
 
-        lastFrameCount = _frameCount;
+        _lastTickFrameCount = _frameCount;
 
-        _featureFrozen = updatesWithoutFramecountChange > 10;
+        _featureFrozen = _updatesWithoutFramecountChange > 10;
     }
 }
 

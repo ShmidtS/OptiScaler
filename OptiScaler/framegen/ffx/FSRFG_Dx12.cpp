@@ -354,17 +354,16 @@ bool FSRFG_Dx12::Dispatch()
 
     if (fgConfig.HUDLessColor.resource != nullptr)
     {
-        static auto localLastHudlessFormat = (FfxApiSurfaceFormat) fgConfig.HUDLessColor.description.format;
         _lastHudlessFormat = (FfxApiSurfaceFormat) fgConfig.HUDLessColor.description.format;
 
-        if (localLastHudlessFormat != _lastHudlessFormat)
+        if (_prevHudlessFormat != FFX_API_SURFACE_FORMAT_UNKNOWN && _prevHudlessFormat != _lastHudlessFormat)
         {
             state.FGchanged = true;
             state.SCchanged = true;
             LOG_DEBUG("HUDLESS format changed, triggering FG reinit");
         }
 
-        localLastHudlessFormat = _lastHudlessFormat;
+        _prevHudlessFormat = _lastHudlessFormat;
     }
 
     fgConfig.frameGenerationEnabled = _isActive;
@@ -449,6 +448,20 @@ bool FSRFG_Dx12::Dispatch()
         dfgPrepare.header.pNext = &backendDesc.header;
 
         // Camera data (now part of V2 structure)
+        // Check if camera data was properly set (non-zero values)
+        bool cameraDataValid = _cameraDataValid[fIndex];
+
+        if (!cameraDataValid)
+        {
+            // Check if camera position has any non-zero value as fallback
+            cameraDataValid = (_cameraPosition[fIndex][0] != 0.0f || _cameraPosition[fIndex][1] != 0.0f || _cameraPosition[fIndex][2] != 0.0f);
+
+            if (!cameraDataValid)
+            {
+                LOG_WARN("Camera data not set or all zeros for frame {}, MLFI quality may be degraded", willDispatchFrame);
+            }
+        }
+
         std::memcpy(dfgPrepare.cameraPosition, _cameraPosition[fIndex], 3 * sizeof(float));
         std::memcpy(dfgPrepare.cameraUp, _cameraUp[fIndex], 3 * sizeof(float));
         std::memcpy(dfgPrepare.cameraRight, _cameraRight[fIndex], 3 * sizeof(float));
@@ -660,7 +673,7 @@ void* FSRFG_Dx12::SwapchainContext()
 void FSRFG_Dx12::DestroyFGContext()
 {
     _frameCount = 1;
-    // _lastDispatchedFrame = 0;
+    _lastFrameId = UINT64_MAX;  // Reset frame ID tracking
     _version = {};
 
     LOG_DEBUG("");
@@ -980,6 +993,7 @@ void FSRFG_Dx12::CreateContext(ID3D12Device* device, FG_Constants& fgConstants)
         LOG_INFO("D3D12_CreateContext result: {:X}", retCode);
         _isActive = (retCode == FFX_API_RETURN_OK);
         _lastDispatchedFrame = 0;
+        _lastFrameId = UINT64_MAX;  // Reset frame ID tracking to avoid false positives
     }
 
     LOG_DEBUG("Create");
@@ -1002,6 +1016,7 @@ void FSRFG_Dx12::Activate()
         {
             _isActive = true;
             _lastDispatchedFrame = 0;
+            _lastFrameId = UINT64_MAX;  // Reset frame ID tracking to avoid false positives
         }
 
         LOG_INFO("D3D12_Configure Enabled: true, result: {} ({})", magic_enum::enum_name((FfxApiReturnCodes) result),
@@ -1368,78 +1383,79 @@ void FSRFG_Dx12::CreateObjects(ID3D12Device* InDevice)
 
     LOG_DEBUG("");
 
-    do
+    HRESULT result;
+    ID3D12CommandAllocator* allocator = nullptr;
+    ID3D12GraphicsCommandList* cmdList = nullptr;
+
+    // FG
+    for (size_t i = 0; i < BUFFER_COUNT; i++)
     {
-        HRESULT result;
-        ID3D12CommandAllocator* allocator = nullptr;
-        ID3D12GraphicsCommandList* cmdList = nullptr;
-        ID3D12CommandQueue* cmdQueue = nullptr;
-
-        // FG
-        for (size_t i = 0; i < BUFFER_COUNT; i++)
+        result =
+            InDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&_fgCommandAllocator[i]));
+        if (result != S_OK)
         {
-            result =
-                InDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&_fgCommandAllocator[i]));
-            if (result != S_OK)
-            {
-                LOG_ERROR("CreateCommandAllocators _fgCommandAllocator[{}]: {:X}", i, (unsigned long) result);
-                break;
-            }
-
-            _fgCommandAllocator[i]->SetName(std::format(L"_fgCommandAllocator[{}]", i).c_str());
-            if (CheckForRealObject(__FUNCTION__, _fgCommandAllocator[i], (IUnknown**) &allocator))
-                _fgCommandAllocator[i] = allocator;
-
-            result = InDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, _fgCommandAllocator[i], NULL,
-                                                 IID_PPV_ARGS(&_fgCommandList[i]));
-            if (result != S_OK)
-            {
-                LOG_ERROR("CreateCommandList _hudlessCommandList[{}]: {:X}", i, (unsigned long) result);
-                break;
-            }
-            _fgCommandList[i]->SetName(std::format(L"_fgCommandList[{}]", i).c_str());
-            if (CheckForRealObject(__FUNCTION__, _fgCommandList[i], (IUnknown**) &cmdList))
-                _fgCommandList[i] = cmdList;
-
-            result = _fgCommandList[i]->Close();
-            if (result != S_OK)
-            {
-                LOG_ERROR("_fgCommandList[{}]->Close: {:X}", i, (unsigned long) result);
-                break;
-            }
-
-            result =
-                InDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&_uiCommandAllocator[i]));
-            if (result != S_OK)
-            {
-                LOG_ERROR("CreateCommandAllocators _uiCommandAllocator[{}]: {:X}", i, (unsigned long) result);
-                break;
-            }
-
-            _uiCommandAllocator[i]->SetName(std::format(L"_uiCommandAllocator[{}]", i).c_str());
-            if (CheckForRealObject(__FUNCTION__, _uiCommandAllocator[i], (IUnknown**) &allocator))
-                _uiCommandAllocator[i] = allocator;
-
-            result = InDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, _uiCommandAllocator[i], NULL,
-                                                 IID_PPV_ARGS(&_uiCommandList[i]));
-            if (result != S_OK)
-            {
-                LOG_ERROR("CreateCommandList _hudlessCommandList[{}]: {:X}", i, (unsigned long) result);
-                break;
-            }
-            _uiCommandList[i]->SetName(std::format(L"_uiCommandList[{}]", i).c_str());
-            if (CheckForRealObject(__FUNCTION__, _uiCommandList[i], (IUnknown**) &cmdList))
-                _uiCommandList[i] = cmdList;
-
-            result = _uiCommandList[i]->Close();
-            if (result != S_OK)
-            {
-                LOG_ERROR("_uiCommandList[{}]->Close: {:X}", i, (unsigned long) result);
-                break;
-            }
+            LOG_ERROR("CreateCommandAllocators _fgCommandAllocator[{}]: {:X}", i, (unsigned long) result);
+            ReleaseObjects();  // Clean up on failure
+            return;
         }
 
-    } while (false);
+        _fgCommandAllocator[i]->SetName(std::format(L"_fgCommandAllocator[{}]", i).c_str());
+        if (CheckForRealObject(__FUNCTION__, _fgCommandAllocator[i], (IUnknown**) &allocator))
+            _fgCommandAllocator[i] = allocator;
+
+        result = InDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, _fgCommandAllocator[i], NULL,
+                                             IID_PPV_ARGS(&_fgCommandList[i]));
+        if (result != S_OK)
+        {
+            LOG_ERROR("CreateCommandList _fgCommandList[{}]: {:X}", i, (unsigned long) result);
+            ReleaseObjects();  // Clean up on failure
+            return;
+        }
+        _fgCommandList[i]->SetName(std::format(L"_fgCommandList[{}]", i).c_str());
+        if (CheckForRealObject(__FUNCTION__, _fgCommandList[i], (IUnknown**) &cmdList))
+            _fgCommandList[i] = cmdList;
+
+        result = _fgCommandList[i]->Close();
+        if (result != S_OK)
+        {
+            LOG_ERROR("_fgCommandList[{}]->Close: {:X}", i, (unsigned long) result);
+            ReleaseObjects();  // Clean up on failure
+            return;
+        }
+
+        result =
+            InDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&_uiCommandAllocator[i]));
+        if (result != S_OK)
+        {
+            LOG_ERROR("CreateCommandAllocators _uiCommandAllocator[{}]: {:X}", i, (unsigned long) result);
+            ReleaseObjects();  // Clean up on failure
+            return;
+        }
+
+        _uiCommandAllocator[i]->SetName(std::format(L"_uiCommandAllocator[{}]", i).c_str());
+        if (CheckForRealObject(__FUNCTION__, _uiCommandAllocator[i], (IUnknown**) &allocator))
+            _uiCommandAllocator[i] = allocator;
+
+        result = InDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, _uiCommandAllocator[i], NULL,
+                                             IID_PPV_ARGS(&_uiCommandList[i]));
+        if (result != S_OK)
+        {
+            LOG_ERROR("CreateCommandList _uiCommandList[{}]: {:X}", i, (unsigned long) result);
+            ReleaseObjects();  // Clean up on failure
+            return;
+        }
+        _uiCommandList[i]->SetName(std::format(L"_uiCommandList[{}]", i).c_str());
+        if (CheckForRealObject(__FUNCTION__, _uiCommandList[i], (IUnknown**) &cmdList))
+            _uiCommandList[i] = cmdList;
+
+        result = _uiCommandList[i]->Close();
+        if (result != S_OK)
+        {
+            LOG_ERROR("_uiCommandList[{}]->Close: {:X}", i, (unsigned long) result);
+            ReleaseObjects();  // Clean up on failure
+            return;
+        }
+    }
 }
 
 bool FSRFG_Dx12::Present()

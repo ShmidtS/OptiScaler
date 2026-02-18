@@ -845,6 +845,14 @@ static HRESULT hkD3D12GetInterface(REFCLSID rclsid, REFIID riid, void** ppvDebug
 
     if (rclsid == CLSID_D3D12DeviceFactory && o_CreateDevice == nullptr)
     {
+        // Use static mutex to prevent race condition between check and hook
+        static std::mutex createDeviceMutex;
+        std::lock_guard<std::mutex> lock(createDeviceMutex);
+
+        // Double-check after acquiring lock
+        if (o_CreateDevice != nullptr)
+            return result;
+
         auto deviceFactory = (ID3D12DeviceFactory*) *ppvDebug;
 
         PVOID* pVTable = *(PVOID**) deviceFactory;
