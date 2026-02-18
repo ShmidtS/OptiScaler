@@ -558,8 +558,11 @@ bool Config::Reload(std::filesystem::path iniPath)
 
         // Dx11 with Dx12
         {
-            Dx11DelayedInit.set_from_config(readInt("Dx11withDx12", "UseDelayedInit"));
+            Dx11DelayedInit.set_from_config(readBool("Dx11withDx12", "UseDelayedInit"));
             DontUseNTShared.set_from_config(readBool("Dx11withDx12", "DontUseNTShared"));
+            Dx11TextureSyncMethod.set_from_config(readInt("Dx11withDx12", "TextureSyncMethod"));
+            Dx11CopyBackSyncMethod.set_from_config(readInt("Dx11withDx12", "CopyBackSyncMethod"));
+            Dx11SyncAfterDx12.set_from_config(readBool("Dx11withDx12", "SyncAfterDx12"));
         }
 
         // NvApi
@@ -1091,7 +1094,11 @@ bool Config::SaveIni()
 
     // Dx11 with Dx12
     {
+        SAVE_BOOL("Dx11withDx12", "UseDelayedInit", Dx11DelayedInit);
         SAVE_BOOL("Dx11withDx12", "DontUseNTShared", DontUseNTShared);
+        SAVE_INT("Dx11withDx12", "TextureSyncMethod", Dx11TextureSyncMethod);
+        SAVE_INT("Dx11withDx12", "CopyBackSyncMethod", Dx11CopyBackSyncMethod);
+        SAVE_BOOL("Dx11withDx12", "SyncAfterDx12", Dx11SyncAfterDx12);
     }
 
     // Logging

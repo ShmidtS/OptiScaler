@@ -390,6 +390,9 @@ class Config
     // dx11wdx12
     CustomOptional<bool> Dx11DelayedInit { false };
     CustomOptional<bool> DontUseNTShared { false };
+    CustomOptional<int> Dx11TextureSyncMethod { 1 };
+    CustomOptional<int> Dx11CopyBackSyncMethod { 5 };
+    CustomOptional<bool> Dx11SyncAfterDx12 { true };
 
     // vulkanwdx12
     CustomOptional<bool> VulkanUseCopyForInputs { false };
