@@ -79,6 +79,9 @@ VkCommandBuffer IFGFeature_Vk::GetUICommandBuffer(int index)
         return VK_NULL_HANDLE;
     }
 
+    // Help static analyzer understand that index is now valid
+    __analysis_assume(index >= 0 && index < BUFFER_COUNT);
+
     LOG_DEBUG("index: {}", index);
 
     if (_uiCommandPool[0] == VK_NULL_HANDLE)

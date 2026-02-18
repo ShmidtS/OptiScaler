@@ -192,9 +192,15 @@ class IGDExtProxy
         {
             extensionsVersions = new INTCExtensionVersion[extensionsVersionCount] {};
 
+            // Store the allocated count - the second call might modify extensionsVersionCount
+            const uint32_t allocatedCount = extensionsVersionCount;
+
             if (_INTC_D3D12_GetSupportedVersions(device, extensionsVersions, &extensionsVersionCount) == S_OK)
             {
-                for (uint32_t i = 0; i < extensionsVersionCount; i++)
+                // Use the minimum of allocated and returned count to prevent bounds overflow
+                const uint32_t safeCount = (extensionsVersionCount < allocatedCount) ? extensionsVersionCount : allocatedCount;
+
+                for (uint32_t i = 0; i < safeCount; i++)
                 {
                     if ((extensionsVersions[i].HWFeatureLevel >= atomicVersion.HWFeatureLevel) &&
                         (extensionsVersions[i].APIVersion >= atomicVersion.APIVersion) &&

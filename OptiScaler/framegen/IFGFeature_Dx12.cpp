@@ -65,6 +65,9 @@ ID3D12GraphicsCommandList* IFGFeature_Dx12::GetUICommandList(int index)
         return nullptr;
     }
 
+    // Help static analyzer understand index is valid
+    __analysis_assume(index >= 0 && index < BUFFER_COUNT);
+
     LOG_DEBUG("index: {}", index);
 
     if (_uiCommandAllocator[0] == nullptr)

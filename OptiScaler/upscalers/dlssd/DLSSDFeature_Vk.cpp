@@ -231,7 +231,7 @@ bool DLSSDFeatureVk::Evaluate(VkCommandBuffer InCmdBuffer, NVSDK_NGX_Parameter* 
                 OS->Dispatch(Device, InCmdBuffer, OS->GetImageView(), RCAS->GetImageView(), outExtent);
         }
 
-        if (rcasEnabled)
+        if (rcasEnabled && paramOutput != nullptr)
         {
             NVSDK_NGX_Resource_VK* paramVelocity = nullptr;
 

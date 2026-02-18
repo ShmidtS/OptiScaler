@@ -554,7 +554,7 @@ hkffxFrameInterpolationContextCreate(FfxFrameInterpolationContext* context,
 
     State::Instance().currentFG->CreateContext(_device, _fgConst);
 
-    *context = {};
+    memset(context, 0, sizeof(FfxFrameInterpolationContext));
     context->data[0] = fgContext;
 
     return Fsr3::FFX_OK;

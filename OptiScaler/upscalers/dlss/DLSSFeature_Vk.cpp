@@ -260,8 +260,11 @@ bool DLSSFeatureVk::Evaluate(VkCommandBuffer InCmdBuffer, NVSDK_NGX_Parameter* I
                 RCAS->Dispatch(Device, InCmdBuffer, rcasConstants, RCAS->GetImageView(),
                                paramVelocity->Resource.ImageViewInfo.ImageView, finalOutputView, outExtent);
 
-                paramOutput->Resource.ImageViewInfo.Image = finalOutputImage;
-                paramOutput->Resource.ImageViewInfo.ImageView = finalOutputView;
+                if (paramOutput != nullptr)
+                {
+                    paramOutput->Resource.ImageViewInfo.Image = finalOutputImage;
+                    paramOutput->Resource.ImageViewInfo.ImageView = finalOutputView;
+                }
             }
         }
     }
