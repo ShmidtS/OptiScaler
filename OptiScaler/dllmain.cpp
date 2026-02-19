@@ -1016,6 +1016,7 @@ static void printQuirks(flag_set<GameQuirk>& quirks)
         {GameQuirk::SetHudlessValidNow, "Set Hudless as ValidNow"},
         {GameQuirk::DisableResizeSkip, "Disable Resize Skip"},
         {GameQuirk::SpoofRegistry, "Spoof Registry"},
+        {GameQuirk::DisableFakenvapi, "Disable fakenvapi"},
     };
 
     for (const auto& info : quirksTable)
@@ -1181,6 +1182,11 @@ static void CheckQuirks()
     if (quirks & GameQuirk::SpoofRegistry && !Config::Instance()->SpoofRegistry.has_value())
     {
         Config::Instance()->SpoofRegistry.set_volatile_value(true);
+    }
+
+    if (quirks & GameQuirk::DisableFakenvapi && !Config::Instance()->OverrideNvapiDll.has_value())
+    {
+        Config::Instance()->OverrideNvapiDll.set_volatile_value(false);
     }
 
     // For Luma, we assume if Luma addon in game folder it's used

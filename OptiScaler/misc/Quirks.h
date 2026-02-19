@@ -38,6 +38,7 @@ enum class GameQuirk : uint64_t
     SetHudlessValidNow,
     DisableResizeSkip,
     SpoofRegistry,
+    DisableFakenvapi,
 
     // Quirks that are applied deeper in code
     CyberpunkHudlessFixes,
@@ -107,7 +108,7 @@ static const QuirkEntry quirkTable[] = {
     QUIRK_ENTRY("wwm.exe", GameQuirk::DisableXeFGChecks),
 
     // Arknights: Endfield
-    QUIRK_ENTRY("endfield.exe", GameQuirk::ForceCreateD3D12Device),
+    QUIRK_ENTRY("endfield.exe", GameQuirk::ForceCreateD3D12Device, GameQuirk::DisableFakenvapi),
 
     // Trails in the Sky 1st Chapter
     QUIRK_ENTRY("sora_1st.exe", GameQuirk::UseFsr2Dx11Inputs, GameQuirk::DisableDxgiSpoofing),
