@@ -30,6 +30,10 @@ static PFN_D3D11ON12_CREATE_DEVICE o_D3D11On12CreateDevice = nullptr;
 static HRESULT hkCreateSamplerState(ID3D11Device* This, const D3D11_SAMPLER_DESC* pSamplerDesc,
                                     ID3D11SamplerState** ppSamplerState);
 
+// VTable constants for ID3D11Device
+constexpr size_t D3D11_DEVICE_VTABLE_SIZE = 80; // Known size for ID3D11Device vtable
+constexpr size_t D3D11_DEVICE_CREATE_SAMPLER_STATE_INDEX = 23;
+
 static inline D3D11_FILTER UpgradeToAF(D3D11_FILTER f)
 {
     if (Config::Instance()->AnisotropySkipPointFilter.value_or_default() &&
@@ -83,7 +87,15 @@ static void HookToDevice(ID3D11Device* InDevice)
     }
 
     PVOID* pVTable = *ppVTable;
-    o_CreateSamplerState = (PFN_CreateSamplerState) pVTable[23];
+
+    // Bounds check for vtable access
+    if (D3D11_DEVICE_CREATE_SAMPLER_STATE_INDEX >= D3D11_DEVICE_VTABLE_SIZE)
+    {
+        LOG_ERROR("VTable index {} out of bounds (max {})", D3D11_DEVICE_CREATE_SAMPLER_STATE_INDEX, D3D11_DEVICE_VTABLE_SIZE - 1);
+        return;
+    }
+
+    o_CreateSamplerState = (PFN_CreateSamplerState) pVTable[D3D11_DEVICE_CREATE_SAMPLER_STATE_INDEX];
 
     // Apply the detour
     if (o_CreateSamplerState != nullptr)

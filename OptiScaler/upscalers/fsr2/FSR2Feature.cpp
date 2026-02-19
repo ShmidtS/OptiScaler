@@ -16,11 +16,10 @@ FSR2Feature::~FSR2Feature()
     if (!IsInited())
         return;
 
-    if (!State::Instance().isShuttingDown)
-    {
-        auto errorCode = ffxFsr2ContextDestroy(&_context);
-        free(_contextDesc.callbacks.scratchBuffer);
-    }
+    // Always destroy context and free memory, even during shutdown
+    // to prevent memory leaks
+    auto errorCode = ffxFsr2ContextDestroy(&_context);
+    free(_contextDesc.callbacks.scratchBuffer);
 
     SetInit(false);
 }

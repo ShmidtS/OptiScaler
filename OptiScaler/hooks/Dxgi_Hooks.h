@@ -8,4 +8,5 @@ class DxgiHooks
 
   public:
     static void Hook();
+    static void Unhook();
 };

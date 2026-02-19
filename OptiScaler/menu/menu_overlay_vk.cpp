@@ -143,6 +143,17 @@ static void CreateVulkanObjects(VkDevice device, VkPhysicalDevice pd, VkInstance
         else
         {
             LOG_WARN("PD Queue property count is 0!");
+            // Cleanup allocated memory before early return
+            if (_ImVulkan_Frames != VK_NULL_HANDLE)
+            {
+                IM_FREE(_ImVulkan_Frames);
+                _ImVulkan_Frames = VK_NULL_HANDLE;
+            }
+            if (_ImVulkan_Semaphores != VK_NULL_HANDLE)
+            {
+                IM_FREE(_ImVulkan_Semaphores);
+                _ImVulkan_Semaphores = VK_NULL_HANDLE;
+            }
             return;
         }
     }
@@ -169,6 +180,17 @@ static void CreateVulkanObjects(VkDevice device, VkPhysicalDevice pd, VkInstance
         if (result != VK_SUCCESS)
         {
             LOG_ERROR("vkCreateDescriptorPool error: {0:X}", (UINT) result);
+            // Cleanup allocated memory before early return
+            if (_ImVulkan_Frames != VK_NULL_HANDLE)
+            {
+                IM_FREE(_ImVulkan_Frames);
+                _ImVulkan_Frames = VK_NULL_HANDLE;
+            }
+            if (_ImVulkan_Semaphores != VK_NULL_HANDLE)
+            {
+                IM_FREE(_ImVulkan_Semaphores);
+                _ImVulkan_Semaphores = VK_NULL_HANDLE;
+            }
             return;
         }
     }
@@ -216,6 +238,18 @@ static void CreateVulkanObjects(VkDevice device, VkPhysicalDevice pd, VkInstance
         if (result != VK_SUCCESS)
         {
             LOG_ERROR("vkCreateRenderPass error: {0:X}", (UINT) result);
+            // Cleanup allocated memory before early return
+            vkDestroyDescriptorPool(device, pool, NULL);
+            if (_ImVulkan_Frames != VK_NULL_HANDLE)
+            {
+                IM_FREE(_ImVulkan_Frames);
+                _ImVulkan_Frames = VK_NULL_HANDLE;
+            }
+            if (_ImVulkan_Semaphores != VK_NULL_HANDLE)
+            {
+                IM_FREE(_ImVulkan_Semaphores);
+                _ImVulkan_Semaphores = VK_NULL_HANDLE;
+            }
             return;
         }
     }
@@ -531,6 +565,9 @@ bool MenuOverlayVk::QueuePresent(VkQueue queue, VkPresentInfoKHR* pPresentInfo)
 
     std::lock_guard<std::mutex> lock(_vkPresentMutex);
     LOG_DEBUG("rendering menu, swapchain count: {0}", pPresentInfo->swapchainCount);
+
+    if (!ImGui::GetCurrentContext())
+        return true;
 
     ImGuiIO& io = ImGui::GetIO();
     (void) io;

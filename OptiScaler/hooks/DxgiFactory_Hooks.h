@@ -8,6 +8,7 @@ class DxgiFactoryHooks
 {
   public:
     static void HookToFactory(IDXGIFactory* pFactory);
+    static void CleanupWrappedSwapChains();
 
   private:
     typedef HRESULT (*PFN_EnumAdapterByGpuPreference)(IDXGIFactory6* This, UINT Adapter,

@@ -18,6 +18,7 @@ static bool _dx12Device = false;
 
 // Mutex for protecting static globals
 static std::mutex _dxOverlayMutex;
+static std::atomic<bool> _isInited{false};
 
 // for dx11
 static ID3D11Device* g_pd3dDevice = nullptr;
@@ -39,7 +40,6 @@ static D3D12_CPU_DESCRIPTOR_HANDLE g_mainRenderTargetDescriptor[NUM_BACK_BUFFERS
 static IUnknown* currentSCCommandQueue = nullptr;
 
 // status
-static bool _isInited = false;
 static bool _d3d12Captured = false;
 
 // for showing
@@ -263,9 +263,7 @@ static void RenderImGui_DX11(IDXGISwapChain* pSwapChain)
     {
         if (pSwapChain->GetDevice(IID_PPV_ARGS(&g_pd3dDevice)) == S_OK)
         {
-            g_pd3dDevice->Release();
             g_pd3dDevice->GetImmediateContext(&g_pd3dDeviceContext);
-            g_pd3dDeviceContext->Release();
             ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
         }
     }

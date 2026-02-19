@@ -9,10 +9,34 @@
 #include <magic_enum.hpp>
 #include <detours/detours.h>
 
+// Track wrapped swap chain objects for cleanup on unhook
+static std::unordered_set<WrappedIDXGISwapChain4*> g_wrappedSwapChains;
+static std::mutex g_wrappedSwapChainsMutex;
+
+void DxgiFactoryHooks::CleanupWrappedSwapChains()
+{
+    std::lock_guard<std::mutex> lock(g_wrappedSwapChainsMutex);
+    for (auto* wrapped : g_wrappedSwapChains)
+    {
+        delete wrapped;
+    }
+    g_wrappedSwapChains.clear();
+}
+
 // #define DETAILED_SC_LOGS
 
 #ifdef DETAILED_SC_LOGS
 #endif
+
+// VTable constants for IDXGIFactory interfaces
+constexpr size_t DXGI_FACTORY_VTABLE_SIZE = 35; // Known size for IDXGIFactory6 vtable
+constexpr size_t DXGI_FACTORY_ENUM_ADAPTERS_INDEX = 7;
+constexpr size_t DXGI_FACTORY_CREATE_SWAPCHAIN_INDEX = 10;
+constexpr size_t DXGI_FACTORY_ENUM_ADAPTERS1_INDEX = 12;
+constexpr size_t DXGI_FACTORY_CREATE_SWAPCHAIN_FOR_HWND_INDEX = 15;
+constexpr size_t DXGI_FACTORY_CREATE_SWAPCHAIN_FOR_CORE_WINDOW_INDEX = 16;
+constexpr size_t DXGI_FACTORY_ENUM_ADAPTER_BY_LUID_INDEX = 26;
+constexpr size_t DXGI_FACTORY_ENUM_ADAPTER_BY_GPU_PREFERENCE_INDEX = 29;
 
 void DxgiFactoryHooks::CheckAdapter(IUnknown* unkAdapter)
 {
@@ -61,6 +85,14 @@ void DxgiFactoryHooks::HookToFactory(IDXGIFactory* pFactory)
 
     void** pFactoryVTable = *ppVTable;
 
+    // Bounds check for vtable access (use highest index for single check)
+    constexpr size_t MAX_DXGI_VTABLE_INDEX = DXGI_FACTORY_ENUM_ADAPTER_BY_GPU_PREFERENCE_INDEX;
+    if (MAX_DXGI_VTABLE_INDEX >= DXGI_FACTORY_VTABLE_SIZE)
+    {
+        LOG_ERROR("VTable index {} out of bounds (max {})", MAX_DXGI_VTABLE_INDEX, DXGI_FACTORY_VTABLE_SIZE - 1);
+        return;
+    }
+
     LONG detourResult = DetourTransactionBegin();
     if (detourResult != NO_ERROR)
     {
@@ -72,7 +104,7 @@ void DxgiFactoryHooks::HookToFactory(IDXGIFactory* pFactory)
 
     if (o_EnumAdapters == nullptr)
     {
-        o_EnumAdapters = (PFN_EnumAdapters) pFactoryVTable[7];
+        o_EnumAdapters = (PFN_EnumAdapters) pFactoryVTable[DXGI_FACTORY_ENUM_ADAPTERS_INDEX];
 
         if (o_EnumAdapters != nullptr)
         {
@@ -84,7 +116,7 @@ void DxgiFactoryHooks::HookToFactory(IDXGIFactory* pFactory)
 
     if (o_CreateSwapChain == nullptr)
     {
-        o_CreateSwapChain = (PFN_CreateSwapChain) pFactoryVTable[10];
+        o_CreateSwapChain = (PFN_CreateSwapChain) pFactoryVTable[DXGI_FACTORY_CREATE_SWAPCHAIN_INDEX];
 
         if (o_CreateSwapChain != nullptr)
         {
@@ -101,7 +133,7 @@ void DxgiFactoryHooks::HookToFactory(IDXGIFactory* pFactory)
 
         if (o_EnumAdapters1 == nullptr)
         {
-            o_EnumAdapters1 = (PFN_EnumAdapters1) pFactoryVTable[12];
+            o_EnumAdapters1 = (PFN_EnumAdapters1) pFactoryVTable[DXGI_FACTORY_ENUM_ADAPTERS1_INDEX];
 
             if (o_EnumAdapters1 != nullptr)
             {
@@ -119,7 +151,7 @@ void DxgiFactoryHooks::HookToFactory(IDXGIFactory* pFactory)
 
         if (o_CreateSwapChainForHwnd == nullptr)
         {
-            o_CreateSwapChainForHwnd = (PFN_CreateSwapChainForHwnd) pFactoryVTable[15];
+            o_CreateSwapChainForHwnd = (PFN_CreateSwapChainForHwnd) pFactoryVTable[DXGI_FACTORY_CREATE_SWAPCHAIN_FOR_HWND_INDEX];
 
             if (o_CreateSwapChainForHwnd != nullptr)
             {
@@ -131,7 +163,7 @@ void DxgiFactoryHooks::HookToFactory(IDXGIFactory* pFactory)
 
         if (o_CreateSwapChainForCoreWindow == nullptr)
         {
-            o_CreateSwapChainForCoreWindow = (PFN_CreateSwapChainForCoreWindow) pFactoryVTable[16];
+            o_CreateSwapChainForCoreWindow = (PFN_CreateSwapChainForCoreWindow) pFactoryVTable[DXGI_FACTORY_CREATE_SWAPCHAIN_FOR_CORE_WINDOW_INDEX];
 
             if (o_CreateSwapChainForCoreWindow != nullptr)
             {
@@ -149,7 +181,7 @@ void DxgiFactoryHooks::HookToFactory(IDXGIFactory* pFactory)
 
         if (o_EnumAdapterByLuid == nullptr)
         {
-            o_EnumAdapterByLuid = (PFN_EnumAdapterByLuid) pFactoryVTable[26];
+            o_EnumAdapterByLuid = (PFN_EnumAdapterByLuid) pFactoryVTable[DXGI_FACTORY_ENUM_ADAPTER_BY_LUID_INDEX];
 
             if (o_EnumAdapterByLuid != nullptr)
             {
@@ -167,7 +199,7 @@ void DxgiFactoryHooks::HookToFactory(IDXGIFactory* pFactory)
 
         if (o_EnumAdapterByGpuPreference == nullptr)
         {
-            o_EnumAdapterByGpuPreference = (PFN_EnumAdapterByGpuPreference) pFactoryVTable[29];
+            o_EnumAdapterByGpuPreference = (PFN_EnumAdapterByGpuPreference) pFactoryVTable[DXGI_FACTORY_ENUM_ADAPTER_BY_GPU_PREFERENCE_INDEX];
 
             if (o_EnumAdapterByGpuPreference != nullptr)
             {
@@ -397,7 +429,14 @@ HRESULT DxgiFactoryHooks::CreateSwapChain(IDXGIFactory* realFactory, IUnknown* p
             }
 
             LOG_DEBUG("Created new swapchain: {0:X}, hWnd: {1:X}", (UINT64) *ppSwapChain, (UINT64) pDesc->OutputWindow);
-            *ppSwapChain = new WrappedIDXGISwapChain4(realSC, realDevice, pDesc->OutputWindow, pDesc->Flags, false);
+            {
+                auto wrapped = new WrappedIDXGISwapChain4(realSC, realDevice, pDesc->OutputWindow, pDesc->Flags, false);
+                {
+                    std::lock_guard<std::mutex> lock(g_wrappedSwapChainsMutex);
+                    g_wrappedSwapChains.insert(wrapped);
+                }
+                *ppSwapChain = wrapped;
+            }
 
             // Set as currentSwapchain is FG is disabled
             if (!_skipFGSwapChainCreation)

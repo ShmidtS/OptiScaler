@@ -14,6 +14,10 @@ static DxgiProxy::PFN_CreateDxgiFactory1 o_CreateDXGIFactory1 = nullptr;
 static DxgiProxy::PFN_CreateDxgiFactory2 o_CreateDXGIFactory2 = nullptr;
 static std::atomic<bool> creatingD3D12DeviceForLuma{false};
 
+// Track wrapped factory objects for cleanup on unhook
+static std::unordered_set<WrappedIDXGIFactory7*> g_wrappedFactories;
+static std::mutex g_wrappedFactoriesMutex;
+
 #pragma intrinsic(_ReturnAddress)
 
 static void GetHardwareAdapter(IDXGIFactory* InFactory, IDXGIAdapter** InAdapter, D3D_FEATURE_LEVEL InFeatureLevel,
@@ -185,7 +189,14 @@ inline static HRESULT hkCreateDXGIFactory(REFIID riid, IDXGIFactory** ppFactory)
     real = (IDXGIFactory*) (*ppFactory);
 
     if (Config::Instance()->DxgiFactoryWrapping.value_or_default())
-        *ppFactory = (IDXGIFactory*) (new WrappedIDXGIFactory7(real));
+    {
+        auto wrapped = new WrappedIDXGIFactory7(real);
+        {
+            std::lock_guard<std::mutex> lock(g_wrappedFactoriesMutex);
+            g_wrappedFactories.insert(wrapped);
+        }
+        *ppFactory = (IDXGIFactory*) wrapped;
+    }
     else
         DxgiFactoryHooks::HookToFactory(real);
 
@@ -236,7 +247,14 @@ inline static HRESULT hkCreateDXGIFactory1(REFIID riid, IDXGIFactory1** ppFactor
     real = (IDXGIFactory1*) (*ppFactory);
 
     if (Config::Instance()->DxgiFactoryWrapping.value_or_default())
-        *ppFactory = (IDXGIFactory1*) (new WrappedIDXGIFactory7(real));
+    {
+        auto wrapped = new WrappedIDXGIFactory7(real);
+        {
+            std::lock_guard<std::mutex> lock(g_wrappedFactoriesMutex);
+            g_wrappedFactories.insert(wrapped);
+        }
+        *ppFactory = (IDXGIFactory1*) wrapped;
+    }
     else
         DxgiFactoryHooks::HookToFactory(real);
 
@@ -289,13 +307,38 @@ inline static HRESULT hkCreateDXGIFactory2(UINT Flags, REFIID riid, IDXGIFactory
     real = (IDXGIFactory2*) (*ppFactory);
 
     if (Config::Instance()->DxgiFactoryWrapping.value_or_default())
-        *ppFactory = (IDXGIFactory2*) (new WrappedIDXGIFactory7(real));
+    {
+        auto wrapped = new WrappedIDXGIFactory7(real);
+        {
+            std::lock_guard<std::mutex> lock(g_wrappedFactoriesMutex);
+            g_wrappedFactories.insert(wrapped);
+        }
+        *ppFactory = (IDXGIFactory2*) wrapped;
+    }
     else
         DxgiFactoryHooks::HookToFactory(real);
 
     CheckLumaAndReShade(real);
 
     return result;
+}
+
+void DxgiHooks::Unhook()
+{
+    std::lock_guard<std::mutex> lock(hookMutex);
+
+    // Clean up wrapped factory objects
+    {
+        std::lock_guard<std::mutex> factoryLock(g_wrappedFactoriesMutex);
+        for (auto* wrapped : g_wrappedFactories)
+        {
+            delete wrapped;
+        }
+        g_wrappedFactories.clear();
+    }
+
+    // Also clean up wrapped swap chains
+    DxgiFactoryHooks::CleanupWrappedSwapChains();
 }
 
 void DxgiHooks::Hook()

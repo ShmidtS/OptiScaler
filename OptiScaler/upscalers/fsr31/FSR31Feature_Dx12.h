@@ -27,9 +27,7 @@ class FSR31FeatureDx12 : public FSR31Feature, public IFeature_Dx12
 
     ~FSR31FeatureDx12()
     {
-        if (State::Instance().isShuttingDown)
-            return;
-
+        // ALWAYS destroy context regardless of shutdown state to prevent leaks
         if (_context != nullptr)
         {
             FfxApiProxy::D3D12_DestroyContext(&_context, NULL);

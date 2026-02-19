@@ -1029,7 +1029,17 @@ void VulkanHooks::Hook(HMODULE vulkan1)
     if (o_vkCreateWin32SurfaceKHR != nullptr)
         DetourAttach(&(PVOID&) o_vkCreateWin32SurfaceKHR, hkvkCreateWin32SurfaceKHR);
 
-    DetourTransactionCommit();
+    LONG detourResult = DetourTransactionCommit();
+    if (detourResult != NO_ERROR)
+    {
+        LOG_ERROR("DetourTransactionCommit failed in Vulkan_Hooks::Hook: {}", detourResult);
+        // Reset function pointers to indicate hooks not applied
+        o_vkCreateDevice = nullptr;
+        o_vkCreateInstance = nullptr;
+        o_vkGetInstanceProcAddr = nullptr;
+        o_vkGetDeviceProcAddr = nullptr;
+        o_vkCreateWin32SurfaceKHR = nullptr;
+    }
 }
 
 void VulkanHooks::Unhook()
@@ -1108,5 +1118,9 @@ void VulkanHooks::Unhook()
         o_vkGetDeviceProcAddr = nullptr;
     }
 
-    DetourTransactionCommit();
+    LONG detourResult = DetourTransactionCommit();
+    if (detourResult != NO_ERROR)
+    {
+        LOG_ERROR("DetourTransactionCommit failed in Vulkan_Hooks::Unhook: {}", detourResult);
+    }
 }

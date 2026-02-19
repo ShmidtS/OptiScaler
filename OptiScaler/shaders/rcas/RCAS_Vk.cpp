@@ -487,5 +487,10 @@ void RCAS_Vk::CreateConstantBuffer()
         return;
     }
 
-    vkMapMemory(_device, _constantBufferMemory, 0, bufferSize, 0, &_mappedConstantBuffer);
+    VkResult result = vkMapMemory(_device, _constantBufferMemory, 0, bufferSize, 0, &_mappedConstantBuffer);
+    if (result != VK_SUCCESS)
+    {
+        LOG_ERROR("Failed to map constant buffer memory: {}", static_cast<int>(result));
+        _mappedConstantBuffer = nullptr;
+    }
 }

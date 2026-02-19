@@ -636,49 +636,46 @@ static Fsr212::FfxErrorCode ffxFsr2ContextDispatch_Dx12(Fsr212::FfxFsr2Context* 
     if (dispatchDescription == nullptr || context == nullptr || dispatchDescription->commandList == nullptr)
         return Fsr212::FFX_ERROR_INVALID_ARGUMENT;
 
-    // If not in contexts list create and add context
+    // If not in contexts list create and add context, then use params/handle under lock to prevent race condition
+    NVSDK_NGX_Parameter* params = nullptr;
+    NVSDK_NGX_Handle* handle = nullptr;
     {
         std::lock_guard<std::mutex> lock(_fsr2ContextMutex);
         if (!_contexts.contains(context) && _initParams.contains(context) &&
             !CreateDLSSContext(context, dispatchDescription))
             return Fsr212::FFX_ERROR_INVALID_ARGUMENT;
-    }
 
-    NVSDK_NGX_Parameter* params = nullptr;
-    NVSDK_NGX_Handle* handle = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(_fsr2ContextMutex);
         params = _nvParams[context];
         handle = _contexts[context];
+
+        params->Set(NVSDK_NGX_Parameter_Jitter_Offset_X, dispatchDescription->jitterOffset.x);
+        params->Set(NVSDK_NGX_Parameter_Jitter_Offset_Y, dispatchDescription->jitterOffset.y);
+        params->Set(NVSDK_NGX_Parameter_MV_Scale_X, dispatchDescription->motionVectorScale.x);
+        params->Set(NVSDK_NGX_Parameter_MV_Scale_Y, dispatchDescription->motionVectorScale.y);
+        params->Set(NVSDK_NGX_Parameter_DLSS_Exposure_Scale, 1.0);
+        params->Set(NVSDK_NGX_Parameter_DLSS_Pre_Exposure, dispatchDescription->preExposure);
+        params->Set(NVSDK_NGX_Parameter_Reset, dispatchDescription->reset ? 1 : 0);
+        params->Set(NVSDK_NGX_Parameter_Width, dispatchDescription->renderSize.width);
+        params->Set(NVSDK_NGX_Parameter_Height, dispatchDescription->renderSize.height);
+        params->Set(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Width, dispatchDescription->renderSize.width);
+        params->Set(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Height, dispatchDescription->renderSize.height);
+        params->Set(NVSDK_NGX_Parameter_Depth, dispatchDescription->depth.resource);
+        params->Set(NVSDK_NGX_Parameter_ExposureTexture, dispatchDescription->exposure.resource);
+        params->Set(NVSDK_NGX_Parameter_DLSS_Input_Bias_Current_Color_Mask, dispatchDescription->reactive.resource);
+        params->Set(NVSDK_NGX_Parameter_Color, dispatchDescription->color.resource);
+        params->Set(NVSDK_NGX_Parameter_MotionVectors, dispatchDescription->motionVectors.resource);
+        params->Set(NVSDK_NGX_Parameter_Output, dispatchDescription->output.resource);
+        params->Set("FSR.cameraNear", dispatchDescription->cameraNear);
+        params->Set("FSR.cameraFar", dispatchDescription->cameraFar);
+        params->Set("FSR.cameraFovAngleVertical", dispatchDescription->cameraFovAngleVertical);
+        params->Set("FSR.frameTimeDelta", dispatchDescription->frameTimeDelta);
+        params->Set("FSR.transparencyAndComposition", dispatchDescription->transparencyAndComposition.resource);
+        params->Set("FSR.reactive", dispatchDescription->reactive.resource);
+        params->Set(NVSDK_NGX_Parameter_Sharpness, dispatchDescription->sharpness);
+
+        LOG_DEBUG("handle: {:X}, internalResolution: {}x{}", handle->Id, dispatchDescription->renderSize.width,
+                  dispatchDescription->renderSize.height);
     }
-
-    params->Set(NVSDK_NGX_Parameter_Jitter_Offset_X, dispatchDescription->jitterOffset.x);
-    params->Set(NVSDK_NGX_Parameter_Jitter_Offset_Y, dispatchDescription->jitterOffset.y);
-    params->Set(NVSDK_NGX_Parameter_MV_Scale_X, dispatchDescription->motionVectorScale.x);
-    params->Set(NVSDK_NGX_Parameter_MV_Scale_Y, dispatchDescription->motionVectorScale.y);
-    params->Set(NVSDK_NGX_Parameter_DLSS_Exposure_Scale, 1.0);
-    params->Set(NVSDK_NGX_Parameter_DLSS_Pre_Exposure, dispatchDescription->preExposure);
-    params->Set(NVSDK_NGX_Parameter_Reset, dispatchDescription->reset ? 1 : 0);
-    params->Set(NVSDK_NGX_Parameter_Width, dispatchDescription->renderSize.width);
-    params->Set(NVSDK_NGX_Parameter_Height, dispatchDescription->renderSize.height);
-    params->Set(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Width, dispatchDescription->renderSize.width);
-    params->Set(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Height, dispatchDescription->renderSize.height);
-    params->Set(NVSDK_NGX_Parameter_Depth, dispatchDescription->depth.resource);
-    params->Set(NVSDK_NGX_Parameter_ExposureTexture, dispatchDescription->exposure.resource);
-    params->Set(NVSDK_NGX_Parameter_DLSS_Input_Bias_Current_Color_Mask, dispatchDescription->reactive.resource);
-    params->Set(NVSDK_NGX_Parameter_Color, dispatchDescription->color.resource);
-    params->Set(NVSDK_NGX_Parameter_MotionVectors, dispatchDescription->motionVectors.resource);
-    params->Set(NVSDK_NGX_Parameter_Output, dispatchDescription->output.resource);
-    params->Set("FSR.cameraNear", dispatchDescription->cameraNear);
-    params->Set("FSR.cameraFar", dispatchDescription->cameraFar);
-    params->Set("FSR.cameraFovAngleVertical", dispatchDescription->cameraFovAngleVertical);
-    params->Set("FSR.frameTimeDelta", dispatchDescription->frameTimeDelta);
-    params->Set("FSR.transparencyAndComposition", dispatchDescription->transparencyAndComposition.resource);
-    params->Set("FSR.reactive", dispatchDescription->reactive.resource);
-    params->Set(NVSDK_NGX_Parameter_Sharpness, dispatchDescription->sharpness);
-
-    LOG_DEBUG("handle: {:X}, internalResolution: {}x{}", handle->Id, dispatchDescription->renderSize.width,
-              dispatchDescription->renderSize.height);
 
     State::Instance().setInputApiName = "FSR2.X";
 

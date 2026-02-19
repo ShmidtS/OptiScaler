@@ -20,6 +20,7 @@
 #include <imgui/imgui_internal.h>
 
 #include <mutex>
+#include <atomic>
 #include <cstdarg>
 
 #include <array>
@@ -34,19 +35,19 @@ static ImVec2 overlaySize(0.0f, 0.0f);
 static ImVec2 overlayPosition(-1000.0f, -1000.0f);
 static bool _hdrTonemapApplied = false;
 static ImVec4 SdrColors[ImGuiCol_COUNT];
-static bool receivingWmInputs = false;
-static bool inputMenu = false;
-static bool inputFG = false;
-static bool inputFps = false;
-static bool inputFpsCycle = false;
-static bool hasGamepad = false;
-static bool fsr31InitTried = false;
-static bool xefgInitTried = false;
+static std::atomic<bool> receivingWmInputs{false};
+static std::atomic<bool> inputMenu{false};
+static std::atomic<bool> inputFG{false};
+static std::atomic<bool> inputFps{false};
+static std::atomic<bool> inputFpsCycle{false};
+static std::atomic<bool> hasGamepad{false};
+static std::atomic<bool> fsr31InitTried{false};
+static std::atomic<bool> xefgInitTried{false};
 static std::string windowTitle;
 static std::string selectedUpscalerName = "";
 static std::string currentBackend = "";
 static std::string currentBackendName = "";
-static int refreshRate = 0;
+static int refreshRate = 0; // Used with ImGui::InputInt, keep as regular int
 
 static ImVec2 splashPosition(-1000.0f, -1000.0f);
 static ImVec2 splashSize(0.0f, 0.0f);

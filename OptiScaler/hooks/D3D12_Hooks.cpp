@@ -62,6 +62,20 @@ static D3d12Proxy::PFN_D3D12SerializeRootSignature o_D3D12SerializeRootSignature
 static D3d12Proxy::PFN_D3D12SerializeVersionedRootSignature o_D3D12SerializeVersionedRootSignature = nullptr;
 static PFN_Release o_D3D12DeviceRelease = nullptr;
 
+// VTable constants for ID3D12Device
+constexpr size_t D3D12_DEVICE_VTABLE_SIZE = 100; // Known size for ID3D12Device vtable
+constexpr size_t D3D12_DEVICE_RELEASE_INDEX = 2;
+constexpr size_t D3D12_DEVICE_CHECK_FEATURE_SUPPORT_INDEX = 13;
+constexpr size_t D3D12_DEVICE_CREATE_ROOT_SIGNATURE_INDEX = 16;
+constexpr size_t D3D12_DEVICE_CREATE_SAMPLER_INDEX = 22;
+constexpr size_t D3D12_DEVICE_GET_RESOURCE_ALLOCATION_INFO_INDEX = 25;
+constexpr size_t D3D12_DEVICE_CREATE_COMMITTED_RESOURCE_INDEX = 27;
+constexpr size_t D3D12_DEVICE_CREATE_PLACED_RESOURCE_INDEX = 29;
+
+// VTable constants for ID3D12DeviceFactory
+constexpr size_t D3D12_DEVICE_FACTORY_VTABLE_SIZE = 20;
+constexpr size_t D3D12_DEVICE_FACTORY_CREATE_DEVICE_INDEX = 9;
+
 static std::atomic<bool> _creatingD3D12Device{false};
 static std::atomic<bool> _d3d12Captured{false};
 static LUID _lastAdapterLuid = {};
@@ -855,9 +869,24 @@ static HRESULT hkD3D12GetInterface(REFCLSID rclsid, REFIID riid, void** ppvDebug
 
         auto deviceFactory = (ID3D12DeviceFactory*) *ppvDebug;
 
-        PVOID* pVTable = *(PVOID**) deviceFactory;
+        // Validate vtable pointer
+        PVOID** ppVTable = reinterpret_cast<PVOID**>(deviceFactory);
+        if (ppVTable == nullptr || *ppVTable == nullptr)
+        {
+            LOG_ERROR("VTable pointer is null in hkD3D12GetInterface");
+            return result;
+        }
 
-        o_CreateDevice = (PFN_CreateDevice) pVTable[9];
+        PVOID* pVTable = *ppVTable;
+
+        // Bounds check for vtable access
+        if (D3D12_DEVICE_FACTORY_CREATE_DEVICE_INDEX >= D3D12_DEVICE_FACTORY_VTABLE_SIZE)
+        {
+            LOG_ERROR("VTable index {} out of bounds (max {})", D3D12_DEVICE_FACTORY_CREATE_DEVICE_INDEX, D3D12_DEVICE_FACTORY_VTABLE_SIZE - 1);
+            return result;
+        }
+
+        o_CreateDevice = (PFN_CreateDevice) pVTable[D3D12_DEVICE_FACTORY_CREATE_DEVICE_INDEX];
 
         if (o_CreateDevice != nullptr)
         {
@@ -918,14 +947,22 @@ static void HookToDevice(ID3D12Device* InDevice)
             pVTable = *ppRealVTable;
     }
 
+    // Bounds check for vtable access (use highest index for single check)
+    constexpr size_t MAX_VTABLE_INDEX = D3D12_DEVICE_CREATE_PLACED_RESOURCE_INDEX;
+    if (MAX_VTABLE_INDEX >= D3D12_DEVICE_VTABLE_SIZE)
+    {
+        LOG_ERROR("VTable index {} out of bounds (max {})", MAX_VTABLE_INDEX, D3D12_DEVICE_VTABLE_SIZE - 1);
+        return;
+    }
+
     // hudless
-    o_D3D12DeviceRelease = (PFN_Release) pVTable[2];
-    o_CreateSampler = (PFN_CreateSampler) pVTable[22];
-    o_CheckFeatureSupport = (PFN_CheckFeatureSupport) pVTable[13];
-    o_CreateRootSignature = (PFN_CreateRootSignature) pVTable[16];
-    o_GetResourceAllocationInfo = (PFN_GetResourceAllocationInfo) pVTable[25];
-    o_CreateCommittedResource = (PFN_CreateCommittedResource) pVTable[27];
-    o_CreatePlacedResource = (PFN_CreatePlacedResource) pVTable[29];
+    o_D3D12DeviceRelease = (PFN_Release) pVTable[D3D12_DEVICE_RELEASE_INDEX];
+    o_CreateSampler = (PFN_CreateSampler) pVTable[D3D12_DEVICE_CREATE_SAMPLER_INDEX];
+    o_CheckFeatureSupport = (PFN_CheckFeatureSupport) pVTable[D3D12_DEVICE_CHECK_FEATURE_SUPPORT_INDEX];
+    o_CreateRootSignature = (PFN_CreateRootSignature) pVTable[D3D12_DEVICE_CREATE_ROOT_SIGNATURE_INDEX];
+    o_GetResourceAllocationInfo = (PFN_GetResourceAllocationInfo) pVTable[D3D12_DEVICE_GET_RESOURCE_ALLOCATION_INFO_INDEX];
+    o_CreateCommittedResource = (PFN_CreateCommittedResource) pVTable[D3D12_DEVICE_CREATE_COMMITTED_RESOURCE_INDEX];
+    o_CreatePlacedResource = (PFN_CreatePlacedResource) pVTable[D3D12_DEVICE_CREATE_PLACED_RESOURCE_INDEX];
 
     // Apply the detour
     if (o_CreateSampler != nullptr)

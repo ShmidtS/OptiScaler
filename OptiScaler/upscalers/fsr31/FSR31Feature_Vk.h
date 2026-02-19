@@ -26,9 +26,7 @@ class FSR31FeatureVk : public FSR31Feature, public IFeature_Vk
 
     ~FSR31FeatureVk()
     {
-        if (State::Instance().isShuttingDown)
-            return;
-
+        // ALWAYS destroy context regardless of shutdown state to prevent leaks
         if (_context != nullptr)
         {
             FfxApiProxy::VULKAN_DestroyContext()(&_context, NULL);

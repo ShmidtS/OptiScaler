@@ -82,7 +82,7 @@ void PrepareLogger()
         }
         catch (...)
         {
-            // Unknown exception during logger check, ignore
+            std::cerr << "Unknown exception during logger check" << std::endl;
         }
 
         if (Config::Instance()->LogToConsole.value_or_default() || Config::Instance()->LogToFile.value_or_default() ||
@@ -205,6 +205,6 @@ void CloseLogger()
     }
     catch (...)
     {
-        // Unknown exception during logger shutdown, ignore
+        std::cerr << "Unknown exception during logger shutdown" << std::endl;
     }
 }

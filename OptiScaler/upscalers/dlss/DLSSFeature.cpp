@@ -275,7 +275,10 @@ DLSSFeature::DLSSFeature(unsigned int handleId, NVSDK_NGX_Parameter* InParameter
     LOG_FUNC_RESULT(_moduleLoaded);
 }
 
-DLSSFeature::~DLSSFeature() {}
+DLSSFeature::~DLSSFeature()
+{
+    Shutdown();
+}
 
 void DLSSFeature::Shutdown()
 {

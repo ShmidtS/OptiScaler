@@ -119,9 +119,19 @@ bool Shader_Vk::CreateBufferResource(VkDevice device, VkPhysicalDevice physicalD
     allocInfo.allocationSize = memRequirements.size;
     allocInfo.memoryTypeIndex = FindMemoryType(physicalDevice, memRequirements.memoryTypeBits, properties);
 
+    if (allocInfo.memoryTypeIndex == UINT32_MAX)
+    {
+        LOG_ERROR("Failed to find suitable memory type for buffer!");
+        vkDestroyBuffer(device, *buffer, nullptr);
+        *buffer = VK_NULL_HANDLE;
+        return false;
+    }
+
     if (vkAllocateMemory(device, &allocInfo, nullptr, memory) != VK_SUCCESS)
     {
         LOG_ERROR("Failed to allocate buffer memory!");
+        vkDestroyBuffer(device, *buffer, nullptr);
+        *buffer = VK_NULL_HANDLE;
         return false;
     }
 

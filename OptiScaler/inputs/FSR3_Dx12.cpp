@@ -15,6 +15,8 @@
 #include "fsr3/ffx_fsr3upscaler.h"
 #include "fsr3/dx12/ffx_dx12.h"
 
+#include <atomic>
+
 // FSR3
 typedef Fsr3::FfxErrorCode (*PFN_ffxFsr3UpscalerContextCreate)(
     Fsr3::FfxFsr3UpscalerContext* pContext, const Fsr3::FfxFsr3UpscalerContextDescription* pContextDescription);
@@ -49,10 +51,10 @@ static std::unordered_map<Fsr3::FfxFsr3UpscalerContext*, NVSDK_NGX_Parameter*> _
 static std::unordered_map<Fsr3::FfxFsr3UpscalerContext*, NVSDK_NGX_Handle*> _contexts;
 static std::mutex _fsr3MapsMutex;
 static ID3D12Device* _d3d12Device = nullptr;
-static bool _nvnxgInited = false;
-static bool _skipCreate = false;
-static bool _skipDispatch = false;
-static bool _skipDestroy = false;
+static std::atomic<bool> _nvnxgInited{false};
+static std::atomic<bool> _skipCreate{false};
+static std::atomic<bool> _skipDispatch{false};
+static std::atomic<bool> _skipDestroy{false};
 static float qualityRatios[] = { 1.0f, 1.5f, 1.7f, 2.0f, 3.0f };
 
 static D3D12_RESOURCE_STATES GetD3D12State(Fsr3::FfxResourceStates state)

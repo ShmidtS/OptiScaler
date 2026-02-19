@@ -250,6 +250,7 @@ bool HC_Dx12::Dispatch(IDXGISwapChain3* sc, ID3D12GraphicsCommandList* cmdList, 
     if (!CreateBufferResource(heapIndex, _device, scBuffer, D3D12_RESOURCE_STATE_COPY_DEST))
     {
         LOG_ERROR("CreateBufferResource error!");
+        scBuffer->Release();
         return false;
     }
 
@@ -308,6 +309,7 @@ bool HC_Dx12::Dispatch(IDXGISwapChain3* sc, ID3D12GraphicsCommandList* cmdList, 
     if (result != S_OK)
     {
         LOG_ERROR("_constantBuffer->Map error {:X}", (unsigned int) result);
+        scBuffer->Release();
         return false;
     }
 
@@ -315,6 +317,7 @@ bool HC_Dx12::Dispatch(IDXGISwapChain3* sc, ID3D12GraphicsCommandList* cmdList, 
     {
         _constantBuffer->Unmap(0, nullptr);
         LOG_ERROR("pCBDataBegin is null!");
+        scBuffer->Release();
         return false;
     }
 

@@ -1435,21 +1435,21 @@ std::optional<uint32_t> Config::readUInt(std::string section, std::string key)
     try
     {
         size_t idx = 0;
-        int result;
+        unsigned long result;
 
         // detect hex prefix
         if (s.size() > 2 && (s[0] == '0') && (s[1] == 'x' || s[1] == 'X'))
         {
-            result = std::stoi(s, &idx, 16);
+            result = std::stoul(s, &idx, 16);
         }
         else
         {
-            result = std::stoi(s, &idx, 10);
+            result = std::stoul(s, &idx, 10);
         }
 
-        // ensure we consumed the whole string
-        if (idx == s.size())
-            return result;
+        // ensure we consumed the whole string and value fits in uint32_t
+        if (idx == s.size() && result <= UINT_MAX)
+            return static_cast<uint32_t>(result);
         else
             return std::nullopt;
     }
@@ -1457,11 +1457,11 @@ std::optional<uint32_t> Config::readUInt(std::string section, std::string key)
     {
         return std::nullopt;
     }
-    catch (const std::invalid_argument&) // invalid float string for std::stof
+    catch (const std::invalid_argument&) // invalid string for unsigned integer
     {
         return std::nullopt;
     }
-    catch (const std::out_of_range&) // out// out of range for 32 bit float
+    catch (const std::out_of_range&) // out of range for unsigned long
     {
         return std::nullopt;
     }
