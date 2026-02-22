@@ -12,66 +12,89 @@ bool Hudfix_Dx12::CreateObjects()
     if (_commandQueue != nullptr)
         return false;
 
-    do
+    HRESULT result = S_OK;
+
+    // Declare queueDesc at the beginning to avoid goto crossing initialization
+    D3D12_COMMAND_QUEUE_DESC queueDesc = {};
+    queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+    queueDesc.NodeMask = 0;
+    queueDesc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_HIGH;
+
+    for (size_t i = 0; i < BUFFER_COUNT; i++)
     {
-        HRESULT result;
-
-        for (size_t i = 0; i < BUFFER_COUNT; i++)
+        result = State::Instance().currentD3D12Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                                              IID_PPV_ARGS(&_commandAllocator[i]));
+        if (result != S_OK)
         {
-            result = State::Instance().currentD3D12Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                                                                  IID_PPV_ARGS(&_commandAllocator[i]));
-            if (result != S_OK)
-            {
-                LOG_ERROR("CreateCommandAllocator: {:X}", (unsigned long) result);
-                break;
-            }
-            _commandAllocator[i]->SetName(L"Hudfix CommandAllocator");
+            LOG_ERROR("CreateCommandAllocator: {:X}", (unsigned long) result);
+            goto cleanup_on_failure;
+        }
+        _commandAllocator[i]->SetName(L"Hudfix CommandAllocator");
 
-            result = State::Instance().currentD3D12Device->CreateCommandList(
-                0, D3D12_COMMAND_LIST_TYPE_DIRECT, _commandAllocator[i], NULL, IID_PPV_ARGS(&_commandList[i]));
-            if (result != S_OK)
-            {
-                LOG_ERROR("CreateCommandList: {:X}", (unsigned long) result);
-                break;
-            }
-
-            _commandList[i]->SetName(L"Hudfix CommandList");
-
-            result = _commandList[i]->Close();
-            if (result != S_OK)
-            {
-                LOG_ERROR("_hudlessCommandList->Close: {:X}", (unsigned long) result);
-                break;
-            }
-
-            result =
-                State::Instance().currentD3D12Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&_fence[i]));
-            if (result != S_OK)
-            {
-                LOG_ERROR("CreateFence: {0:X}", (unsigned long) result);
-                break;
-            }
+        result = State::Instance().currentD3D12Device->CreateCommandList(
+            0, D3D12_COMMAND_LIST_TYPE_DIRECT, _commandAllocator[i], NULL, IID_PPV_ARGS(&_commandList[i]));
+        if (result != S_OK)
+        {
+            LOG_ERROR("CreateCommandList: {:X}", (unsigned long) result);
+            goto cleanup_on_failure;
         }
 
-        // Create a command queue for frame generation
-        D3D12_COMMAND_QUEUE_DESC queueDesc = {};
-        queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-        queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-        queueDesc.NodeMask = 0;
-        queueDesc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_HIGH;
+        _commandList[i]->SetName(L"Hudfix CommandList");
 
-        HRESULT hr = State::Instance().currentD3D12Device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&_commandQueue));
-        if (hr != S_OK)
+        result = _commandList[i]->Close();
+        if (result != S_OK)
         {
-            LOG_ERROR("CreateCommandQueue: {:X}", (unsigned long) hr);
-            break;
+            LOG_ERROR("_hudlessCommandList->Close: {:X}", (unsigned long) result);
+            goto cleanup_on_failure;
         }
 
-        _commandQueue->SetName(L"Hudfix CommandQueue");
+        result =
+            State::Instance().currentD3D12Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&_fence[i]));
+        if (result != S_OK)
+        {
+            LOG_ERROR("CreateFence: {0:X}", (unsigned long) result);
+            goto cleanup_on_failure;
+        }
+    }
 
-        return true;
+    // Create a command queue for frame generation (queueDesc declared at function start)
+    result = State::Instance().currentD3D12Device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&_commandQueue));
+    if (result != S_OK)
+    {
+        LOG_ERROR("CreateCommandQueue: {:X}", (unsigned long) result);
+        goto cleanup_on_failure;
+    }
 
-    } while (false);
+    _commandQueue->SetName(L"Hudfix CommandQueue");
+
+    return true;
+
+cleanup_on_failure:
+    // Rollback: release all created objects
+    for (size_t i = 0; i < BUFFER_COUNT; i++)
+    {
+        if (_fence[i])
+        {
+            _fence[i]->Release();
+            _fence[i] = nullptr;
+        }
+        if (_commandList[i])
+        {
+            _commandList[i]->Release();
+            _commandList[i] = nullptr;
+        }
+        if (_commandAllocator[i])
+        {
+            _commandAllocator[i]->Release();
+            _commandAllocator[i] = nullptr;
+        }
+    }
+    if (_commandQueue)
+    {
+        _commandQueue->Release();
+        _commandQueue = nullptr;
+    }
 
     return false;
 }
@@ -379,6 +402,7 @@ bool Hudfix_Dx12::CheckForRealObject(std::string functionName, IUnknown* pObject
     {
         LOG_INFO("{} Streamline proxy found!", functionName);
         (*ppRealObject)->Release();
+        *ppRealObject = nullptr; // Prevent dangling pointer after Release
         return true;
     }
 
@@ -714,14 +738,12 @@ bool Hudfix_Dx12::CheckForHudless(ID3D12GraphicsCommandList* cmdList, ResourceIn
                 LOG_DEBUG("Format change, recreate the FormatTransfer");
 
                 if (_formatTransfer[fIndex] != nullptr)
-                    delete _formatTransfer[fIndex];
-
-                _formatTransfer[fIndex] = nullptr;
+                    _formatTransfer[fIndex].reset();
 
                 ScopedSkipHeapCapture skipHeapCapture {};
 
-                _formatTransfer[fIndex] =
-                    new FT_Dx12("FormatTransfer", s.currentD3D12Device, s.currentSwapchainDesc.BufferDesc.Format);
+                _formatTransfer[fIndex].reset(
+                    new FT_Dx12("FormatTransfer", s.currentD3D12Device, s.currentSwapchainDesc.BufferDesc.Format));
                 break;
             }
 
@@ -818,14 +840,14 @@ bool Hudfix_Dx12::CheckForHudless(ID3D12GraphicsCommandList* cmdList, ResourceIn
         _skipHudlessChecks = true;
         HudlessFound(cmdList);
 
-        if (capturedHudlessInfo != nullptr)
-            capturedHudlessInfo->usageCount++;
-        else
+        // Safety check for capturedHudlessInfo pointer
+        if (capturedHudlessInfo == nullptr)
         {
             s.CapturedHudlesses[resource->buffer] = {};
             capturedHudlessInfo = &s.CapturedHudlesses[resource->buffer];
         }
 
+        capturedHudlessInfo->usageCount++;
         capturedHudlessInfo->captureInfo = resource->captureInfo;
 
         return true;
@@ -853,4 +875,59 @@ void Hudfix_Dx12::ResetCounters()
     _captureCounter[3] = 0;
 
     LOG_DEBUG("_hudlessList: {}", _hudlessList.size());
+}
+
+void Hudfix_Dx12::Shutdown()
+{
+    LOG_DEBUG("Hudfix_Dx12::Shutdown() - releasing all resources");
+
+    // Release capture buffers
+    for (size_t i = 0; i < BUFFER_COUNT; i++)
+    {
+        if (_captureBuffer[i])
+        {
+            _captureBuffer[i]->Release();
+            _captureBuffer[i] = nullptr;
+        }
+
+        // Delete format transfer objects
+        if (_formatTransfer[i])
+        {
+            _formatTransfer[i].reset();
+        }
+
+        // Release fences
+        if (_fence[i])
+        {
+            _fence[i]->Release();
+            _fence[i] = nullptr;
+        }
+
+        // Release command lists
+        if (_commandList[i])
+        {
+            _commandList[i]->Release();
+            _commandList[i] = nullptr;
+        }
+
+        // Release command allocators
+        if (_commandAllocator[i])
+        {
+            _commandAllocator[i]->Release();
+            _commandAllocator[i] = nullptr;
+        }
+    }
+
+    // Release command queue
+    if (_commandQueue)
+    {
+        _commandQueue->Release();
+        _commandQueue = nullptr;
+    }
+
+    // Clear lists
+    _hudlessList.clear();
+    _captureList.clear();
+
+    LOG_DEBUG("Hudfix_Dx12::Shutdown() complete");
 }

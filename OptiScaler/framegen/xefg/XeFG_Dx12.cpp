@@ -850,6 +850,9 @@ bool XeFG_Dx12::Dispatch()
         }
     }
 
+    // Confirm dispatch after success to keep frame ID in sync
+    ConfirmDispatch(willDispatchFrame);
+
     LOG_DEBUG("Result: Ok");
 
     return true;

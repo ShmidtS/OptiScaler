@@ -9,6 +9,7 @@
 #include <dxgi.h>
 #include <d3d12.h>
 #include <shared_mutex>
+#include <memory>
 
 enum ResourceType
 {
@@ -88,7 +89,7 @@ class Hudfix_Dx12
     inline static std::mutex _captureMutex;
     inline static std::mutex _counterMutex;
     inline static INT64 _captureCounter[BUFFER_COUNT] = { 0, 0, 0, 0 };
-    inline static FT_Dx12* _formatTransfer[BUFFER_COUNT] = { nullptr, nullptr, nullptr, nullptr };
+    inline static std::unique_ptr<FT_Dx12> _formatTransfer[BUFFER_COUNT];
 
     inline static ID3D12CommandQueue* _commandQueue = nullptr;
     inline static ID3D12GraphicsCommandList* _commandList[BUFFER_COUNT] = { nullptr, nullptr, nullptr, nullptr };
@@ -144,6 +145,9 @@ class Hudfix_Dx12
 
     // Reset frame counters
     static void ResetCounters();
+
+    // Release all resources on shutdown
+    static void Shutdown();
 
     static bool GetSkipStatus() { return _skipTracking; }
     static void SetSkipStatus(bool status) { _skipTracking = status; }

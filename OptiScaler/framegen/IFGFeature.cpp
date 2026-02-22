@@ -25,7 +25,16 @@ int IFGFeature::GetIndexWillBeDispatched()
         }
         else
         {
-            df = _lastDispatchedFrame + 1; // Render next one
+            // When no resources and first dispatch or frame count wrapped,
+            // sync to current frame to avoid "Frame count jumped too much" warnings
+            if (_lastDispatchedFrame == 0 || diff < 0)
+            {
+                df = _frameCount;
+            }
+            else
+            {
+                df = _lastDispatchedFrame + 1; // Render next one
+            }
         }
     }
     else
@@ -33,7 +42,7 @@ int IFGFeature::GetIndexWillBeDispatched()
         df = _lastDispatchedFrame + 1; // Render next one
     }
 
-    return (df % BUFFER_COUNT);
+    return static_cast<int>(df % BUFFER_COUNT);
 }
 
 UINT64 IFGFeature::StartNewFrame()
@@ -190,10 +199,12 @@ int IFGFeature::GetDispatchIndex(UINT64& willDispatchFrame)
         willDispatchFrame = _lastDispatchedFrame + 1; // Render next one
     }
 
-    _lastDispatchedFrame = willDispatchFrame;
+    // NOTE: _lastDispatchedFrame is NOT updated here anymore!
+    // It will be updated only after successful dispatch in FSRFG_Dx12::Dispatch()
+    // This prevents frame ID corruption when dispatch fails
     _lastFGFrame = State::Instance().FGLastFrame;
 
-    return (willDispatchFrame % BUFFER_COUNT);
+    return static_cast<int>(willDispatchFrame % BUFFER_COUNT);
 }
 
 bool IFGFeature::IsActive() { return _isActive || _waitingNewFrameData; }
@@ -355,6 +366,13 @@ void IFGFeature::GetInterpolationPos(UINT& left, UINT& top, int index)
         top = _interpolationTop[index].value();
     else
         top = 0;
+}
+
+void IFGFeature::ConfirmDispatch(UINT64 frameId)
+{
+    // Update _lastDispatchedFrame only after successful dispatch
+    // This ensures frame ID consistency for async mode
+    _lastDispatchedFrame = frameId;
 }
 
 void IFGFeature::ResetCounters() { _targetFrame = _frameCount; }

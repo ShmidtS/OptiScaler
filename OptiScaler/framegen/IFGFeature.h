@@ -150,6 +150,7 @@ class IFGFeature
     void SetResourceReady(FG_ResourceType type, int index = -1);
     UINT GetInterpolatedFrameCount();
 
+    void ConfirmDispatch(UINT64 frameId);  // Called after successful dispatch
     void ResetCounters();
     void UpdateTarget();
 

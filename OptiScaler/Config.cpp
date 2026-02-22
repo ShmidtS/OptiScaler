@@ -136,7 +136,7 @@ bool Config::Reload(std::filesystem::path iniPath)
             FGFPTVarianceFactor.set_from_config(readFloat("FSRFG", "FPTVarianceFactor"));
             FGFPTAllowHybridSpin.set_from_config(readBool("FSRFG", "FPTHybridSpin"));
             FGFPTHybridSpinTime.set_from_config(readInt("FSRFG", "FPTHybridSpinTime"));
-            FGFPTAllowWaitForSingleObjectOnFence.set_from_config(readInt("FSRFG", "FPTWaitForSingleObjectOnFence"));
+            FGFPTAllowWaitForSingleObjectOnFence.set_from_config(readBool("FSRFG", "FPTWaitForSingleObjectOnFence"));
             FSRFGEnableWatermark.set_from_config(readBool("FSRFG", "EnableWatermark"));
         }
 
@@ -1201,13 +1201,15 @@ bool Config::SaveIni()
     {
         ini.SetValue("V-Sync", "OverrideVsync", GetBoolValue(Instance()->OverrideVsync.value_for_config()).c_str());
         ini.SetValue("V-Sync", "ForceVsync", GetBoolValue(Instance()->ForceVsync.value_for_config()).c_str());
-        ini.SetValue("V-Sync", "SyncInterval", GetIntValue(Instance()->VsyncInterval.value_for_config()).c_str());
 
-        if (Instance()->VsyncInterval.has_value())
+        // Validate VsyncInterval before saving
+        if (Instance()->VsyncInterval.has_value() &&
+            (Instance()->VsyncInterval.value() < 0 || Instance()->VsyncInterval.value() > 3))
         {
-            if (Instance()->VsyncInterval.value() < 0 || Instance()->VsyncInterval.value() > 3)
-                Instance()->VsyncInterval.reset();
+            Instance()->VsyncInterval.reset();
         }
+
+        ini.SetValue("V-Sync", "SyncInterval", GetIntValue(Instance()->VsyncInterval.value_for_config()).c_str());
     }
 
     auto pathWStr = absoluteFileName.wstring();

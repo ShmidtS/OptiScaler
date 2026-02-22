@@ -59,15 +59,17 @@
 // Use vkQueueSubmit2KHR instead of vkQueueSubmit for testing Linux issue
 // #define USE_QUEUE_SUBMIT_2_KHR
 
-inline HMODULE dllModule = nullptr;
-inline HMODULE exeModule = nullptr;
-inline HMODULE originalModule = nullptr;
-inline HMODULE skModule = nullptr;
-inline HMODULE reshadeModule = nullptr;
-inline HMODULE vulkanModule = nullptr;
-inline HMODULE d3d11Module = nullptr;
-inline HMODULE d3d12AgilityModule = nullptr;
-inline HMODULE slInterposerModule = nullptr;
+// Thread-safe module handles using atomic pointers
+// These are written during initialization and read from multiple threads
+inline std::atomic<HMODULE> dllModule{nullptr};
+inline std::atomic<HMODULE> exeModule{nullptr};
+inline std::atomic<HMODULE> originalModule{nullptr};
+inline std::atomic<HMODULE> skModule{nullptr};
+inline std::atomic<HMODULE> reshadeModule{nullptr};
+inline std::atomic<HMODULE> vulkanModule{nullptr};
+inline std::atomic<HMODULE> d3d11Module{nullptr};
+inline std::atomic<HMODULE> d3d12AgilityModule{nullptr};
+inline std::atomic<HMODULE> slInterposerModule{nullptr};
 inline DWORD processId;
 
 #define LOG_TRACE(msg, ...) spdlog::trace(__FUNCTION__ " " msg, ##__VA_ARGS__)

@@ -772,30 +772,7 @@ HRESULT FGHooks::hkFGPresent(void* This, UINT SyncInterval, UINT Flags)
     if (_skipPresent)
     {
         LOG_DEBUG("XeFG call skipping");
-
-        IDXGISwapChain* sc = nullptr;
-
-        // if (State::Instance().currentWrappedSwapchain != nullptr)
-        //     sc = State::Instance().currentWrappedSwapchain;
-        // else if (State::Instance().currentSwapchain != nullptr)
-        //     sc = State::Instance().currentSwapchain;
-        // else if (State::Instance().currentRealSwapchain != nullptr)
-        //     sc = State::Instance().currentRealSwapchain;
-
-        HRESULT result;
-
-        if (sc != nullptr)
-        {
-            result = sc->Present(SyncInterval, Flags);
-            LOG_DEBUG("sc->Present result: {:X}", (UINT) result);
-        }
-        else
-        {
-            result = o_FGSCPresent(This, SyncInterval, Flags);
-            LOG_DEBUG("o_FGSCPresent result: {:X}", (UINT) result);
-        }
-
-        return result;
+        return o_FGSCPresent(This, SyncInterval, Flags);
     }
 
     LOG_DEBUG("SyncInterval: {}, Flags: {:X}", SyncInterval, Flags);
@@ -814,30 +791,7 @@ HRESULT FGHooks::hkFGPresent1(void* This, UINT SyncInterval, UINT Flags,
     if (_skipPresent1)
     {
         LOG_DEBUG("XeFG call skipping");
-
-        IDXGISwapChain3* sc = nullptr;
-
-        // if (State::Instance().currentWrappedSwapchain != nullptr)
-        //     sc = (IDXGISwapChain3*) State::Instance().currentWrappedSwapchain;
-        // else if (State::Instance().currentSwapchain != nullptr)
-        //     sc = (IDXGISwapChain3*) State::Instance().currentSwapchain;
-        // else if (State::Instance().currentRealSwapchain != nullptr)
-        //     sc = (IDXGISwapChain3*) State::Instance().currentRealSwapchain;
-
-        HRESULT result;
-
-        if (sc != nullptr)
-        {
-            result = sc->Present1(SyncInterval, Flags, pPresentParameters);
-            LOG_DEBUG("sc->Present result: {:X}", (UINT) result);
-        }
-        else
-        {
-            result = o_FGSCPresent1(This, SyncInterval, Flags, pPresentParameters);
-            LOG_DEBUG("o_FGSCPresent result: {:X}", (UINT) result);
-        }
-
-        return result;
+        return o_FGSCPresent1(This, SyncInterval, Flags, pPresentParameters);
     }
 
     LOG_DEBUG("SyncInterval: {}, Flags: {:X}", SyncInterval, Flags);
@@ -884,13 +838,21 @@ HRESULT FGHooks::FGPresent(void* This, UINT SyncInterval, UINT Flags, const DXGI
     }
 
     auto fg = State::Instance().currentFG;
-    bool mutexUsed = false;
+
+    // RAII mutex guard for exception safety
+    struct MutexGuard {
+        IFGFeature_Dx12* fg;
+        bool locked;
+        MutexGuard(IFGFeature_Dx12* f) : fg(f), locked(false) {}
+        ~MutexGuard() { if (locked && fg) { fg->Mutex.unlockThis(2); } }
+        void lock() { if (fg) { fg->Mutex.lock(2); locked = true; } }
+    } mutexGuard(fg);
+
     if (willPresent && fg != nullptr && fg->IsActive() &&
         Config::Instance()->FGUseMutexForSwapchain.value_or_default() && fg->Mutex.getOwner() != 2)
     {
         LOG_TRACE("Waiting FG->Mutex 2, current: {}", fg->Mutex.getOwner());
-        fg->Mutex.lock(2);
-        mutexUsed = true;
+        mutexGuard.lock();
         LOG_TRACE("Accuired FG->Mutex: {}", fg->Mutex.getOwner());
     }
 
@@ -976,11 +938,7 @@ HRESULT FGHooks::FGPresent(void* This, UINT SyncInterval, UINT Flags, const DXGI
     if (willPresent && !State::Instance().reflexLimitsFps && State::Instance().activeFgOutput != FGOutput::NoFG)
         FrameLimit::sleep(fg != nullptr ? fg->IsActive() : false);
 
-    if (mutexUsed && fg != nullptr)
-    {
-        LOG_TRACE("Releasing FG->Mutex: {}", fg->Mutex.getOwner());
-        fg->Mutex.unlockThis(2);
-    }
+    // Mutex automatically released by RAII guard
 
     return result;
 }

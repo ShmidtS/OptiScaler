@@ -33,6 +33,7 @@
 #include "proxies/Dxgi_Proxy.h"
 #include <proxies/XeSS_Proxy.h>
 #include <proxies/NVNGX_Proxy.h>
+#include <hudfix/Hudfix_Dx12.h>
 #include <hooks/Gdi32_Hooks.h>
 #include <hooks/Wintrust_Hooks.h>
 #include <hooks/Crypt32_Hooks.h>
@@ -499,7 +500,7 @@ static void CheckWorkingMode()
                 LOG_INFO("OptiScaler working as OptiScaler.dll");
 
             // For testing: use self as original module when loaded as optiscaler.dll
-            originalModule = dllModule;
+            originalModule.store(dllModule.load());
 
             dllNames.push_back("optiscaler.dll");
             dllNames.push_back("optiscaler");
@@ -517,7 +518,7 @@ static void CheckWorkingMode()
                 LOG_INFO("OptiScaler working as OptiScaler.asi");
 
             // For testing: use self as original module when loaded as optiscaler.asi
-            originalModule = dllModule;
+            originalModule.store(dllModule.load());
 
             dllNames.push_back("optiscaler.asi");
             dllNames.push_back("optiscaler");
@@ -750,7 +751,7 @@ static void CheckWorkingMode()
             {
                 // Try to load vulkan-1.dll for Windows Vulkan games
                 vulkanModule = NtdllProxy::LoadLibraryExW_Ldr(L"vulkan-1.dll", NULL, 0);
-                LOG_DEBUG("Loading vulkan-1.dll for Windows Vulkan game, result: {:X}", (size_t) vulkanModule);
+                LOG_DEBUG("Loading vulkan-1.dll for Windows Vulkan game, result: {:X}", (size_t) vulkanModule.load());
             }
 
             if (vulkanModule != nullptr)
@@ -924,7 +925,7 @@ static void CheckWorkingMode()
                 skModule = NtdllProxy::LoadLibraryExW_Ldr(skFile.c_str(), NULL, 0);
                 State::DisableServeOriginal(200);
 
-                LOG_INFO("Loading SpecialK64.dll, result: {0:X}", (UINT64) skModule);
+                LOG_INFO("Loading SpecialK64.dll, result: {0:X}", (UINT64) skModule.load());
             }
 
             // ReShade
@@ -944,7 +945,7 @@ static void CheckWorkingMode()
                 reshadeModule = NtdllProxy::LoadLibraryExW_Ldr(rsFile.c_str(), NULL, 0);
                 State::DisableServeOriginal(201);
 
-                LOG_INFO("Loading ReShade64.dll, result: {0:X}", (size_t) reshadeModule);
+                LOG_INFO("Loading ReShade64.dll, result: {0:X}", (size_t) reshadeModule.load());
             }
 
             // Version check
@@ -1717,6 +1718,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
     case DLL_PROCESS_DETACH:
         State::Instance().isShuttingDown = true;
 
+        // Clean up Hudfix_Dx12 resources to prevent memory leak
+        Hudfix_Dx12::Shutdown();
+
         // Clean up D3D12 FG object to prevent memory leak
         if (State::Instance().currentFG != nullptr)
         {
@@ -1753,22 +1757,59 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         // unhookAdvapi32();
         // DetachHooks();
 
+        // Free loaded module handles to prevent memory leaks
         if (skModule != nullptr)
+        {
             NtdllProxy::FreeLibrary_Ldr(skModule);
+            skModule = nullptr;
+        }
 
         if (reshadeModule != nullptr)
+        {
             NtdllProxy::FreeLibrary_Ldr(reshadeModule);
+            reshadeModule = nullptr;
+        }
+
+        // Free vulkanModule if we loaded it
+        if (vulkanModule != nullptr)
+        {
+            NtdllProxy::FreeLibrary_Ldr(vulkanModule);
+            vulkanModule = nullptr;
+        }
+
+        // Free d3d12AgilityModule if we loaded it
+        if (d3d12AgilityModule != nullptr)
+        {
+            NtdllProxy::FreeLibrary_Ldr(d3d12AgilityModule);
+            d3d12AgilityModule = nullptr;
+        }
+
+        // Free slInterposerModule if it was assigned
+        if (slInterposerModule != nullptr)
+        {
+            NtdllProxy::FreeLibrary_Ldr(slInterposerModule);
+            slInterposerModule = nullptr;
+        }
+
+        // Free originalModule if it was loaded (not when it's our own dllModule)
+        if (originalModule != nullptr && originalModule != dllModule)
+        {
+            NtdllProxy::FreeLibrary_Ldr(originalModule);
+            originalModule = nullptr;
+        }
 
         if (_asiHandles.size() > 0)
         {
             for (size_t i = 0; i < _asiHandles.size(); i++)
                 NtdllProxy::FreeLibrary_Ldr(_asiHandles[i]);
+            _asiHandles.clear();
         }
 
         for (const PVOID& v : State::Instance().modulesToFree)
         {
             NtdllProxy::FreeLibrary_Ldr(v);
         }
+        State::Instance().modulesToFree.clear();
 
         // Config singleton cleanup is automatic (Meyers singleton)
 

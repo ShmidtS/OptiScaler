@@ -550,20 +550,27 @@ static HRESULT hkD3D12SerializeVersionedRootSignature(D3d12Proxy::D3D12_VERSIONE
 
 static ULONG hkD3D12DeviceRelease(IUnknown* device)
 {
-    if (Config::Instance()->UESpoofIntelAtomics64.value_or_default() && device == _intelD3D12Device)
+    // Thread-safe access to _intelD3D12Device
+    static std::mutex intelDeviceMutex;
+
     {
-        auto refCount = device->AddRef();
-
-        if (refCount == _intelD3D12DeviceRefTarget)
+        std::lock_guard<std::mutex> lock(intelDeviceMutex);
+        if (Config::Instance()->UESpoofIntelAtomics64.value_or_default() && device == _intelD3D12Device)
         {
-            LOG_INFO("Destroying IGDExt context!");
-            _intelD3D12Device = nullptr;
-            IGDExtProxy::DestroyContext();
-        }
+            auto refCount = device->AddRef();
 
-        return o_D3D12DeviceRelease(device);
+            if (refCount == _intelD3D12DeviceRefTarget)
+            {
+                LOG_INFO("Destroying IGDExt context!");
+                _intelD3D12Device = nullptr;
+                IGDExtProxy::DestroyContext();
+            }
+
+            return o_D3D12DeviceRelease(device);
+        }
     }
-    else if (State::Instance().currentD3D12Device == device)
+
+    if (State::Instance().currentD3D12Device == device)
     {
         auto refCount = o_D3D12DeviceRelease(device);
         LOG_DEBUG("Found currentD3D12Device: {:X}, refCount: {}", (size_t) device, refCount);
@@ -764,6 +771,12 @@ static HRESULT hkCreateRootSignature(ID3D12Device* device, UINT nodeMask, const 
                                      ppvRootSignature);
     }
 
+    // RAII guard to ensure deserializer is released
+    struct DeserializerGuard {
+        ID3D12VersionedRootSignatureDeserializer* ptr;
+        ~DeserializerGuard() { if (ptr) ptr->Release(); }
+    } deserializerGuard{deserializer};
+
     const D3D12_VERSIONED_ROOT_SIGNATURE_DESC* desc = deserializer->GetUnconvertedRootSignatureDesc();
 
     // Create a modifiable copy
@@ -845,7 +858,7 @@ static HRESULT hkCreateRootSignature(ID3D12Device* device, UINT nodeMask, const 
             o_CreateRootSignature(device, nodeMask, pBlobWithRootSignature, blobLengthInBytes, riid, ppvRootSignature);
     }
 
-    deserializer->Release();
+    // deserializer released by RAII guard
     return result;
 }
 

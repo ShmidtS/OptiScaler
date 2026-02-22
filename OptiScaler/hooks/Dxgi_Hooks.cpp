@@ -143,7 +143,7 @@ static void CheckLumaAndReShade(IDXGIFactory* factory)
         reshadeModule = NtdllProxy::LoadLibraryExW_Ldr(rsFile.c_str(), NULL, 0);
         State::DisableServeOriginal(201);
 
-        LOG_INFO("Loading ReShade64.dll, result: {0:X}", (size_t) reshadeModule);
+        LOG_INFO("Loading ReShade64.dll, result: {0:X}", (size_t) reshadeModule.load());
     }
 }
 

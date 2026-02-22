@@ -282,7 +282,10 @@ bool FSRFG_Dx12::Dispatch()
         return false;
 
     if (!IsActive() || IsPaused())
+    {
+        // Don't update _lastDispatchedFrame if we're not actually dispatching
         return false;
+    }
 
     auto& state = State::Instance();
     auto config = Config::Instance();
@@ -298,6 +301,7 @@ bool FSRFG_Dx12::Dispatch()
         !_resourceReady[fIndex].at(FG_ResourceType::Velocity))
     {
         LOG_WARN("Depth or Velocity is not ready, skipping");
+        // Don't update _lastDispatchedFrame - resources not ready
         return false;
     }
 
@@ -436,8 +440,23 @@ bool FSRFG_Dx12::Dispatch()
         dfgPrepare.header.pNext = &backendDesc.header;
 
         // Camera data (now part of V2 structure)
-        // Check if camera data was properly set (non-zero values)
+        // Camera data is set with GetIndex() which is current frame index,
+        // but we dispatch with fIndex which may differ.
+        // Try fIndex first, then fall back to current frame index
+        int cameraIndex = fIndex;
         bool cameraDataValid = _cameraDataValid[fIndex];
+
+        // If camera data not valid for fIndex, check if it was set for current frame
+        if (!cameraDataValid)
+        {
+            int currentIndex = GetIndex();
+            if (currentIndex >= 0 && _cameraDataValid[currentIndex])
+            {
+                cameraIndex = currentIndex;
+                cameraDataValid = true;
+                LOG_DEBUG("Using camera data from current frame index {} instead of dispatch index {}", currentIndex, fIndex);
+            }
+        }
 
         if (!cameraDataValid)
         {
@@ -446,14 +465,26 @@ bool FSRFG_Dx12::Dispatch()
 
             if (!cameraDataValid)
             {
-                LOG_WARN("Camera data not set or all zeros for frame {}, MLFI quality may be degraded", willDispatchFrame);
+                // Try current index as last resort
+                int currentIndex = GetIndex();
+                if (currentIndex >= 0 &&
+                    (_cameraPosition[currentIndex][0] != 0.0f || _cameraPosition[currentIndex][1] != 0.0f || _cameraPosition[currentIndex][2] != 0.0f))
+                {
+                    cameraIndex = currentIndex;
+                    cameraDataValid = true;
+                    LOG_DEBUG("Using fallback camera data from current frame index {}", currentIndex);
+                }
+                else
+                {
+                    LOG_WARN("Camera data not set or all zeros for frame {}, MLFI quality may be degraded", willDispatchFrame);
+                }
             }
         }
 
-        std::memcpy(dfgPrepare.cameraPosition, _cameraPosition[fIndex], 3 * sizeof(float));
-        std::memcpy(dfgPrepare.cameraUp, _cameraUp[fIndex], 3 * sizeof(float));
-        std::memcpy(dfgPrepare.cameraRight, _cameraRight[fIndex], 3 * sizeof(float));
-        std::memcpy(dfgPrepare.cameraForward, _cameraForward[fIndex], 3 * sizeof(float));
+        std::memcpy(dfgPrepare.cameraPosition, _cameraPosition[cameraIndex], 3 * sizeof(float));
+        std::memcpy(dfgPrepare.cameraUp, _cameraUp[cameraIndex], 3 * sizeof(float));
+        std::memcpy(dfgPrepare.cameraRight, _cameraRight[cameraIndex], 3 * sizeof(float));
+        std::memcpy(dfgPrepare.cameraForward, _cameraForward[cameraIndex], 3 * sizeof(float));
 
         // Prepare command list
         auto allocator = _fgCommandAllocator[fIndex];
@@ -529,6 +560,12 @@ bool FSRFG_Dx12::Dispatch()
             _fgCommandList[fIndex]->Close();
             _waitingExecute[fIndex] = true;
             dispatchResult = ExecuteCommandList(fIndex);
+
+            // Confirm dispatch after success to keep frame ID in sync
+            if (dispatchResult)
+            {
+                ConfirmDispatch(willDispatchFrame);
+            }
         }
     }
 
@@ -555,11 +592,14 @@ ffxReturnCode_t FSRFG_Dx12::DispatchCallback(ffxDispatchDescFrameGeneration* par
     LOG_DEBUG("frameID: {}, commandList: {:X}, numGeneratedFrames: {}", params->frameID, (size_t) params->commandList,
               params->numGeneratedFrames);
 
+    // Check for frame ID issues before processing
+    bool shouldCancel = false;
+
     // check for status
     if (!Config::Instance()->FGEnabled.value_or_default() || _fgContext == nullptr || state.SCchanged)
     {
         LOG_WARN("Cancel async dispatch");
-        params->numGeneratedFrames = 0;
+        shouldCancel = true;
     }
 
     // If fg is active but upscaling paused
@@ -567,13 +607,33 @@ ffxReturnCode_t FSRFG_Dx12::DispatchCallback(ffxDispatchDescFrameGeneration* par
         !IsActive() || (state.currentFeature && state.currentFeature->FrameCount() == 0))
     {
         LOG_WARN("Upscaling paused! frameID: {}", params->frameID);
-        params->numGeneratedFrames = 0;
+        shouldCancel = true;
     }
 
+    // Check for duplicate frame ID
     if (params->frameID == _lastFrameId)
     {
-        LOG_WARN("Dispatched with the same frame id! frameID: {}", params->frameID);
+        LOG_WARN("Dispatched with the same frame id! frameID: {}, _lastFrameId: {}", params->frameID, _lastFrameId);
+        shouldCancel = true;
+    }
+
+    // When async support is enabled, frame ID must increment properly
+    if (IsAsync() && _lastFrameId != UINT64_MAX)
+    {
+        INT64 frameDiff = static_cast<INT64>(params->frameID) - static_cast<INT64>(_lastFrameId);
+        if (frameDiff <= 0)
+        {
+            LOG_WARN("When async support is enabled frame ID must increment! frameID: {}, _lastFrameId: {}, diff: {}",
+                     params->frameID, _lastFrameId, frameDiff);
+            shouldCancel = true;
+        }
+    }
+
+    if (shouldCancel)
+    {
         params->numGeneratedFrames = 0;
+        // Don't update _lastFrameId on cancellation to allow retry with correct frame ID
+        return FFX_API_RETURN_OK;
     }
 
     auto scFormat = (FfxApiSurfaceFormat) params->presentColor.description.format;
