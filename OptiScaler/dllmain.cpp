@@ -1347,9 +1347,23 @@ bool isNvidia()
         }
         else if (o_NvAPI_QueryInterface(GET_ID(Fake_InformFGState)))
         {
-            // Check for fakenvapi in system32, assume it's not nvidia if found
-            LOG_DEBUG("Using fakenvapi");
-            nvidiaDetected = false;
+            // fakenvapi interface detected - but don't assume no NVIDIA
+            // Check via display devices for hybrid graphics support
+            LOG_DEBUG("fakenvapi interface detected, checking for real NVIDIA GPU");
+            DISPLAY_DEVICEA dd = {};
+            dd.cb = sizeof(dd);
+            int deviceIndex = 0;
+            while (EnumDisplayDevicesA(nullptr, deviceIndex, &dd, 0))
+            {
+                // Check for NVIDIA GPU (any, not just active - for hybrid graphics)
+                if (std::string_view(dd.DeviceID).contains("VEN_10DE"))
+                {
+                    nvidiaDetected = true;
+                    LOG_DEBUG("NVIDIA GPU found: {}", dd.DeviceID);
+                    break;
+                }
+                deviceIndex++;
+            }
         }
         else
         {

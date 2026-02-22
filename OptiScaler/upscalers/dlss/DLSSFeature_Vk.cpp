@@ -202,6 +202,12 @@ bool DLSSFeatureVk::Evaluate(VkCommandBuffer InCmdBuffer, NVSDK_NGX_Parameter* I
 
         nvResult = NVNGXProxy::VULKAN_EvaluateFeature()(InCmdBuffer, _p_dlssHandle, InParameters, NULL);
 
+        if (nvResult != NVSDK_NGX_Result_Success)
+        {
+            LOG_ERROR("_EvaluateFeature result: {0:X}", (unsigned int) nvResult);
+            return false;
+        }
+
         if (useSS)
         {
             VkImageSubresourceRange range {};
@@ -220,12 +226,6 @@ bool DLSSFeatureVk::Evaluate(VkCommandBuffer InCmdBuffer, NVSDK_NGX_Parameter* I
                 OS->Dispatch(Device, InCmdBuffer, OS->GetImageView(), finalOutputView, outExtent);
             else
                 OS->Dispatch(Device, InCmdBuffer, OS->GetImageView(), RCAS->GetImageView(), outExtent);
-        }
-
-        if (nvResult != NVSDK_NGX_Result_Success)
-        {
-            LOG_ERROR("_EvaluateFeature result: {0:X}", (unsigned int) nvResult);
-            return false;
         }
 
         if (rcasEnabled)

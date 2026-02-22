@@ -1082,6 +1082,10 @@ bool XeFG_Dx12::SetResource(Dx12Resource* inputResource)
         if (Config::Instance()->FGDisableHudless.value_or_default())
             return false;
 
+        // Making a copy if it's just valid now to be able to use it later
+        if (State::Instance().FGHudlessCompare && inputResource->validity == FG_ResourceValidity::ValidNow)
+            inputResource->validity = FG_ResourceValidity::ValidButMakeCopy;
+
         if (!_noHudless[fIndex] && (_frameResources[fIndex][type].validity == FG_ResourceValidity::ValidNow))
         {
             return false;
@@ -1098,6 +1102,13 @@ bool XeFG_Dx12::SetResource(Dx12Resource* inputResource)
     {
         if (Config::Instance()->FGDisableUI.value_or_default())
             return false;
+
+        // Making a copy if it's just valid now
+        if (Config::Instance()->FGDrawUIOverFG.value_or_default() &&
+            inputResource->validity == FG_ResourceValidity::ValidNow)
+        {
+            inputResource->validity = FG_ResourceValidity::ValidButMakeCopy;
+        }
 
         if (!_noUi[fIndex] && (_frameResources[fIndex][type].validity == FG_ResourceValidity::ValidNow))
         {
@@ -1261,19 +1272,23 @@ bool XeFG_Dx12::SetResource(Dx12Resource* inputResource)
         if (indexDiff < 0)
             indexDiff += BUFFER_COUNT;
 
-        auto frameId = static_cast<uint32_t>(_frameCount - indexDiff);
-        auto result =
-            XeFGProxy::D3D12TagFrameResource()(_swapChainContext, fResource->cmdList, frameId, &resourceParam);
-        LOG_DEBUG("D3D12TagFrameResource, frameId: {}, type: {} result: {} ({})", frameId, magic_enum::enum_name(type),
-                  magic_enum::enum_name(result), (int32_t) result);
-
-        if (result != XEFG_SWAPCHAIN_RESULT_SUCCESS)
+        // We will us UI color later with Render UI
+        if (type != FG_ResourceType::UIColor)
         {
-            State::Instance().FGchanged = true;
-            UpdateTarget();
-            Deactivate();
+            auto frameId = static_cast<uint32_t>(_frameCount - indexDiff);
+            auto result =
+                XeFGProxy::D3D12TagFrameResource()(_swapChainContext, fResource->cmdList, frameId, &resourceParam);
+            LOG_DEBUG("D3D12TagFrameResource, frameId: {}, type: {} result: {} ({})", frameId,
+                      magic_enum::enum_name(type), magic_enum::enum_name(result), (int32_t) result);
 
-            return false;
+            if (result != XEFG_SWAPCHAIN_RESULT_SUCCESS)
+            {
+                State::Instance().FGchanged = true;
+                UpdateTarget();
+                Deactivate();
+
+                return false;
+            }
         }
 
         // Potentially we don't need to restore but do it just to be safe

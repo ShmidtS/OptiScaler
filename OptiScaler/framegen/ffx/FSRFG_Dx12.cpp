@@ -321,24 +321,13 @@ bool FSRFG_Dx12::Dispatch()
 
     ffxConfigureDescFrameGenerationSwapChainRegisterUiResourceDX12 uiDesc {};
     uiDesc.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_REGISTERUIRESOURCE_DX12;
+    uiDesc.uiResource = FfxApiResource({});
 
-    auto uiColor = GetResource(FG_ResourceType::UIColor, fIndex);
     auto hudless = GetResource(FG_ResourceType::HudlessColor, fIndex);
-    if (uiColor != nullptr && IsResourceReady(FG_ResourceType::UIColor, fIndex) &&
-        config->FGDrawUIOverFG.value_or_default())
-    {
-        LOG_TRACE("Using UI: {:X}", (size_t) uiColor->GetResource());
-
-        uiDesc.uiResource = ffxApiGetResourceDX12(uiColor->GetResource(), GetFfxApiState(uiColor->state));
-
-        if (config->FGUIPremultipliedAlpha.value_or_default())
-            uiDesc.flags = FFX_FRAMEGENERATION_UI_COMPOSITION_FLAG_USE_PREMUL_ALPHA;
-    }
-    else if (hudless != nullptr && IsResourceReady(FG_ResourceType::HudlessColor, fIndex))
+    if (hudless != nullptr && IsResourceReady(FG_ResourceType::HudlessColor, fIndex))
     {
         LOG_TRACE("Using hudless: {:X}", (size_t) hudless->GetResource());
 
-        uiDesc.uiResource = FfxApiResource({});
         fgConfig.HUDLessColor = ffxApiGetResourceDX12(hudless->GetResource(), GetFfxApiState(hudless->state));
 
         // Reset of _paramHudless[fIndex] happens in DispatchCallback
@@ -346,7 +335,6 @@ bool FSRFG_Dx12::Dispatch()
     }
     else
     {
-        uiDesc.uiResource = FfxApiResource({});
         fgConfig.HUDLessColor = FfxApiResource({});
     }
 

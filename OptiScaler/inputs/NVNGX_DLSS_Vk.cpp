@@ -728,7 +728,11 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_VULKAN_CreateFeature1(VkDevice InDevice
 
     State::Instance().api = Vulkan;
     auto deviceContext = VkContexts[handleId].feature.get();
-    *OutHandle = deviceContext->Handle();
+
+    if (*OutHandle == nullptr)
+        *OutHandle = new NVSDK_NGX_Handle { handleId };
+    else
+        (*OutHandle)->Id = handleId;
 
     State::Instance().AutoExposure.reset();
 

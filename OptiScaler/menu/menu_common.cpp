@@ -3265,6 +3265,18 @@ bool MenuCommon::RenderMenu()
 
                 constexpr auto fgOutputOptionsCount = std::size(fgOutputOptions);
 
+                // Unsupported FG input selected
+                if (disabledMaskInput[(uint32_t) state.activeFgInput] && state.activeFgInput == config->FGInput)
+                {
+                    config->FGInput = FGInput::NoFG;
+                }
+
+                // Unsupported FG output selected
+                if (disabledMaskOutput[(uint32_t) state.activeFgOutput] && state.activeFgOutput == config->FGOutput)
+                {
+                    config->FGOutput = FGOutput::NoFG;
+                }
+
                 if (!config->FGOutput.has_value())
                     config->FGOutput = config->FGOutput.value_or_default(); // need to have a value before combo
 
@@ -3319,12 +3331,41 @@ bool MenuCommon::RenderMenu()
                         ImGui::Spacing();
                     }
 
-                    if ((state.activeFgOutput == FGOutput::FSRFG || state.activeFgOutput == FGOutput::XeFG) &&
-                        state.activeFgInput != FGInput::NoFG && state.activeFgInput != FGInput::Nukems)
+                    auto fgOutput = reinterpret_cast<IFGFeature_Dx12*>(state.currentFG);
+                    if (((state.activeFgOutput == FGOutput::FSRFG || state.activeFgOutput == FGOutput::XeFG) &&
+                         state.activeFgInput != FGInput::NoFG && state.activeFgInput != FGInput::Nukems) &&
+                        fgOutput)
                     {
                         ImGui::Checkbox("Show Detected UI", &state.FGHudlessCompare);
                         ShowHelpMarker("Needs Hudless texture to compare with final image.\n"
                                        "UI elements and ONLY UI elements should have a pink tint!");
+
+                        const auto isUsingUIAny = fgOutput->IsUsingUIAny();
+
+                        ImGui::BeginDisabled(!isUsingUIAny);
+
+                        if (bool drawUIOverFG = config->FGDrawUIOverFG.value_or_default();
+                            ImGui::Checkbox("Draw UI over", &drawUIOverFG))
+                        {
+                            config->FGDrawUIOverFG = drawUIOverFG;
+                        }
+                        ShowHelpMarker("Draws UI resource over the final image\n"
+                                       "If no UI visible enable this!");
+
+                        ImGui::EndDisabled();
+
+                        ImGui::SameLine(0.0f, 16.0f);
+
+                        ImGui::BeginDisabled(!isUsingUIAny || !config->FGDrawUIOverFG.value_or_default());
+
+                        if (bool uiPremultipliedAlpha = config->FGUIPremultipliedAlpha.value_or_default();
+                            ImGui::Checkbox("UI Premult. alpha", &uiPremultipliedAlpha))
+                        {
+                            config->FGUIPremultipliedAlpha = uiPremultipliedAlpha;
+                        }
+                        ShowHelpMarker("If UI is too faint disable this option");
+
+                        ImGui::EndDisabled();
                     }
 
                     if (state.activeFgInput == FGInput::DLSSG || state.activeFgInput == FGInput::FSRFG ||
