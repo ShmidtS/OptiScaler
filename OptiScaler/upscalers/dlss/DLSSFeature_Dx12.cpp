@@ -276,6 +276,9 @@ void DLSSFeatureDx12::Shutdown(ID3D12Device* InDevice)
             NVNGXProxy::D3D12_Shutdown()();
         else if (NVNGXProxy::D3D12_Shutdown1() != nullptr)
             NVNGXProxy::D3D12_Shutdown1()(InDevice);
+
+        // Reset the static init flag to allow re-initialization
+        _dlssInited = false;
     }
 
     DLSSFeature::Shutdown();
@@ -299,5 +302,8 @@ DLSSFeatureDx12::~DLSSFeatureDx12()
         return;
 
     if (NVNGXProxy::D3D12_ReleaseFeature() != nullptr && _p_dlssHandle != nullptr)
+    {
         NVNGXProxy::D3D12_ReleaseFeature()(_p_dlssHandle);
+        _p_dlssHandle = nullptr;
+    }
 }

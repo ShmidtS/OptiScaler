@@ -12,29 +12,19 @@ int IFGFeature::GetIndexWillBeDispatched()
     UINT64 df;
 
     // Use signed arithmetic for proper wraparound detection
+    // This logic must match GetDispatchIndex() exactly for consistent indexing
     INT64 diff = static_cast<INT64>(_frameCount) - static_cast<INT64>(_lastDispatchedFrame);
     if (diff > static_cast<INT64>(Config::Instance()->FGAllowedFrameAhead.value_or_default()) || diff < 0 || _lastDispatchedFrame == 0)
     {
-        // If current index has resources, skip to it
         if (HasResource(FG_ResourceType::Depth))
         {
             LOG_DEBUG("Skipping not presented frames! _frameCount: {}, _lastDispatchedFrame: {}", _frameCount,
                       _lastDispatchedFrame);
-
             df = _frameCount; // Set dispatch frame as new one
         }
         else
         {
-            // When no resources and first dispatch or frame count wrapped,
-            // sync to current frame to avoid "Frame count jumped too much" warnings
-            if (_lastDispatchedFrame == 0 || diff < 0)
-            {
-                df = _frameCount;
-            }
-            else
-            {
-                df = _lastDispatchedFrame + 1; // Render next one
-            }
+            df = _lastDispatchedFrame + 1; // Render next one - matches GetDispatchIndex()
         }
     }
     else
@@ -50,13 +40,21 @@ UINT64 IFGFeature::StartNewFrame()
     _frameCount++;
 
     // Use signed arithmetic to handle potential wrap-around correctly
-    // Only warn if we've actually dispatched frames before and there's a real issue
     INT64 diff = static_cast<INT64>(_frameCount) - static_cast<INT64>(_lastDispatchedFrame);
-    if (_lastDispatchedFrame > 0 && (diff > static_cast<INT64>(Config::Instance()->FGAllowedFrameAhead.value_or_default()) || diff < 0))
+
+    // Handle frame count reset (game restart, scene change, etc.)
+    // When diff < 0, _frameCount was reset - this is legitimate, not an error
+    if (_lastDispatchedFrame > 0 && diff < 0)
+    {
+        LOG_DEBUG("Frame count reset detected. _frameCount: {}, _lastDispatchedFrame: {} - syncing counters",
+                  _frameCount, _lastDispatchedFrame);
+        _lastDispatchedFrame = 0;  // Reset to allow fresh start
+    }
+    // Handle actual frame jump (skipped frames without reset)
+    else if (_lastDispatchedFrame > 0 && diff > static_cast<INT64>(Config::Instance()->FGAllowedFrameAhead.value_or_default()))
     {
         LOG_WARN("Frame count jumped too much! _frameCount: {}, _lastDispatchedFrame: {}", _frameCount,
                  _lastDispatchedFrame);
-
         _lastDispatchedFrame = _frameCount - 1;
     }
 
@@ -228,7 +226,7 @@ bool IFGFeature::IsInfiniteDepth() { return _constants.flags[FG_Flags::InfiniteD
 void IFGFeature::SetJitter(float x, float y, int index)
 {
     if (index < 0)
-        index = GetIndex();
+        index = GetIndexWillBeDispatched();  // Use dispatch index for consistency
 
     if (index < 0 || index >= BUFFER_COUNT)
         return;
@@ -240,7 +238,7 @@ void IFGFeature::SetJitter(float x, float y, int index)
 void IFGFeature::SetMVScale(float x, float y, int index)
 {
     if (index < 0)
-        index = GetIndex();
+        index = GetIndexWillBeDispatched();  // Use dispatch index for consistency
 
     if (index < 0 || index >= BUFFER_COUNT)
         return;
@@ -253,7 +251,7 @@ void IFGFeature::SetCameraValues(float nearValue, float farValue, float vFov, fl
                                  int index)
 {
     if (index < 0)
-        index = GetIndex();
+        index = GetIndexWillBeDispatched();  // Use dispatch index for consistency
 
     if (index < 0 || index >= BUFFER_COUNT)
         return;
@@ -269,7 +267,7 @@ void IFGFeature::SetCameraData(float cameraPosition[3], float cameraUp[3], float
                                int index)
 {
     if (index < 0)
-        index = GetIndex();
+        index = GetIndexWillBeDispatched();  // Use dispatch index to match where camera data is read
 
     if (index < 0 || index >= BUFFER_COUNT)
         return;
@@ -286,7 +284,7 @@ void IFGFeature::SetCameraData(float cameraPosition[3], float cameraUp[3], float
 void IFGFeature::SetFrameTimeDelta(double delta, int index)
 {
     if (index < 0)
-        index = GetIndex();
+        index = GetIndexWillBeDispatched();  // Use dispatch index for consistency
 
     if (index < 0 || index >= BUFFER_COUNT)
         return;
@@ -297,7 +295,7 @@ void IFGFeature::SetFrameTimeDelta(double delta, int index)
 void IFGFeature::SetReset(UINT reset, int index)
 {
     if (index < 0)
-        index = GetIndex();
+        index = GetIndexWillBeDispatched();  // Use dispatch index for consistency
 
     if (index < 0 || index >= BUFFER_COUNT)
         return;
@@ -308,7 +306,7 @@ void IFGFeature::SetReset(UINT reset, int index)
 void IFGFeature::SetInterpolationRect(UINT64 width, UINT height, int index)
 {
     if (index < 0)
-        index = GetIndex();
+        index = GetIndexWillBeDispatched();  // Use dispatch index for consistency
 
     if (index < 0 || index >= BUFFER_COUNT)
         return;
@@ -336,7 +334,7 @@ void IFGFeature::GetInterpolationRect(UINT64& width, UINT& height, int index)
 void IFGFeature::SetInterpolationPos(UINT left, UINT top, int index)
 {
     if (index < 0)
-        index = GetIndex();
+        index = GetIndexWillBeDispatched();  // Use dispatch index for consistency
 
     if (index < 0 || index >= BUFFER_COUNT)
         return;

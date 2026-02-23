@@ -127,6 +127,40 @@ void UpscalerInputsDx12::UpscaleStart(ID3D12GraphicsCommandList* InCmdList, NVSD
     fg->SetReset(reset);
     fg->SetInterpolationRect(feature->DisplayWidth(), feature->DisplayHeight());
 
+    // Camera vectors for FSR 4.0 MLFI
+    // IMPORTANT: Use non-zero position to pass validity check in FSRFG_Dx12.cpp
+    // Identity vectors with non-zero position allow MLFI to work via motion vectors
+    float cameraPosition[3] = { 1.0f, 1.0f, 1.0f };  // Non-zero to pass validity check
+    float cameraUp[3] = { 0.0f, 1.0f, 0.0f };        // Y-up is standard
+    float cameraRight[3] = { 1.0f, 0.0f, 0.0f };     // X-right is standard
+    float cameraForward[3] = { 0.0f, 0.0f, 1.0f };   // Z-forward is standard
+
+    // Try to get camera vectors from FSR parameters (if game provides them)
+    bool hasCameraVectors = false;
+    float tempPos[3], tempUp[3], tempRight[3], tempFwd[3];
+
+    // Try FSR camera parameters first
+    if (InParameters->Get("FSR.cameraPosition", tempPos) == NVSDK_NGX_Result_Success &&
+        InParameters->Get("FSR.cameraUp", tempUp) == NVSDK_NGX_Result_Success &&
+        InParameters->Get("FSR.cameraRight", tempRight) == NVSDK_NGX_Result_Success &&
+        InParameters->Get("FSR.cameraForward", tempFwd) == NVSDK_NGX_Result_Success)
+    {
+        // Check if values are non-zero
+        if ((tempPos[0] != 0.0f || tempPos[1] != 0.0f || tempPos[2] != 0.0f) &&
+            (tempUp[0] != 0.0f || tempUp[1] != 0.0f || tempUp[2] != 0.0f))
+        {
+            memcpy(cameraPosition, tempPos, sizeof(cameraPosition));
+            memcpy(cameraUp, tempUp, sizeof(cameraUp));
+            memcpy(cameraRight, tempRight, sizeof(cameraRight));
+            memcpy(cameraForward, tempFwd, sizeof(cameraForward));
+            hasCameraVectors = true;
+        }
+    }
+
+    // Always set camera data - identity vectors are valid for MLFI motion estimation
+    // MLFI will primarily use motion vectors, camera vectors improve quality but aren't critical
+    fg->SetCameraData(cameraPosition, cameraUp, cameraRight, cameraForward);
+
     Hudfix_Dx12::UpscaleStart();
 
     // FG Prepare
@@ -138,8 +172,8 @@ void UpscalerInputsDx12::UpscaleStart(ID3D12GraphicsCommandList* InCmdList, NVSD
         if (fg->Mutex.getOwner() == 2)
         {
             LOG_TRACE("Waiting for present!");
-            fg->Mutex.lock(4);
-            fg->Mutex.unlockThis(4);
+            if (fg->Mutex.lock(4))
+                fg->Mutex.unlockThis(4);
         }
 
         bool allocatorReset = false;

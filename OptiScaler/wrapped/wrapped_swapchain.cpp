@@ -529,18 +529,14 @@ HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::SetFullscreenState(BOOL Fullsc
 #endif
         if (Config::Instance()->FGUseMutexForSwapchain.value_or_default())
         {
-
-            if (State::Instance().currentFG != nullptr && State::Instance().currentFG->IsActive() &&
-                State::Instance().currentFG->Mutex.getOwner() != 3)
+            if (State::Instance().currentFG != nullptr && State::Instance().currentFG->IsActive())
             {
                 LOG_TRACE("Waiting ffxMutex 3, current: {}", State::Instance().currentFG->Mutex.getOwner());
-                State::Instance().currentFG->Mutex.lock(3);
-                ffxLock = true;
-                LOG_TRACE("Accuired ffxMutex: {}", State::Instance().currentFG->Mutex.getOwner());
-            }
-            else
-            {
-                LOG_TRACE("Skipping ffxMutex, owner is already 3");
+                ffxLock = State::Instance().currentFG->Mutex.lock(3);
+                if (ffxLock)
+                    LOG_TRACE("Acquired ffxMutex: {}", State::Instance().currentFG->Mutex.getOwner());
+                else
+                    LOG_TRACE("ffxMutex lock skipped (recursive or already owned)");
             }
         }
 
@@ -582,11 +578,16 @@ HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::ResizeBuffers(UINT BufferCount
         OwnedLockGuard lock(_localMutex, 1);
 #endif
 
+    bool ffxLock = false;
+
     if (State::Instance().currentFG != nullptr && Config::Instance()->FGUseMutexForSwapchain.value_or_default())
     {
         LOG_TRACE("Waiting ffxMutex 3, current: {}", State::Instance().currentFG->Mutex.getOwner());
-        State::Instance().currentFG->Mutex.lock(3);
-        LOG_TRACE("Accuired ffxMutex: {}", State::Instance().currentFG->Mutex.getOwner());
+        ffxLock = State::Instance().currentFG->Mutex.lock(3);
+        if (ffxLock)
+            LOG_TRACE("Acquired ffxMutex: {}", State::Instance().currentFG->Mutex.getOwner());
+        else
+            LOG_TRACE("ffxMutex lock skipped (recursive or failed)");
     }
 
     HRESULT result;
@@ -712,7 +713,7 @@ HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::ResizeBuffers(UINT BufferCount
 
     LOG_DEBUG("result: {0:X}", (UINT) result);
 
-    if (State::Instance().currentFG != nullptr && Config::Instance()->FGUseMutexForSwapchain.value_or_default())
+    if (ffxLock)
     {
         LOG_TRACE("Releasing ffxMutex: {}", State::Instance().currentFG->Mutex.getOwner());
         State::Instance().currentFG->Mutex.unlockThis(3);
@@ -912,12 +913,17 @@ HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::ResizeBuffers1(UINT BufferCoun
         OwnedLockGuard lock(_localMutex, 2);
 #endif
 
+    bool ffxLock = false;
+
     if (State::Instance().activeFgOutput == FGOutput::FSRFG &&
         Config::Instance()->FGUseMutexForSwapchain.value_or_default())
     {
         LOG_TRACE("Waiting ffxMutex 3, current: {}", State::Instance().currentFG->Mutex.getOwner());
-        State::Instance().currentFG->Mutex.lock(3);
-        LOG_TRACE("Accuired ffxMutex: {}", State::Instance().currentFG->Mutex.getOwner());
+        ffxLock = State::Instance().currentFG->Mutex.lock(3);
+        if (ffxLock)
+            LOG_TRACE("Acquired ffxMutex: {}", State::Instance().currentFG->Mutex.getOwner());
+        else
+            LOG_TRACE("ffxMutex lock skipped (recursive or failed)");
     }
 
     HRESULT result;
@@ -1042,8 +1048,7 @@ HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::ResizeBuffers1(UINT BufferCoun
 
     LOG_DEBUG("result: {0:X}", (UINT) result);
 
-    if (State::Instance().activeFgOutput == FGOutput::FSRFG &&
-        Config::Instance()->FGUseMutexForSwapchain.value_or_default())
+    if (ffxLock)
     {
         LOG_TRACE("Releasing ffxMutex: {}", State::Instance().currentFG->Mutex.getOwner());
         State::Instance().currentFG->Mutex.unlockThis(3);

@@ -262,5 +262,8 @@ DLSSFeatureDx11::~DLSSFeatureDx11()
         return;
 
     if (NVNGXProxy::D3D11_ReleaseFeature() != nullptr && _p_dlssHandle != nullptr)
+    {
         NVNGXProxy::D3D11_ReleaseFeature()(_p_dlssHandle);
+        _p_dlssHandle = nullptr;
+    }
 }

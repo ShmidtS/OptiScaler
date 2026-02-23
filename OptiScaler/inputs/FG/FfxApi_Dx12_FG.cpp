@@ -1031,6 +1031,8 @@ ffxReturnCode_t ffxDispatch_Dx12FG(ffxContext* context, ffxDispatchDescHeader* d
 
         CheckForFrame(fg, cdDesc->frameID);
         auto fIndex = IndexForFrameId(cdDesc->frameID);
+        if (fIndex < 0)
+            fIndex = fg->GetIndex();
 
         auto device = _device == nullptr ? s.currentD3D12Device : _device;
         fg->EvaluateState(device, _fgConst);
@@ -1039,6 +1041,7 @@ ffxReturnCode_t ffxDispatch_Dx12FG(ffxContext* context, ffxDispatchDescHeader* d
             return FFX_API_RETURN_OK;
 
         //  Camera Data (from linked CameraInfo structure in legacy API)
+        bool cameraDataFound = false;
         ffxDispatchDescHeader* next = nullptr;
         next = desc;
         while (next->pNext != nullptr)
@@ -1051,9 +1054,16 @@ ffxReturnCode_t ffxDispatch_Dx12FG(ffxContext* context, ffxDispatchDescHeader* d
 
                 fg->SetCameraData(cameraDesc->cameraPosition, cameraDesc->cameraUp, cameraDesc->cameraRight,
                                   cameraDesc->cameraForward, fIndex);
+                cameraDataFound = true;
 
                 break;
             }
+        }
+
+        if (!cameraDataFound)
+        {
+            LOG_WARN("Camera data (CAMERAINFO) not provided in legacy FFX API call, MLFI quality may be degraded. "
+                     "Game should use FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE_V2 or provide CAMERAINFO structure.");
         }
 
         // Camera Values

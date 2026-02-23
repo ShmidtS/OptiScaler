@@ -317,5 +317,8 @@ DLSSFeatureVk::~DLSSFeatureVk()
         return;
 
     if (NVNGXProxy::VULKAN_ReleaseFeature() != nullptr && _p_dlssHandle != nullptr)
+    {
         NVNGXProxy::VULKAN_ReleaseFeature()(_p_dlssHandle);
+        _p_dlssHandle = nullptr;
+    }
 }

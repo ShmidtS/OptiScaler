@@ -1318,11 +1318,15 @@ bool XeFG_Dx12::ReleaseSwapchain(HWND hwnd)
 
     LOG_DEBUG("");
 
+    bool mutexLock = false;
     if (Config::Instance()->FGUseMutexForSwapchain.value_or_default())
     {
         LOG_TRACE("Waiting Mutex 1, current: {}", Mutex.getOwner());
-        Mutex.lock(1);
-        LOG_TRACE("Accuired Mutex: {}", Mutex.getOwner());
+        mutexLock = Mutex.lock(1);
+        if (mutexLock)
+            LOG_TRACE("Acquired Mutex: {}", Mutex.getOwner());
+        else
+            LOG_TRACE("Mutex lock skipped (recursive or failed)");
     }
 
     MenuOverlayDx::CleanupRenderTarget(true, NULL);
@@ -1335,7 +1339,7 @@ bool XeFG_Dx12::ReleaseSwapchain(HWND hwnd)
 
     ReleaseObjects();
 
-    if (Config::Instance()->FGUseMutexForSwapchain.value_or_default())
+    if (mutexLock)
     {
         LOG_TRACE("Releasing Mutex: {}", Mutex.getOwner());
         Mutex.unlockThis(1);

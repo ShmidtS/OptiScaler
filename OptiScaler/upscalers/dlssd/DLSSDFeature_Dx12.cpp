@@ -289,5 +289,8 @@ DLSSDFeatureDx12::~DLSSDFeatureDx12()
         return;
 
     if (NVNGXProxy::D3D12_ReleaseFeature() != nullptr && _p_dlssdHandle != nullptr)
+    {
         NVNGXProxy::D3D12_ReleaseFeature()(_p_dlssdHandle);
+        _p_dlssdHandle = nullptr;
+    }
 }

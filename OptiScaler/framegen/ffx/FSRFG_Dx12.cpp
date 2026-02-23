@@ -632,7 +632,12 @@ ffxReturnCode_t FSRFG_Dx12::DispatchCallback(ffxDispatchDescFrameGeneration* par
     if (shouldCancel)
     {
         params->numGeneratedFrames = 0;
-        // Don't update _lastFrameId on cancellation to allow retry with correct frame ID
+        // In async mode, always update _lastFrameId to prevent false duplicate detection
+        // on subsequent calls with the same frameID from FFX API
+        if (IsAsync())
+        {
+            _lastFrameId = params->frameID;
+        }
         return FFX_API_RETURN_OK;
     }
 
@@ -697,7 +702,11 @@ ffxReturnCode_t FSRFG_Dx12::DispatchCallback(ffxDispatchDescFrameGeneration* par
     auto dispatchResult = FfxApiProxy::D3D12_Dispatch(&_fgContext, &params->header);
     LOG_DEBUG("D3D12_Dispatch result: {}, fIndex: {}", (UINT) dispatchResult, fIndex);
 
-    _lastFrameId = params->frameID;
+    // Only update _lastFrameId on successful dispatch to prevent false duplicate detection
+    if (dispatchResult == FFX_API_RETURN_OK)
+    {
+        _lastFrameId = params->frameID;
+    }
 
     return dispatchResult;
 }
@@ -861,11 +870,15 @@ bool FSRFG_Dx12::ReleaseSwapchain(HWND hwnd)
 
     LOG_DEBUG("");
 
+    bool mutexLock = false;
     if (Config::Instance()->FGUseMutexForSwapchain.value_or_default())
     {
         LOG_TRACE("Waiting Mutex 1, current: {}", Mutex.getOwner());
-        Mutex.lock(1);
-        LOG_TRACE("Accuired Mutex: {}", Mutex.getOwner());
+        mutexLock = Mutex.lock(1);
+        if (mutexLock)
+            LOG_TRACE("Acquired Mutex: {}", Mutex.getOwner());
+        else
+            LOG_TRACE("Mutex lock skipped (recursive or failed)");
     }
 
     MenuOverlayDx::CleanupRenderTarget(true, NULL);
@@ -882,7 +895,7 @@ bool FSRFG_Dx12::ReleaseSwapchain(HWND hwnd)
         State::Instance().currentFGSwapchain = nullptr;
     }
 
-    if (Config::Instance()->FGUseMutexForSwapchain.value_or_default())
+    if (mutexLock)
     {
         LOG_TRACE("Releasing Mutex: {}", Mutex.getOwner());
         Mutex.unlockThis(1);

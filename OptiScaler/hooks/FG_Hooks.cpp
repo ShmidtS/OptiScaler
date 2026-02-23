@@ -845,7 +845,7 @@ HRESULT FGHooks::FGPresent(void* This, UINT SyncInterval, UINT Flags, const DXGI
         bool locked;
         MutexGuard(IFGFeature_Dx12* f) : fg(f), locked(false) {}
         ~MutexGuard() { if (locked && fg) { fg->Mutex.unlockThis(2); } }
-        void lock() { if (fg) { fg->Mutex.lock(2); locked = true; } }
+        void lock() { if (fg) { locked = fg->Mutex.lock(2); } }
     } mutexGuard(fg);
 
     if (willPresent && fg != nullptr && fg->IsActive() &&
